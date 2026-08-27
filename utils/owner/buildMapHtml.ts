@@ -1,5 +1,5 @@
 // utils/buildMapHtml.ts
-import { MockProvider } from "../data/mockProviders";
+import { MockProvider } from "../../data/owner/mockProviders";
 
 // ---------------------------------------------------------------------------
 // LEAFLET MAP HTML (real OSM tiles inside a WebView — no API key needed)

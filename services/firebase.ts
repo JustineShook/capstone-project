@@ -11,7 +11,6 @@ import {
   type Auth,
 } from "firebase/auth";
 import { initializeFirestore, type Firestore } from "firebase/firestore";
-import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 // Replace with the config from Firebase Console
 // (Project settings > General > Your apps > Web app > SDK setup and configuration)
@@ -48,7 +47,5 @@ const db: Firestore = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
 });
 
-const storage: FirebaseStorage = getStorage(app);
-
-export { app, auth, db, storage };
+export { app, auth, db };
 

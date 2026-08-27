@@ -2,14 +2,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors } from "../constants/theme";
+import { colors } from "../../constants/owner/theme";
 import {
   ExpiryStatus,
   getExpiryLabel,
   getExpiryStatus,
   getFuelIcon,
   MockVehicle,
-} from "../data/mockVehicles";
+} from "../../data/owner/mockVehicles";
 
 function expiryColors(status: ExpiryStatus) {
   if (status === "valid") return { bg: colors.successLight, fg: colors.success };

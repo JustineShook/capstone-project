@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isImageUnder5Mb() {
+      return request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    function isCertificateUnder10Mb() {
+      return request.resource.size <= 10 * 1024 * 1024
+        && (request.resource.contentType == 'application/pdf'
+          || request.resource.contentType.matches('image/.*'));
+    }
+
+    // The exact deterministic object names let a new upload replace its
+    // previous document without granting access to arbitrary user paths.
+    match /providerProfiles/{uid}/profile-photo {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isImageUnder5Mb();
+    }
+
+    match /providerProfiles/{uid}/valid-id {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isImageUnder5Mb();
+    }
+
+    match /providerProfiles/{uid}/certificate {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isCertificateUnder10Mb();
+    }
+  }
+}

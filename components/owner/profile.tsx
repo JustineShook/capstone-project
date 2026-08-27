@@ -3,19 +3,21 @@ import { useRouter } from "expo-router";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getUserProfile, logout } from "../services/auth";
-import { auth } from "../services/firebase";
-import type { UserProfile, UserRole } from "../types/user";
+import { getUserProfile, logout } from "../../services/auth";
+import { auth } from "../../services/firebase";
+import { getOwnerVerificationProfile } from "../../services/ownerVerificationProfileService";
+import type { UserProfile, UserRole } from "../../types/user";
+import type { OwnerVerificationProfile } from "../../types/ownerVerificationProfile";
 
 const COLORS = {
   primary: "#D32F2F",
@@ -84,6 +86,7 @@ export default function ProfileScreen() {
 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [verificationProfile, setVerificationProfile] = useState<OwnerVerificationProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
@@ -107,8 +110,12 @@ export default function ProfileScreen() {
       setLoading(true);
       setLoadError(null);
       try {
-        const userProfile = await getUserProfile(user.uid);
+        const [userProfile, ownerVerification] = await Promise.all([
+          getUserProfile(user.uid),
+          getOwnerVerificationProfile(user.uid),
+        ]);
         setProfile(userProfile);
+        setVerificationProfile(ownerVerification);
         if (!userProfile) {
           setLoadError("We couldn't find your profile details.");
         }
@@ -141,6 +148,10 @@ export default function ProfileScreen() {
   const displayName = profile?.displayName || firebaseUser?.displayName || "Unnamed User";
   const email = profile?.email || firebaseUser?.email || "No email on file";
   const roleLabel = profile ? formatRole(profile.role) : "—";
+  const phone = verificationProfile?.personal.phone || "Not provided";
+
+  const verificationStatus = verificationProfile?.verificationStatus ?? "INCOMPLETE";
+  const verificationLabel = verificationStatus === "VERIFIED" ? "Verified" : verificationStatus === "PENDING" ? "Verification Pending" : verificationStatus === "REJECTED" ? "Verification Rejected" : "Complete Verification";
 
   if (loading) {
     return (
@@ -185,7 +196,13 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="call-outline"
             label="Phone Number"
-            value="Not provided"
+            value={phone}
+          />
+          <ProfileRow
+            icon="shield-checkmark-outline"
+            label="Account Verification"
+            value={verificationLabel}
+            onPress={() => router.push("/(v_owner)/verification")}
           />
           <ProfileRow
             icon="mail-outline"
@@ -201,7 +218,7 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="car-outline"
             label="My Vehicles"
-            onPress={() => router.push("/(v_owner)/vehicles")}
+            onPress={() => router.push("/(v_owner)/vehicle")}
           />
           <ProfileRow
             icon="document-text-outline"

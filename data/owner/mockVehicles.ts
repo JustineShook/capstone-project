@@ -1,5 +1,6 @@
 // data/mockVehicles.ts
 import { Ionicons } from "@expo/vector-icons";
+import { VehicleType } from "./mockProviders";
 
 // ---------------------------------------------------------------------------
 // VEHICLE TYPES
@@ -87,6 +88,7 @@ export interface MockVehicle {
   colorHex: string;
   mileage: number;
   fuelType: FuelType;
+  vehicleType: VehicleType;
   isPrimary: boolean;
   initials: string;
   thumbColor: string;
@@ -114,6 +116,7 @@ export const MOCK_VEHICLES: MockVehicle[] = [
     colorHex: "#F5F5F0",
     mileage: 38250,
     fuelType: "Gasoline",
+    vehicleType: "Sedan",
     isPrimary: true,
     initials: "TV",
     thumbColor: "#D32F2F",
@@ -154,6 +157,7 @@ export const MOCK_VEHICLES: MockVehicle[] = [
     colorHex: "#4A4A4A",
     mileage: 61840,
     fuelType: "Diesel",
+    vehicleType: "SUV",
     isPrimary: false,
     initials: "MS",
     thumbColor: "#1E88E5",
@@ -191,6 +195,7 @@ export const MOCK_VEHICLES: MockVehicle[] = [
     colorHex: "#1A1A1A",
     mileage: 12300,
     fuelType: "Gasoline",
+    vehicleType: "Motorcycle",
     isPrimary: false,
     initials: "HC",
     thumbColor: "#2E7D32",

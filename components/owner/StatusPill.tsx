@@ -1,8 +1,8 @@
 // components/StatusPill.tsx
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors } from "../constants/theme";
-import { getStatusLabel, ProviderCategory } from "../data/mockProviders";
+import { colors } from "../../constants/owner/theme";
+import { getStatusLabel, ProviderCategory } from "../../data/owner/mockProviders";
 
 export function StatusPill({
   category,

@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { VehicleDetailCard } from "../../components/VehicleDetailCard";
-import { colors } from "../../constants/theme";
-import { MOCK_VEHICLES } from "../../data/mockVehicles";
+import { VehicleDetailCard } from "../../components/owner/VehicleDetailCard";
+import { colors } from "../../constants/owner/theme";
+import { MOCK_VEHICLES } from "../../data/owner/mockVehicles";
 
 export default function VehicleScreen() {
   const primaryVehicle = MOCK_VEHICLES.find((v) => v.isPrimary) ?? MOCK_VEHICLES[0];

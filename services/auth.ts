@@ -18,8 +18,9 @@ import type {
   UserProfile,
   UserRole,
 } from "../types/user";
-import { isProviderRole } from "../types/user";
 import { auth, db } from "./firebase";
+
+type LegacyProviderRole = Exclude<ProviderRole, "onsite-mechanic">;
 
 /**
  * Friendly messages for the Firebase Auth error codes you'll actually hit
@@ -71,17 +72,15 @@ export interface RegisterParams {
  * only collects the role — everything else here is a placeholder meant
  * to be filled in later via a Provider Setup screen.
  */
-function buildDefaultProviderProfile(uid: string, role: ProviderRole): ProviderProfile {
-  const businessNameByRole: Record<ProviderRole, string> = {
-    "onsite-mechanic": "Unnamed Onsite Mechanic",
+function buildDefaultProviderProfile(uid: string, role: LegacyProviderRole): ProviderProfile {
+  const businessNameByRole: Record<LegacyProviderRole, string> = {
     "shop-owner": "Unnamed Auto Shop",
     "towing-company": "Unnamed Towing Service",
   };
 
   // Matches each dashboard's own vocabulary: mechanic/towing show an
   // online/offline toggle, shop-owner shows open/closed.
-  const defaultStatusByRole: Record<ProviderRole, string> = {
-    "onsite-mechanic": "offline",
+  const defaultStatusByRole: Record<LegacyProviderRole, string> = {
     "shop-owner": "closed",
     "towing-company": "offline",
   };
@@ -131,7 +130,7 @@ export async function register({
       createdAt: serverTimestamp(),
     });
 
-    if (isProviderRole(role)) {
+    if (role === "shop-owner" || role === "towing-company") {
       const providerProfile = buildDefaultProviderProfile(credential.user.uid, role);
       await setDoc(doc(db, "providers", credential.user.uid), providerProfile);
     }
@@ -192,7 +191,12 @@ export async function ensureProviderProfile(uid: string): Promise<ProviderProfil
   if (existingProfile) return existingProfile;
 
   const userProfile = await getUserProfile(uid);
-  if (!userProfile || !isProviderRole(userProfile.role)) return null;
+  if (
+    !userProfile ||
+    (userProfile.role !== "shop-owner" && userProfile.role !== "towing-company")
+  ) {
+    return null;
+  }
 
   const providerProfile = buildDefaultProviderProfile(uid, userProfile.role);
   await setDoc(doc(db, "providers", uid), providerProfile);

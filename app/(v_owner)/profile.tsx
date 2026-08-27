@@ -1,1 +1,2 @@
-export { default } from "../../components/profile";
+export { default } from "../../components/owner/profile";
+

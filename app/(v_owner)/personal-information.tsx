@@ -15,6 +15,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getUserProfile } from "@/services/auth";
 import { auth } from "@/services/firebase";
+import { getOwnerVerificationProfile } from "@/services/ownerVerificationProfileService";
+import type { OwnerVerificationProfile } from "@/types/ownerVerificationProfile";
 import type { UserProfile, UserRole } from "@/types/user";
 
 // Same design tokens as components/profile.tsx — keep in sync if that
@@ -83,6 +85,7 @@ function SectionLabel({ text }: { text: string }) {
 export default function PersonalInformationScreen() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [verificationProfile, setVerificationProfile] = useState<OwnerVerificationProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -93,8 +96,12 @@ export default function PersonalInformationScreen() {
         return;
       }
       try {
-        const userProfile = await getUserProfile(user.uid);
+        const [userProfile, ownerVerification] = await Promise.all([
+          getUserProfile(user.uid),
+          getOwnerVerificationProfile(user.uid),
+        ]);
         setProfile(userProfile);
+        setVerificationProfile(ownerVerification);
       } finally {
         setLoading(false);
       }
@@ -102,9 +109,12 @@ export default function PersonalInformationScreen() {
     return unsubscribe;
   }, []);
 
-  const displayName = profile?.displayName || firebaseUser?.displayName || "Unnamed User";
+  const displayName = verificationProfile?.personal.fullName || profile?.displayName || firebaseUser?.displayName || "Unnamed User";
   const email = profile?.email || firebaseUser?.email || "No email on file";
   const roleLabel = profile ? formatRole(profile.role) : "—";
+  const phone = verificationProfile?.personal.phone || "Not provided";
+  const address = verificationProfile?.personal.address || "Not provided";
+  const cityMunicipality = verificationProfile?.personal.cityMunicipality || "Not provided";
 
   if (loading) {
     return (
@@ -149,7 +159,9 @@ export default function PersonalInformationScreen() {
         <View style={styles.card}>
           <InfoRow icon="person-outline" label="Full Name" value={displayName} />
           <InfoRow icon="mail-outline" label="Email Address" value={email} />
-          <InfoRow icon="call-outline" label="Phone Number" value="Not provided" />
+          <InfoRow icon="call-outline" label="Phone Number" value={phone} />
+          <InfoRow icon="location-outline" label="Address" value={address} />
+          <InfoRow icon="location-outline" label="City / Municipality" value={cityMunicipality} />
           <InfoRow icon="shield-checkmark-outline" label="Role" value={roleLabel} isLast />
         </View>
 

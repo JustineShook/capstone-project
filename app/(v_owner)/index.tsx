@@ -2,32 +2,32 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useRef, useState } from "react";
 import {
-  Animated,
-  PanResponder,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  Text,
-  View,
+    Animated,
+    PanResponder,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
-import { ProviderDetailCard } from "../../components/ProviderDetailCard";
-import { StatusPill } from "../../components/StatusPill";
-import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "../../constants/bottomSheet";
-import { colors } from "../../constants/theme";
+import { ProviderDetailCard } from "../../components/owner/ProviderDetailCard";
+import { StatusPill } from "../../components/owner/StatusPill";
+import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "../../constants/owner/bottomSheet";
+import { colors } from "../../constants/owner/theme";
 import {
-  CATEGORIES,
-  getCategoryBadge,
-  getCategoryIcon,
-  getServiceLabel,
-  MOCK_CENTER,
-  MOCK_LOCATION_LABEL,
-  MOCK_PROVIDERS,
-  ProviderCategory,
-} from "../../data/mockProviders";
-import { buildMapHtml } from "../../utils/buildMapHtml";
+    CATEGORIES,
+    getCategoryBadge,
+    getCategoryIcon,
+    getServiceLabel,
+    MOCK_CENTER,
+    MOCK_LOCATION_LABEL,
+    MOCK_PROVIDERS,
+    ProviderCategory,
+} from "../../data/owner/mockProviders";
+import { buildMapHtml } from "../../utils/owner/buildMapHtml";
 import { styles } from "./index.styles";
 
 // ---------------------------------------------------------------------------

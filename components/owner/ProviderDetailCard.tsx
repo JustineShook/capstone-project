@@ -1,12 +1,26 @@
 // components/ProviderDetailCard.tsx
 
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { router } from "expo-router";
-import { colors } from "../constants/theme";
-import { getCategoryBadge, getCategoryIcon, getServiceLabel, MockProvider } from "../data/mockProviders";
+import { colors } from "../../constants/owner/theme";
+import {
+  getCategoryBadge,
+  getCategoryIcon,
+  getServiceLabel,
+  getServicesSectionLabel,
+  getVehicleTypeIcon,
+  MockProvider,
+  supportsBooking,
+} from "../../data/owner/mockProviders";
 import { StatusPill } from "./StatusPill";
+
+function renderStars(rating: number) {
+  const rounded = Math.round(rating);
+  return "★★★★★".slice(0, rounded) + "☆☆☆☆☆".slice(0, 5 - rounded);
+}
+
 export function ProviderDetailCard({
   provider,
   onClose,
@@ -15,6 +29,7 @@ export function ProviderDetailCard({
   onClose: () => void;
 }) {
   const badge = getCategoryBadge(provider.category);
+  const showBookButton = supportsBooking(provider.category);
 
   return (
     <View style={styles.card}>
@@ -65,8 +80,8 @@ export function ProviderDetailCard({
         <Text style={styles.sectionLabel}>About</Text>
         <Text style={styles.description}>{provider.description}</Text>
 
-        {/* Services */}
-        <Text style={styles.sectionLabel}>Services</Text>
+        {/* Services (label adapts for Towing) */}
+        <Text style={styles.sectionLabel}>{getServicesSectionLabel(provider.category)}</Text>
         <View style={styles.servicesList}>
           {provider.services.map((service) => (
             <View key={service} style={styles.serviceRow}>
@@ -75,6 +90,25 @@ export function ProviderDetailCard({
             </View>
           ))}
         </View>
+
+        {/* Vehicle Types */}
+        {provider.vehicleTypes.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>Vehicle Types</Text>
+            <View style={styles.vehicleTypesRow}>
+              {provider.vehicleTypes.map((type) => (
+                <View key={type} style={styles.vehicleTypePill}>
+                  <MaterialCommunityIcons
+                    name={getVehicleTypeIcon(type)}
+                    size={14}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.vehicleTypeText}>{type}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
 
         {/* Hours */}
         <Text style={styles.sectionLabel}>Hours</Text>
@@ -89,26 +123,54 @@ export function ProviderDetailCard({
           <Text style={styles.priceValue}>Starts at {provider.startingPrice}</Text>
         </View>
 
+        {/* Reviews */}
+        <Text style={styles.sectionLabel}>Reviews</Text>
+        <View style={styles.reviewsSummaryRow}>
+          <Ionicons name="star" size={16} color={colors.rating} />
+          <Text style={styles.reviewsSummaryRating}>{provider.rating.toFixed(1)}</Text>
+          <Text style={styles.reviewsSummaryCount}>{provider.reviewCount} reviews</Text>
+        </View>
+        <View style={styles.reviewsList}>
+          {provider.reviews.map((review) => (
+            <View key={review.id} style={styles.reviewCard}>
+              <Text style={styles.reviewStars}>{renderStars(review.rating)}</Text>
+              <Text style={styles.reviewComment}>&ldquo;{review.comment}&rdquo;</Text>
+              <View style={styles.reviewFooterRow}>
+                <Text style={styles.reviewAuthor}>{review.customerName}</Text>
+                <Text style={styles.metaDot}>{"\u2022"}</Text>
+                <Text style={styles.reviewDate}>{review.date}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
         {/* Actions */}
         <View style={styles.actionsRow}>
           <Pressable style={styles.callButton}>
             <Ionicons name="call-outline" size={18} color={colors.primary} />
           </Pressable>
-          <Pressable style={styles.messageButton}>
+          <Pressable style={[styles.messageButton, !showBookButton && styles.messageButtonWide]}>
             <Ionicons name="chatbubble-outline" size={16} color={colors.primary} />
             <Text style={styles.messageButtonText}>Message</Text>
           </Pressable>
-          <Pressable
-            style={styles.bookButton}
-            onPress={() =>
-              router.push({
-                pathname: provider.category === "Towing" ? "/book-towing" : "/book-mechanic",
-                params: { providerId: provider.id },
-              })
-            }
-          >
-            <Text style={styles.bookButtonText}>Book Service</Text>
-          </Pressable>
+          {showBookButton && (
+            <Pressable
+              style={styles.bookButton}
+              onPress={() =>
+                router.push({
+                  pathname:
+                    provider.category === "Towing"
+                      ? "../towing-booking/book-towing"
+                      : "../mechanic-booking/book-mechanic",
+                  params: {
+                    providerId: provider.id,
+                  },
+                })
+              }
+            >
+              <Text style={styles.bookButtonText}>Book Service</Text>
+            </Pressable>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -187,6 +249,23 @@ const styles = StyleSheet.create({
   },
   serviceText: { fontSize: 13, color: colors.textSecondary },
 
+  vehicleTypesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 16,
+  },
+  vehicleTypePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  vehicleTypeText: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
+
   hoursRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -207,6 +286,28 @@ const styles = StyleSheet.create({
   },
   priceLabel: { fontSize: 12, color: colors.textMuted },
   priceValue: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
+
+  reviewsSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 12,
+  },
+  reviewsSummaryRating: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
+  reviewsSummaryCount: { fontSize: 12, color: colors.textMuted },
+
+  reviewsList: { gap: 10, marginBottom: 16 },
+  reviewCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  reviewStars: { fontSize: 13, color: colors.rating, letterSpacing: 1 },
+  reviewComment: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  reviewFooterRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  reviewAuthor: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
+  reviewDate: { fontSize: 12, color: colors.textMuted },
 
   actionsRow: {
     flexDirection: "row",
@@ -232,6 +333,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.primary,
+  },
+  messageButtonWide: {
+    flex: 2.4,
   },
   messageButtonText: { fontSize: 13, fontWeight: "700", color: colors.primary },
   bookButton: {
