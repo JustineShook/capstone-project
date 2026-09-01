@@ -1,3 +1,5 @@
+import type { PublicProviderListingInput } from "./providerListing";
+
 export type VerificationStatus = "INCOMPLETE" | "PENDING" | "VERIFIED" | "REJECTED";
 
 export interface OnsiteMechanicProviderProfile {
@@ -34,5 +36,7 @@ export interface OnsiteMechanicProviderProfile {
     availableDays: string[];
     availableHours: string;
   };
+  /** Explicit provider-chosen data eligible for the public map after approval. */
+  publicListing?: PublicProviderListingInput;
   verificationStatus: VerificationStatus;
 }

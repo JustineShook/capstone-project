@@ -1,6 +1,7 @@
 // app/(owner)/index.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   PanResponder,
@@ -45,23 +46,25 @@ export default function OwnerDashboard() {
   // and distance values live as the user moves.
   const { location: userLocation, error, refresh } = useMyLocation();
 
-  useEffect(() => {
-    let active = true;
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
 
-    loadCustomerMapProviders()
-      .then((nextProviders) => {
-        if (active) {
-          setProviders(nextProviders);
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to load customer map providers", error);
-      });
+      loadCustomerMapProviders()
+        .then((nextProviders) => {
+          if (active) {
+            setProviders(nextProviders);
+          }
+        })
+        .catch((error) => {
+          console.error("Failed to load customer map providers", error);
+        });
 
-    return () => {
-      active = false;
-    };
-  }, []);
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
   const filteredProviders =
     selectedCategory === "All"

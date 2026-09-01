@@ -1,7 +1,7 @@
 // app/(towing-company)/requests.tsx
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     ScrollView,
     StatusBar,
@@ -12,6 +12,8 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { subscribeToTowingRequests } from "../../services/owner/towingService";
+import type { TowingBookingRequest } from "../../types/owner/towing";
 
 const COLORS = {
   primary: "#D32F2F",
@@ -58,6 +60,7 @@ interface TowingRequest {
 
 // Mock towing requests. IDs must stay in sync with request-details.tsx
 // (tow-001, tow-002, ...) so navigation resolves to matching data.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- retained only for legacy UI reference while live requests use Firestore
 const TOWING_REQUESTS: TowingRequest[] = [
   {
     id: "tow-001",
@@ -256,18 +259,31 @@ function matchesFilter(status: RequestStatus, filter: FilterKey): boolean {
 export default function TowingRequestsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [requests, setRequests] = useState<TowingRequest[]>([]);
+
+  useEffect(() => subscribeToTowingRequests((items: TowingBookingRequest[]) => setRequests(items.map((item) => {
+    const vehicleParts = item.vehicle.split(" ");
+    return { id: item.id, customerName: item.customerName, customerPhone: item.customerEmail,
+      vehicleMake: vehicleParts[0] ?? item.vehicle, vehicleModel: vehicleParts.slice(1).join(" "),
+      vehicleYear: item.vehicleYear, plateNumber: item.vehiclePlate, requestType: item.towingType,
+      problemDescription: item.vehicleCondition, pickupLocation: item.pickupLocation,
+      pickupAddress: item.pickupLocation, destination: item.destination, destinationAddress: item.destination,
+      distanceKm: 0, estimatedFee: item.startingPrice,
+      status: item.status === "pending" ? "PENDING" : item.status === "completed" ? "COMPLETED" : item.status === "rejected" ? "DECLINED" : item.status === "cancelled" ? "CANCELLED" : item.status === "in_progress" ? "IN_PROGRESS" : "ACCEPTED",
+      requestedAt: new Date(item.createdAt).toLocaleString(), priority: "MEDIUM", latitude: item.latitude, longitude: item.longitude };
+  }))), []);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredRequests = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return TOWING_REQUESTS.filter((request) => {
+    return requests.filter((request) => {
       if (!matchesFilter(request.status, activeFilter)) return false;
       if (!query) return true;
       const haystack = `${request.customerName} ${request.vehicleMake} ${request.vehicleModel} ${request.plateNumber}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [activeFilter, searchQuery]);
+  }, [activeFilter, requests, searchQuery]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>

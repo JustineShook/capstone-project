@@ -70,6 +70,7 @@ export default function TowingCompanyLayout() {
         name="verification"
         options={{ href: null }}
       />
+      <Tabs.Screen name="public-listing" options={{ href: null }} />
       <Tabs.Screen
         name="request-details"
         options={{

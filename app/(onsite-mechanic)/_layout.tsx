@@ -36,6 +36,7 @@ export default function OnsiteMechanicLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen name="public-listing" options={{ href: null }} />
       <Tabs.Screen
         name="index"
         options={{

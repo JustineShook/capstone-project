@@ -1,7 +1,7 @@
 // app/(onsite-mechanic)/requests.tsx
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ScrollView,
   StatusBar,
@@ -11,6 +11,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { subscribeToMechanicRequests } from "../../services/owner/bookingService";
+import type { BookingRequest } from "../../types/owner/booking";
 
 const COLORS = {
   primary: "#D32F2F",
@@ -109,10 +111,19 @@ export default function RequestsScreen() {
   const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("NEW");
   const insets = useSafeAreaInsets();
+  const [requests, setRequests] = useState<ServiceRequest[]>([]);
+
+  useEffect(() => subscribeToMechanicRequests((items: BookingRequest[]) => setRequests(items.map((item) => ({
+    id: item.id, customerName: item.customerName, phone: item.customerEmail,
+    vehicle: item.vehicle, year: item.vehicleYear, plate: item.vehiclePlate,
+    serviceType: item.problem, problem: item.notes || item.problem,
+    location: "Customer GPS location", distanceKm: 0, estimatedFee: item.startingPrice,
+    status: item.status === "completed" ? "COMPLETED" : item.status === "pending" ? "PENDING" : "ACCEPTED",
+  })))), []);
 
   const filteredRequests = useMemo(
-    () => MOCK_REQUESTS.filter((request) => matchesFilter(request.status, activeFilter)),
-    [activeFilter]
+    () => requests.filter((request) => matchesFilter(request.status, activeFilter)),
+    [activeFilter, requests]
   );
 
   return (

@@ -4,17 +4,18 @@
 // Mirrors the shape and helpers in types/owner/booking.ts, but kept as its
 // own type since towing needs different fields (pickup/destination/towing
 // type/vehicle condition) instead of a mechanic "problem" category. Towing
-// also has its own status flow — it uses "in_transit" instead of
-// "in_progress" since the vehicle is being transported, not repaired.
+// Uses the same public progress states as mechanic bookings so both provider
+// and customer screens follow one predictable state machine.
 // ---------------------------------------------------------------------------
 
 export type TowingStatus =
   | "pending"
   | "accepted"
-  | "on_the_way"
+  | "en_route"
   | "arrived"
-  | "in_transit"
+  | "in_progress"
   | "completed"
+  | "rejected"
   | "cancelled";
 
 // Ordered "happy path" progression, used to render the status progress bar.
@@ -22,9 +23,9 @@ export type TowingStatus =
 export const TOWING_STATUS_FLOW: TowingStatus[] = [
   "pending",
   "accepted",
-  "on_the_way",
+  "en_route",
   "arrived",
-  "in_transit",
+  "in_progress",
   "completed",
 ];
 
@@ -34,16 +35,18 @@ export function getTowingStatusLabel(status: TowingStatus): string {
       return "Waiting for provider";
     case "accepted":
       return "Provider Accepted";
-    case "on_the_way":
+    case "en_route":
       return "Tow Truck On The Way";
     case "arrived":
       return "Tow Truck Arrived";
-    case "in_transit":
-      return "Vehicle In Transit";
+    case "in_progress":
+      return "Service In Progress";
     case "completed":
       return "Towing Completed";
     case "cancelled":
       return "Cancelled";
+    case "rejected":
+      return "Provider Rejected";
   }
 }
 
@@ -54,16 +57,18 @@ export function getTowingStatusShortLabel(status: TowingStatus): string {
       return "Pending";
     case "accepted":
       return "Accepted";
-    case "on_the_way":
+    case "en_route":
       return "On The Way";
     case "arrived":
       return "Arrived";
-    case "in_transit":
-      return "In Transit";
+    case "in_progress":
+      return "In Progress";
     case "completed":
       return "Completed";
     case "cancelled":
       return "Cancelled";
+    case "rejected":
+      return "Rejected";
   }
 }
 
@@ -90,8 +95,18 @@ export type VehicleCondition = (typeof VEHICLE_CONDITIONS)[number];
 
 export interface TowingBookingRequest {
   id: string;
+  bookingType: "towing-company";
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
   providerId: string;
+  providerName: string;
   vehicleId: string;
+  vehicle: string;
+  vehicleYear: number;
+  vehiclePlate: string;
+  latitude: number;
+  longitude: number;
   pickupLocation: string;
   destination: string;
   towingType: string;
@@ -100,6 +115,7 @@ export interface TowingBookingRequest {
   startingPrice: string;
   status: TowingStatus;
   createdAt: string; // ISO timestamp
+  updatedAt: string;
   // These two are populated at read time by merging in a record from
   // services/owner/towingRatingService.ts — not written here directly.
    rating?: number; // 1-5

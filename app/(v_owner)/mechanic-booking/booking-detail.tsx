@@ -16,10 +16,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
-import { getServiceLabel, MOCK_PROVIDERS } from "../../../data/owner/mockProviders";
-import { MOCK_VEHICLES } from "../../../data/owner/mockVehicles";
-import { getBookingById } from "../../../services/owner/bookingService";
-import { getRating, mergeRating, submitRating } from "../../../services/owner/ratingService";
+import { getServiceLabel } from "../../../data/owner/mockProviders";
+import { subscribeToBooking } from "../../../services/owner/bookingService";
+import { getProviderReviewSummary, getRating, mergeRating, submitRating } from "../../../services/owner/ratingService";
 import {
   BOOKING_STATUS_FLOW,
   BookingRequest,
@@ -50,6 +49,7 @@ export default function BookingDetailScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const [booking, setBooking] = useState<BookingRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [providerRating, setProviderRating] = useState({ average: 0, count: 0 });
 
   // --- Rating state --------------------------------------------------------
   const [selectedStars, setSelectedStars] = useState(0);
@@ -58,34 +58,24 @@ export default function BookingDetailScreen() {
   const [showThankYou, setShowThankYou] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      if (!bookingId) {
-        if (isMounted) {
-          setBooking(null);
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      const [result, rating] = await Promise.all([
-        getBookingById(bookingId),
-        getRating(bookingId),
-      ]);
-
-      if (isMounted) {
+    if (!bookingId) { setBooking(null); setIsLoading(false); return; }
+    return subscribeToBooking(bookingId, (result) => {
+      void getRating(bookingId).then((rating) => {
         setBooking(result ? mergeRating(result, rating) : null);
         setIsLoading(false);
-      }
-    })();
-    return () => {
-      isMounted = false;
-    };
+      });
+    });
   }, [bookingId]);
 
-  const provider = booking ? MOCK_PROVIDERS.find((p) => p.id === booking.providerId) : undefined;
-  const vehicle = booking ? MOCK_VEHICLES.find((v) => v.id === booking.vehicleId) : undefined;
+  useEffect(() => {
+    if (!booking?.providerId) return;
+    void getProviderReviewSummary(booking.providerId).then(({ average, count }) => setProviderRating({ average, count }));
+  }, [booking?.providerId]);
+
+  const provider = booking ? { name: booking.providerName, initials: booking.providerName.slice(0, 2).toUpperCase(), color: colors.primary, phone: "", rating: providerRating.average, reviewCount: providerRating.count, distanceKm: 0, category: "Onsite Mechanics" as const } : undefined;
+  const vehicle = booking ? { year: booking.vehicleYear, make: booking.vehicle, model: "", vehicleType: "" } : undefined;
   const currentStepIndex = booking ? BOOKING_STATUS_FLOW.indexOf(booking.status) : -1;
+  const isTerminalStatus = booking?.status === "cancelled" || booking?.status === "rejected";
 
   // --- Call / Message the provider -----------------------------------------
   const handleCallProvider = () => {
@@ -112,6 +102,8 @@ export default function BookingDetailScreen() {
     try {
       const rating = await submitRating(booking.id, "mechanic", selectedStars, comment);
       setBooking(mergeRating(booking, rating));
+      const summary = await getProviderReviewSummary(booking.providerId);
+      setProviderRating({ average: summary.average, count: summary.count });
       setShowThankYou(true);
       setTimeout(() => {
         router.replace("/(v_owner)");
@@ -177,13 +169,13 @@ export default function BookingDetailScreen() {
 
             <Text style={styles.sectionLabel}>Status</Text>
             <View style={styles.statusBlock}>
-              {booking.status !== "cancelled" && (
+              {!isTerminalStatus && (
                 <Text style={styles.currentStatusText}>{getBookingStatusLabel(booking.status)}</Text>
               )}
-              {booking.status === "cancelled" ? (
+              {isTerminalStatus ? (
                 <View style={styles.cancelledBadge}>
                   <Ionicons name="close-circle" size={16} color={colors.white} />
-                  <Text style={styles.cancelledBadgeText}>Cancelled</Text>
+                  <Text style={styles.cancelledBadgeText}>{getBookingStatusLabel(booking.status)}</Text>
                 </View>
               ) : (
                 <View style={styles.progressRow}>
@@ -212,7 +204,7 @@ export default function BookingDetailScreen() {
                   })}
                 </View>
               )}
-              {booking.status !== "cancelled" && (
+              {!isTerminalStatus && (
                 <View style={styles.progressLabelsRow}>
                   {BOOKING_STATUS_FLOW.map((status, index) => (
                     <View key={status} style={styles.progressLabelCol}>

@@ -1,73 +1,15 @@
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
 import {
-    MOCK_PROVIDERS,
-    type MockProvider,
-    type ProviderCategory,
+  MOCK_PROVIDERS,
+  type MockProvider,
+  type ProviderCategory,
 } from "../../data/owner/mockProviders";
-import type { OnsiteMechanicProviderProfile } from "../../types/onsiteMechanicProfile";
-import type { TowingCompanyProfile } from "../../types/towingCompanyProfile";
+import type { ProviderListing } from "../../types/providerListing";
 import { db } from "../firebase";
+import { getProviderReviewSummary, type ProviderReviewSummary } from "./ratingService";
 
-type MapProviderRole = "onsite-mechanic" | "towing-company";
-
-type AddressableProfile =
-  | { role: "onsite-mechanic"; profile: OnsiteMechanicProviderProfile }
-  | { role: "towing-company"; profile: TowingCompanyProfile };
-
-const GEOCODE_CACHE = new Map<string, { lat: number; lng: number } | null>();
-const FALLBACK_POINTS: Record<Exclude<ProviderCategory, "All">, { lat: number; lng: number }[]> = {
-  Towing: [
-    { lat: 10.3201, lng: 123.9021 },
-    { lat: 10.317, lng: 123.904 },
-    { lat: 10.311, lng: 123.91 },
-  ],
-  "Auto Shops": [
-    { lat: 10.3195, lng: 123.9095 },
-    { lat: 10.3156, lng: 123.915 },
-    { lat: 10.323, lng: 123.896 },
-  ],
-  "Onsite Mechanics": [
-    { lat: 10.3155, lng: 123.9012 },
-    { lat: 10.3182, lng: 123.9134 },
-    { lat: 10.3097, lng: 123.9088 },
-  ],
-};
-
-async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  const normalized = address.trim();
-  if (!normalized) {
-    return null;
-  }
-
-  const cached = GEOCODE_CACHE.get(normalized.toLowerCase());
-  if (cached !== undefined) {
-    return cached;
-  }
-
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(normalized)}`,
-      {
-        headers: {
-          "Accept-Language": "en",
-        },
-      }
-    );
-
-    const payload = (await response.json()) as Array<{ lat?: string; lon?: string }>;
-    const firstMatch = payload[0];
-    const lat = Number(firstMatch?.lat ?? NaN);
-    const lng = Number(firstMatch?.lon ?? NaN);
-    const result = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-    GEOCODE_CACHE.set(normalized.toLowerCase(), result);
-    return result;
-  } catch (error) {
-    console.warn("Failed to geocode provider address for map", error);
-    GEOCODE_CACHE.set(normalized.toLowerCase(), null);
-    return null;
-  }
-}
+const LISTINGS_COLLECTION = "providerListings";
 
 function buildInitials(name: string) {
   return name
@@ -78,149 +20,104 @@ function buildInitials(name: string) {
     .join("") || "V";
 }
 
-function pickFallbackLocation(category: Exclude<ProviderCategory, "All">, index: number) {
-  const points = FALLBACK_POINTS[category];
-  return points[index % points.length];
-}
-
-function buildReviewCount(index: number) {
-  return 42 + index * 19;
-}
-
-function buildDistanceKm(index: number) {
-  return Number((0.4 + (index % 5) * 0.7 + (index % 3) * 0.2).toFixed(1));
-}
-
-async function normalizeProfile(role: MapProviderRole, uid: string, profile: unknown): Promise<MockProvider | null> {
-  if (role === "onsite-mechanic") {
-    const mechanic = profile as OnsiteMechanicProviderProfile;
-    const fullName = mechanic.personal?.fullName?.trim() || "Onsite Mechanic";
-    const city = mechanic.personal?.cityMunicipality?.trim() || mechanic.professional?.serviceArea?.trim() || "Cebu City";
-    const address = [mechanic.personal?.address, city].filter(Boolean).join(", ");
-    const services = mechanic.professional?.specializations?.length
-      ? mechanic.professional.specializations
-      : ["Battery Jumpstart", "Flat Tire Repair", "Minor Engine Diagnostics"];
-    const rate = mechanic.serviceInfo?.serviceRate ?? 450;
-    const vehicleTypes = mechanic.professional?.vehicleTypesServed?.length
-      ? mechanic.professional.vehicleTypesServed
-      : ["Sedan", "SUV"];
-    const location = (await geocodeAddress(address || city)) ?? pickFallbackLocation("Onsite Mechanics", uid.length);
-
-    return {
-      id: `live-mechanic-${uid}`,
-      name: fullName,
-      category: "Onsite Mechanics",
-      rating: 4.7 + (uid.length % 3) * 0.05,
-      reviewCount: buildReviewCount(uid.length),
-      distanceKm: buildDistanceKm(uid.length),
-      startingPrice: `₱${rate}`,
-      isPositiveStatus: mechanic.verificationStatus === "VERIFIED" || mechanic.verificationStatus === "PENDING",
-      initials: buildInitials(fullName),
-      color: "#6A1B9A",
-      lat: location.lat,
-      lng: location.lng,
-      description:
-        `${fullName} provides mobile repairs across ${city} and nearby areas, including ${services.slice(0, 2).join(" and ")}.`,
-      services,
-      hours: mechanic.serviceInfo?.availableHours?.trim() || "Daily, 7:00 AM - 9:00 PM",
-      phone: mechanic.personal?.phone?.trim() || "+63 917 000 0000",
-      vehicleTypes: vehicleTypes as MockProvider["vehicleTypes"],
-      reviews: [
-        {
-          id: `${uid}-review-1`,
-          customerName: "Verified customer",
-          rating: 5,
-          comment: "Fast and reliable onsite repair service.",
-          date: "Recently",
-        },
-      ],
-    };
+function categoryColor(category: Exclude<ProviderCategory, "All">) {
+  switch (category) {
+    case "Towing":
+      return "#D32F2F";
+    case "Onsite Mechanics":
+      return "#6A1B9A";
+    case "Auto Shops":
+      return "#1E88E5";
   }
+}
 
-  const tow = profile as TowingCompanyProfile;
-  const companyName = tow.company?.companyName?.trim() || "Towing Company";
-  const city = tow.company?.cityMunicipality?.trim() || tow.services?.serviceArea?.trim() || "Cebu City";
-  const address = [tow.company?.address, city].filter(Boolean).join(", ");
-  const services = tow.services?.towingServices?.length
-    ? tow.services.towingServices
-    : ["Emergency Towing", "Roadside Assistance", "Vehicle Recovery"];
-  const location = (await geocodeAddress(address || city)) ?? pickFallbackLocation("Towing", uid.length);
+function isActiveListing(value: unknown): value is ProviderListing {
+  if (!value || typeof value !== "object") return false;
+
+  const listing = value as Partial<ProviderListing>;
+  return listing.visibility === "active"
+    && (listing.role === "onsite-mechanic" || listing.role === "towing-company")
+    && (listing.category === "Onsite Mechanics" || listing.category === "Towing")
+    && typeof listing.providerId === "string"
+    && typeof listing.businessName === "string"
+    && typeof listing.location?.latitude === "number"
+    && Number.isFinite(listing.location.latitude)
+    && typeof listing.location?.longitude === "number"
+    && Number.isFinite(listing.location.longitude)
+    && (listing.availability === "available" || listing.availability === "busy" || listing.availability === "offline")
+    && Array.isArray(listing.services)
+    && Array.isArray(listing.vehicleTypes)
+    && typeof listing.ratingSummary?.average === "number"
+    && typeof listing.ratingSummary?.count === "number";
+}
+
+/** Converts the safe public listing document into the existing map UI model. */
+function toMapProvider(listing: ProviderListing, reviewSummary: ProviderReviewSummary): MockProvider {
+  const category = listing.category;
+  const services = listing.services.filter((service): service is string => typeof service === "string");
+  const serviceArea = listing.serviceAreaLabel.trim();
+  const startingPrice = listing.startingPrice == null
+    ? "Contact for price"
+    : `\u20B1${listing.startingPrice.toLocaleString("en-PH")}`;
 
   return {
-    id: `live-tow-${uid}`,
-    name: companyName,
-    category: "Towing",
-    rating: 4.8 + (uid.length % 3) * 0.06,
-    reviewCount: buildReviewCount(uid.length + 5),
-    distanceKm: buildDistanceKm(uid.length + 2),
-    startingPrice: "₱1,200",
-    isPositiveStatus: tow.verificationStatus === "VERIFIED" || tow.verificationStatus === "PENDING",
-    initials: buildInitials(companyName),
-    color: "#D32F2F",
-    lat: location.lat,
-    lng: location.lng,
-    description:
-      `${companyName} provides emergency towing and recovery in ${city}, with ${services.slice(0, 2).join(" and ")} available on demand.`,
+    id: listing.providerId,
+    name: listing.businessName.trim(),
+    category,
+    rating: reviewSummary.average,
+    reviewCount: reviewSummary.count,
+    // The dashboard replaces this with Haversine distance whenever GPS is available.
+    distanceKm: 0,
+    startingPrice,
+    isPositiveStatus: listing.availability === "available",
+    initials: buildInitials(listing.businessName),
+    color: categoryColor(category),
+    lat: listing.location.latitude,
+    lng: listing.location.longitude,
+    description: services.length
+      ? `${listing.businessName} offers ${services.slice(0, 2).join(" and ")} in ${serviceArea || "its service area"}.`
+      : `${listing.businessName} serves ${serviceArea || "its service area"}.`,
     services,
-    hours: tow.company?.operatingHours?.trim() || "Open 24 hours",
-    phone: tow.company?.phone?.trim() || "+63 917 000 0000",
-    vehicleTypes: tow.services?.vehicleTypesSupported?.length
-      ? (tow.services.vehicleTypesSupported as MockProvider["vehicleTypes"])
-      : ["Sedan", "SUV", "Pickup"],
-    reviews: [
-      {
-        id: `${uid}-review-1`,
-        customerName: "Verified client",
-        rating: 5,
-        comment: "Quick response and professional towing support.",
-        date: "Recently",
-      },
-    ],
+    hours: listing.operatingHours ?? "Hours not provided",
+    emergencyServiceAvailable: listing.emergencyServiceAvailable,
+    // ProviderListing deliberately contains no contact number; reviews come
+    // from the public, rule-validated providerReviews collection.
+    phone: "",
+    vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"],
+    reviews: reviewSummary.reviews,
   };
 }
 
-async function readProfileForRole(uid: string, role: MapProviderRole): Promise<unknown | null> {
-  const profilePath = role === "onsite-mechanic"
-    ? doc(db, "users", uid, "providerProfile", "profile")
-    : doc(db, "users", uid, "towingCompanyProfile", "profile");
-
-  const snapshot = await getDoc(profilePath);
-  if (!snapshot.exists()) {
-    return null;
-  }
-
-  return snapshot.data();
-}
-
+/**
+ * Loads only trusted, active public listing documents. Private `users` and
+ * profile collections are never read by the customer map.
+ */
 export async function loadCustomerMapProviders(): Promise<MockProvider[]> {
   try {
-    const userDocs = await getDocs(collection(db, "users"));
-    const liveProviders: MockProvider[] = [];
+    const listingQuery = query(
+      collection(db, LISTINGS_COLLECTION),
+      where("visibility", "==", "active")
+    );
+    const snapshot = await getDocs(listingQuery);
+    const listings = snapshot.docs
+      .map((document) => document.data())
+      .filter(isActiveListing);
 
-    for (const userDoc of userDocs.docs) {
-      const userData = userDoc.data() as { role?: string };
-      const role = userData.role;
-      if (role !== "onsite-mechanic" && role !== "towing-company") {
-        continue;
+    if (listings.length === 0) return MOCK_PROVIDERS;
+
+    const providers = await Promise.all(listings.map(async (listing) => {
+      let reviewSummary: ProviderReviewSummary = { average: 0, count: 0, reviews: [] };
+      try {
+        reviewSummary = await getProviderReviewSummary(listing.providerId);
+      } catch (error) {
+        console.warn(`Failed to load reviews for provider ${listing.providerId}`, error);
       }
+      return toMapProvider(listing, reviewSummary);
+    }));
 
-      const profile = await readProfileForRole(userDoc.id, role as MapProviderRole);
-      if (!profile) {
-        continue;
-      }
-
-      const nextProvider = await normalizeProfile(role as MapProviderRole, userDoc.id, profile);
-      if (nextProvider) {
-        liveProviders.push(nextProvider);
-      }
-    }
-
-    if (liveProviders.length > 0) {
-      return liveProviders;
-    }
+    return providers;
   } catch (error) {
-    console.error("Failed to load real map providers", error);
+    console.error("Failed to load public provider listings", error);
+    return MOCK_PROVIDERS;
   }
-
-  return MOCK_PROVIDERS;
 }

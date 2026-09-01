@@ -1,7 +1,7 @@
 // app/(onsite-mechanic)/request-details.tsx
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -16,6 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
+import { getBookingById, updateBookingStatus } from "../../services/owner/bookingService";
+import { auth } from "../../services/firebase";
+import { getPublicProviderListing } from "../../services/publicProviderListingService";
 
 const COLORS = {
   primary: "#D32F2F",
@@ -29,7 +32,13 @@ const COLORS = {
   successMuted: "#E8F5E9",
 };
 
-type RequestStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "COMPLETED";
+type RequestStatus = "PENDING" | "ACCEPTED" | "EN_ROUTE" | "ARRIVED" | "IN_PROGRESS" | "DECLINED" | "CANCELLED" | "COMPLETED";
+
+const PROGRESS_STEPS: { status: RequestStatus; label: string }[] = [
+  { status: "PENDING", label: "Submitted" }, { status: "ACCEPTED", label: "Accepted" },
+  { status: "EN_ROUTE", label: "En route" }, { status: "ARRIVED", label: "Arrived" },
+  { status: "IN_PROGRESS", label: "In progress" }, { status: "COMPLETED", label: "Completed" },
+];
 
 interface ServiceRequestDetail {
   id: string;
@@ -49,6 +58,7 @@ interface ServiceRequestDetail {
 }
 
 // Mock data — kept in sync with requests.tsx
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- retained for legacy deep links until their dashboard source is migrated
 const MOCK_REQUEST_DETAILS: Record<string, ServiceRequestDetail> = {
   "req-001": {
     id: "req-001",
@@ -108,11 +118,13 @@ const LEGACY_ID_ALIASES: Record<string, string> = {
   "req-3": "req-003",
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- retained for legacy deep links
 function resolveRequestId(rawId: string): string {
   return LEGACY_ID_ALIASES[rawId] ?? rawId;
 }
 
 // Mock current mechanic location — used as the map's origin point.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- legacy display fallback retained without being used for real bookings
 const MECHANIC_LOCATION = {
   latitude: 14.6485,
   longitude: 121.0635,
@@ -277,18 +289,38 @@ export default function RequestDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const request = useMemo(() => {
-    if (typeof id !== "string") return undefined;
-    return MOCK_REQUEST_DETAILS[resolveRequestId(id)];
+  const [request, setRequest] = useState<ServiceRequestDetail>();
+  const [mechanicLocation, setMechanicLocation] = useState<{ latitude: number; longitude: number }>();
+
+  useEffect(() => {
+    if (typeof id !== "string") return;
+    void getBookingById(id).then((item) => {
+      if (!item) return;
+      setRequest({ id: item.id, customerName: item.customerName, phone: item.customerEmail,
+        vehicle: item.vehicle, year: item.vehicleYear, plate: item.vehiclePlate,
+        serviceType: item.problem, problem: item.notes || item.problem,
+        location: "Customer GPS location", distanceKm: 0, estimatedFee: item.startingPrice,
+        status: item.status === "pending" ? "PENDING" : item.status === "accepted" ? "ACCEPTED" : item.status === "en_route" ? "EN_ROUTE" : item.status === "arrived" ? "ARRIVED" : item.status === "in_progress" ? "IN_PROGRESS" : item.status === "completed" ? "COMPLETED" : item.status === "cancelled" ? "CANCELLED" : "DECLINED",
+        latitude: item.latitude, longitude: item.longitude });
+    });
+    const uid = auth.currentUser?.uid;
+    if (uid) void getPublicProviderListing(uid).then((listing) => listing && setMechanicLocation(listing.location));
   }, [id]);
 
   // Local UI-only state — no Firebase, no persistence.
   const [localStatus, setLocalStatus] = useState<RequestStatus | null>(null);
 
   const mapHtml = useMemo(() => {
-    if (!request) return "";
-    return buildMapHtml(MECHANIC_LOCATION, request, request.distanceKm, COLORS.primary);
-  }, [request]);
+    if (!request || !mechanicLocation) return "";
+    return buildMapHtml(mechanicLocation, request, request.distanceKm, COLORS.primary);
+  }, [mechanicLocation, request]);
+
+  const persistStatus = async (status: RequestStatus) => {
+    if (!request) return;
+    const persisted = status === "DECLINED" ? "rejected" : status.toLowerCase() as "accepted" | "en_route" | "arrived" | "in_progress" | "completed" | "cancelled";
+    await updateBookingStatus(request.id, persisted);
+    setLocalStatus(status);
+  };
 
   // ---- Draggable bottom sheet (same PanResponder pattern as the owner map) ----
   const sheetHeight = useRef(new Animated.Value(SHEET_COLLAPSED)).current;
@@ -348,7 +380,7 @@ export default function RequestDetailsScreen() {
   const statusColors =
     displayStatus === "ACCEPTED"
       ? { bg: COLORS.primaryMuted, fg: COLORS.primary }
-      : displayStatus === "DECLINED"
+      : displayStatus === "DECLINED" || displayStatus === "CANCELLED"
       ? { bg: COLORS.sectionBackground, fg: COLORS.textMuted }
       : displayStatus === "COMPLETED"
       ? { bg: COLORS.successMuted, fg: COLORS.success }
@@ -413,6 +445,21 @@ export default function RequestDetailsScreen() {
               </Text>
             </View>
           </View>
+
+          {displayStatus !== "DECLINED" && displayStatus !== "CANCELLED" && (
+            <View style={styles.detailBlock}>
+              <Text style={styles.blockLabel}>Progress</Text>
+              {PROGRESS_STEPS.map((step, index) => {
+                const currentIndex = PROGRESS_STEPS.findIndex((item) => item.status === displayStatus);
+                const complete = index < currentIndex || displayStatus === "COMPLETED";
+                const current = index === currentIndex;
+                return <View key={step.status} style={styles.detailRow}>
+                  <Feather name={complete ? "check-circle" : current ? "circle" : "minus-circle"} size={14} color={complete || current ? COLORS.primary : COLORS.border} />
+                  <Text style={[styles.detailText, current && { fontWeight: "700", color: COLORS.primary }]}>{step.label}</Text>
+                </View>;
+              })}
+            </View>
+          )}
 
           {displayStatus === "ACCEPTED" && (
             <Text style={styles.acceptedNote}>Request Accepted</Text>
@@ -497,18 +544,33 @@ export default function RequestDetailsScreen() {
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.declineButton}
-                onPress={() => setLocalStatus("DECLINED")}
+                onPress={() => void persistStatus("DECLINED")}
               >
                 <Text style={styles.declineButtonText}>Decline</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.acceptButton}
-                onPress={() => setLocalStatus("ACCEPTED")}
+                onPress={() => void persistStatus("ACCEPTED")}
               >
                 <Text style={styles.acceptButtonText}>Accept Request</Text>
               </TouchableOpacity>
             </View>
           )}
+
+          {displayStatus === "ACCEPTED" && (
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.declineButton} onPress={() => void persistStatus("CANCELLED")}><Text style={styles.declineButtonText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.acceptButton} onPress={() => void persistStatus("EN_ROUTE")}><Text style={styles.acceptButtonText}>Start Route</Text></TouchableOpacity>
+            </View>
+          )}
+          {displayStatus === "EN_ROUTE" && (
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.declineButton} onPress={() => void persistStatus("CANCELLED")}><Text style={styles.declineButtonText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.acceptButton} onPress={() => void persistStatus("ARRIVED")}><Text style={styles.acceptButtonText}>Mark Arrived</Text></TouchableOpacity>
+            </View>
+          )}
+          {displayStatus === "ARRIVED" && <TouchableOpacity style={styles.acceptButton} onPress={() => void persistStatus("IN_PROGRESS")}><Text style={styles.acceptButtonText}>Start Service</Text></TouchableOpacity>}
+          {displayStatus === "IN_PROGRESS" && <TouchableOpacity style={styles.acceptButton} onPress={() => void persistStatus("COMPLETED")}><Text style={styles.acceptButtonText}>Complete Service</Text></TouchableOpacity>}
 
           <View style={{ height: 24 }} />
         </ScrollView>

@@ -1,9 +1,8 @@
 // app/(towing-company)/request-details.tsx
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Animated,
   Dimensions,
   Linking,
@@ -17,6 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
+import { auth } from "../../services/firebase";
+import { getTowingBookingById, updateTowingBookingStatus } from "../../services/owner/towingService";
+import { getPublicProviderListing } from "../../services/publicProviderListingService";
 
 const COLORS = {
   primary: "#D32F2F",
@@ -33,6 +35,8 @@ const COLORS = {
 type RequestStatus =
   | "PENDING"
   | "ACCEPTED"
+  | "EN_ROUTE"
+  | "ARRIVED"
   | "IN_PROGRESS"
   | "COMPLETED"
   | "DECLINED"
@@ -63,6 +67,7 @@ interface TowingRequestDetail {
 }
 
 // Mock data — kept in sync with requests.tsx (tow-001, tow-002, ...)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- retained for legacy dashboard deep links
 const MOCK_REQUEST_DETAILS: Record<string, TowingRequestDetail> = {
   "tow-001": {
     id: "tow-001",
@@ -214,6 +219,7 @@ const MOCK_REQUEST_DETAILS: Record<string, TowingRequestDetail> = {
 };
 
 // Mock current tow truck location — used as the map's origin point.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- real requests use the provider's public listing location
 const TOW_TRUCK_LOCATION = {
   latitude: 14.6485,
   longitude: 121.0635,
@@ -383,11 +389,11 @@ function handleCall(phone: string) {
 // job stages manually. Purely local useState, no persistence.
 // ---------------------------------------------------------------------------
 const SERVICE_PROGRESS_STEPS = [
-  { key: "accepted", label: "Request Accepted", icon: "check" as const },
+  { key: "pending", label: "Booking Submitted", icon: "clipboard" as const },
+  { key: "accepted", label: "Provider Accepted", icon: "check" as const },
   { key: "en_route", label: "Tow Truck En Route", icon: "navigation" as const },
   { key: "arrived", label: "Arrived at Pickup", icon: "map-pin" as const },
-  { key: "loaded", label: "Vehicle Loaded", icon: "truck" as const },
-  { key: "towing", label: "Towing to Destination", icon: "flag" as const },
+  { key: "in_progress", label: "Tow In Progress", icon: "truck" as const },
   { key: "completed", label: "Tow Completed", icon: "check-circle" as const },
 ];
 
@@ -395,22 +401,41 @@ export default function RequestDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const request = useMemo(() => {
-    if (typeof id !== "string") return undefined;
-    return MOCK_REQUEST_DETAILS[id];
+  const [request, setRequest] = useState<TowingRequestDetail>();
+  const [towTruckLocation, setTowTruckLocation] = useState<{ latitude: number; longitude: number }>();
+
+  useEffect(() => {
+    if (typeof id !== "string") return;
+    void getTowingBookingById(id).then((item) => {
+      if (!item) return;
+      const vehicleParts = item.vehicle.split(" ");
+      setRequest({ id: item.id, customerName: item.customerName, phone: item.customerEmail,
+        vehicleMake: vehicleParts[0] ?? item.vehicle, vehicleModel: vehicleParts.slice(1).join(" "),
+        vehicleYear: item.vehicleYear, vehicleType: "Vehicle", requestType: item.towingType,
+        problem: item.vehicleCondition + (item.notes ? ` — ${item.notes}` : ""), pickupLocation: item.pickupLocation,
+        pickupAddress: item.pickupLocation, destination: item.destination, destinationAddress: item.destination,
+        distanceKm: 0, estimatedFee: item.startingPrice,
+        status: item.status === "pending" ? "PENDING" : item.status === "accepted" ? "ACCEPTED" : item.status === "en_route" ? "EN_ROUTE" : item.status === "arrived" ? "ARRIVED" : item.status === "in_progress" ? "IN_PROGRESS" : item.status === "completed" ? "COMPLETED" : item.status === "rejected" ? "DECLINED" : "CANCELLED",
+        priority: "MEDIUM", latitude: item.latitude, longitude: item.longitude });
+    });
+    const uid = auth.currentUser?.uid;
+    if (uid) void getPublicProviderListing(uid).then((listing) => listing && setTowTruckLocation(listing.location));
   }, [id]);
 
   // Local UI-only state — no Firebase, no persistence.
   const [localStatus, setLocalStatus] = useState<RequestStatus | null>(null);
 
-  // Fake/local service progress tracker — separate from RequestStatus.
-  // -1 means no step selected yet (nothing highlighted).
-  const [progressStepIndex, setProgressStepIndex] = useState<number>(-1);
-
   const mapHtml = useMemo(() => {
-    if (!request) return "";
-    return buildMapHtml(TOW_TRUCK_LOCATION, request, request.distanceKm, COLORS.primary);
-  }, [request]);
+    if (!request || !towTruckLocation) return "";
+    return buildMapHtml(towTruckLocation, request, request.distanceKm, COLORS.primary);
+  }, [request, towTruckLocation]);
+
+  const persistStatus = async (status: RequestStatus) => {
+    if (!request) return;
+    const persisted = status === "DECLINED" ? "rejected" : status.toLowerCase() as "accepted" | "en_route" | "arrived" | "in_progress" | "completed" | "cancelled";
+    await updateTowingBookingStatus(request.id, persisted);
+    setLocalStatus(status);
+  };
 
   // ---- Draggable bottom sheet (same PanResponder pattern as onsite-mechanic) ----
   const sheetHeight = useRef(new Animated.Value(SHEET_COLLAPSED)).current;
@@ -466,9 +491,10 @@ export default function RequestDetailsScreen() {
   }
 
   const displayStatus = localStatus ?? request.status;
+  const progressStepIndex = SERVICE_PROGRESS_STEPS.findIndex((step) => step.key === displayStatus.toLowerCase());
 
   const statusColors =
-    displayStatus === "ACCEPTED"
+    displayStatus === "ACCEPTED" || displayStatus === "EN_ROUTE" || displayStatus === "ARRIVED"
       ? { bg: COLORS.primaryMuted, fg: COLORS.primary }
       : displayStatus === "IN_PROGRESS"
       ? { bg: "#E0E7FF", fg: "#3730A3" }
@@ -646,9 +672,6 @@ export default function RequestDetailsScreen() {
           <View style={styles.detailBlock}>
             <View style={styles.progressHeaderRow}>
               <Text style={styles.blockLabel}>SERVICE PROGRESS</Text>
-              <TouchableOpacity onPress={() => setProgressStepIndex(-1)}>
-                <Text style={styles.resetProgressText}>Reset Progress</Text>
-              </TouchableOpacity>
             </View>
 
             {SERVICE_PROGRESS_STEPS.map((step, index) => {
@@ -658,11 +681,9 @@ export default function RequestDetailsScreen() {
               const isLastStep = index === SERVICE_PROGRESS_STEPS.length - 1;
 
               return (
-                <TouchableOpacity
+                <View
                   key={step.key}
                   style={styles.progressStepRow}
-                  activeOpacity={0.7}
-                  onPress={() => setProgressStepIndex(index)}
                 >
                   <View style={styles.progressIconColumn}>
                     <View
@@ -703,36 +724,9 @@ export default function RequestDetailsScreen() {
                       <Text style={styles.progressActiveTag}>Current Step</Text>
                     )}
                   </View>
-                </TouchableOpacity>
+                </View>
               );
             })}
-
-            <TouchableOpacity
-              style={[
-                styles.nextStepButton,
-                progressStepIndex >= SERVICE_PROGRESS_STEPS.length - 1 &&
-                  styles.nextStepButtonDisabled,
-              ]}
-              activeOpacity={0.8}
-              disabled={progressStepIndex >= SERVICE_PROGRESS_STEPS.length - 1}
-              onPress={() =>
-                setProgressStepIndex((prev) =>
-                  Math.min(prev + 1, SERVICE_PROGRESS_STEPS.length - 1)
-                )
-              }
-            >
-              <Text
-                style={[
-                  styles.nextStepButtonText,
-                  progressStepIndex >= SERVICE_PROGRESS_STEPS.length - 1 &&
-                    styles.nextStepButtonTextDisabled,
-                ]}
-              >
-                {progressStepIndex >= SERVICE_PROGRESS_STEPS.length - 1
-                  ? "Progress Complete"
-                  : "Next Step"}
-              </Text>
-            </TouchableOpacity>
           </View>
 
           <View style={styles.detailBlock}>
@@ -745,13 +739,13 @@ export default function RequestDetailsScreen() {
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.declineButton}
-                onPress={() => setLocalStatus("DECLINED")}
+                onPress={() => void persistStatus("DECLINED")}
               >
                 <Text style={styles.declineButtonText}>Decline</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.acceptButton}
-                onPress={() => setLocalStatus("ACCEPTED")}
+                onPress={() => void persistStatus("ACCEPTED")}
               >
                 <Text style={styles.acceptButtonText}>Accept Request</Text>
               </TouchableOpacity>
@@ -762,35 +756,35 @@ export default function RequestDetailsScreen() {
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.declineButton}
-                onPress={() => setLocalStatus("CANCELLED")}
+                onPress={() => void persistStatus("CANCELLED")}
               >
                 <Text style={styles.declineButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.acceptButton}
-                onPress={() => setLocalStatus("IN_PROGRESS")}
+                onPress={() => void persistStatus("EN_ROUTE")}
               >
-                <Text style={styles.acceptButtonText}>Start Tow</Text>
+                <Text style={styles.acceptButtonText}>Start Route</Text>
               </TouchableOpacity>
             </View>
+          )}
+
+          {displayStatus === "EN_ROUTE" && (
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={styles.declineButton} onPress={() => void persistStatus("CANCELLED")}><Text style={styles.declineButtonText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.acceptButton} onPress={() => void persistStatus("ARRIVED")}><Text style={styles.acceptButtonText}>Mark Arrived</Text></TouchableOpacity>
+            </View>
+          )}
+
+          {displayStatus === "ARRIVED" && (
+            <TouchableOpacity style={styles.acceptButton} onPress={() => void persistStatus("IN_PROGRESS")}><Text style={styles.acceptButtonText}>Start Tow</Text></TouchableOpacity>
           )}
 
           {displayStatus === "IN_PROGRESS" && (
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={() =>
-                  Alert.alert(
-                    "Marked as Arrived",
-                    "The customer has been notified that you've arrived."
-                  )
-                }
-              >
-                <Text style={styles.secondaryButtonText}>Mark as Arrived</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={styles.acceptButton}
-                onPress={() => setLocalStatus("COMPLETED")}
+                onPress={() => void persistStatus("COMPLETED")}
               >
                 <Text style={styles.acceptButtonText}>Complete Tow</Text>
               </TouchableOpacity>

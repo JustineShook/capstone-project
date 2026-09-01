@@ -11,10 +11,11 @@
 export type BookingStatus =
   | "pending"
   | "accepted"
-  | "on_the_way"
+  | "en_route"
   | "arrived"
   | "in_progress"
   | "completed"
+  | "rejected"
   | "cancelled";
 
 // Ordered "happy path" progression, used to render a status timeline.
@@ -22,7 +23,7 @@ export type BookingStatus =
 export const BOOKING_STATUS_FLOW: BookingStatus[] = [
   "pending",
   "accepted",
-  "on_the_way",
+  "en_route",
   "arrived",
   "in_progress",
   "completed",
@@ -34,7 +35,7 @@ export function getBookingStatusLabel(status: BookingStatus): string {
       return "Waiting for provider";
     case "accepted":
       return "Provider Accepted";
-    case "on_the_way":
+    case "en_route":
       return "Provider On The Way";
     case "arrived":
       return "Provider Arrived";
@@ -44,6 +45,8 @@ export function getBookingStatusLabel(status: BookingStatus): string {
       return "Service Completed";
     case "cancelled":
       return "Cancelled";
+    case "rejected":
+      return "Provider Rejected";
   }
 }
 
@@ -55,7 +58,7 @@ export function getBookingStatusShortLabel(status: BookingStatus): string {
       return "Requested";
     case "accepted":
       return "Accepted";
-    case "on_the_way":
+    case "en_route":
       return "On The Way";
     case "arrived":
       return "Arrived";
@@ -65,18 +68,31 @@ export function getBookingStatusShortLabel(status: BookingStatus): string {
       return "Completed";
     case "cancelled":
       return "Cancelled";
+    case "rejected":
+      return "Rejected";
   }
 }
 
 export interface BookingRequest {
   id: string;
+  bookingType: "onsite-mechanic";
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
   providerId: string;
+  providerName: string;
   vehicleId: string;
+  vehicle: string;
+  vehicleYear: number;
+  vehiclePlate: string;
+  latitude: number;
+  longitude: number;
   problem: string;
   notes: string;
   startingPrice: string;
   status: BookingStatus;
   createdAt: string; // ISO timestamp
+  updatedAt: string;
 
   // Populated at read time via ratingService's mergeRating() — ratings live
   // in their own store (services/owner/ratingService.ts), not written here

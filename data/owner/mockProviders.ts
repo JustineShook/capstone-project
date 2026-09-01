@@ -71,17 +71,25 @@ export function supportsBooking(category: Exclude<ProviderCategory, "All">) {
 // Used by all provider categories to indicate which vehicles they can
 // service (Onsite Mechanics / Auto Shops) or tow (Towing).
 // ---------------------------------------------------------------------------
-export type VehicleType = "Sedan" | "SUV" | "Pickup" | "Van" | "Motorcycle";
+export type VehicleType = "Sedan" | "Car" | "Cars" | "SUV" | "SUVs" | "Pickup" | "Pickup Truck" | "Pickup Trucks" | "Van" | "Vans" | "Motorcycle" | "Motorcycles" | "Truck";
 
 export const VEHICLE_TYPES: {
   label: VehicleType;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }[] = [
   { label: "Sedan", icon: "car" },
+  { label: "Car", icon: "car" },
+  { label: "Cars", icon: "car" },
   { label: "SUV", icon: "car-estate" },
+  { label: "SUVs", icon: "car-estate" },
   { label: "Pickup", icon: "car-pickup" },
+  { label: "Pickup Truck", icon: "car-pickup" },
+  { label: "Pickup Trucks", icon: "car-pickup" },
   { label: "Van", icon: "van-utility" },
+  { label: "Vans", icon: "van-utility" },
   { label: "Motorcycle", icon: "motorbike" },
+  { label: "Motorcycles", icon: "motorbike" },
+  { label: "Truck", icon: "truck" },
 ];
 
 export function getVehicleTypeIcon(type: VehicleType): keyof typeof MaterialCommunityIcons.glyphMap {
@@ -119,6 +127,7 @@ export interface MockProvider {
   description: string;
   services: string[];
   hours: string;
+  emergencyServiceAvailable?: boolean;
   phone: string;
   vehicleTypes: VehicleType[];
   reviews: ProviderReview[];

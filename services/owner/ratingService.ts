@@ -1,118 +1,102 @@
-// services/owner/ratingService.ts
-// ---------------------------------------------------------------------------
-// SHARED RATING SERVICE (towing + mechanic bookings)
-//
-// Ratings are deliberately NOT stored on the booking record itself
-// (TowingBookingRequest / MechanicBookingRequest). They live in their own
-// store here, keyed by bookingId, and get merged onto a booking object at
-// read time via mergeRating() below. This mirrors how a real backend would
-// likely model it too — a separate `ratings` collection/table (doc id =
-// bookingId) rather than a nested field on every booking document, since
-// ratings have their own lifecycle (submitted once, after the fact) and
-// don't need to be fetched every time a booking is fetched.
-//
-// This single file replaces what would otherwise be two near-identical
-// files (towingRatingService.ts + mechanicRatingService.ts). Both booking
-// types share the same shape of concern — "a 1-5 star rating (plus an
-// optional written comment) tied to one completed booking" — so there's no
-// real reason to duplicate the store, the clamping logic, or the merge
-// helper. The only thing that differs between towing and mechanic bookings
-// is which screen renders the stars; this file doesn't need to know or care
-// about that.
-// ---------------------------------------------------------------------------
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, where } from "firebase/firestore";
 
-// Which booking flow a rating belongs to. Not strictly required for lookups
-// (bookingId alone is already unique across both flows, since
-// createTowingBooking / createMechanicBooking generate their own prefixed
-// ids), but keeping it on the record makes the store self-describing —
-// useful for debugging, and useful later if bookingId prefixes ever change
-// and you need to disambiguate without parsing the id string.
+import type { ProviderReview } from "../../data/owner/mockProviders";
+import { auth, db } from "../firebase";
+
 export type RatedBookingType = "towing" | "mechanic";
+export type RatedProviderRole = "towing-company" | "onsite-mechanic";
 
 export interface BookingRating {
   bookingId: string;
+  customerId: string;
+  providerId: string;
+  providerRole: RatedProviderRole;
   bookingType: RatedBookingType;
-  rating: number; // 1-5, always an integer (see clamping in submitRating)
-  comment?: string; // optional written review; omitted entirely if blank
-  ratedAt: string; // ISO timestamp of submission
+  rating: number;
+  comment?: string;
+  ratedAt: string;
 }
 
-// Single in-memory store for both booking types. A Map (not an array) so
-// lookups by bookingId are O(1) instead of a .find() scan — this matters
-// more here than in the booking stores themselves since ratings get read
-// on every booking-detail screen open, for both flows.
-const mockRatings = new Map<string, BookingRating>();
+export interface ProviderReviewSummary {
+  average: number;
+  count: number;
+  reviews: ProviderReview[];
+}
 
-// Submit a 1-5 star rating (plus an optional comment) for a booking (either
-// flow). Intended to be called once per booking — the UI (both
-// booking-detail screens) already disables/hides the form once
-// booking.rating is set, but this function itself doesn't enforce
-// "once only" so a caller COULD overwrite an existing rating if it wanted
-// to (e.g. an "edit my rating" feature later).
-//
-// `comment` is optional — existing callers (e.g. the mechanic flow, if it
-// doesn't pass one yet) keep working unchanged since the parameter has a
-// default of undefined.
+const reviewRef = (bookingId: string) => doc(db, "providerReviews", bookingId);
+
+function requireUser() {
+  const user = auth.currentUser;
+  if (!user) throw new Error("You must be signed in to submit a review.");
+  return user;
+}
+
+function toIso(value: unknown): string {
+  return value instanceof Timestamp ? value.toDate().toISOString() : new Date().toISOString();
+}
+
+function bookingTypeForRole(role: RatedProviderRole): RatedBookingType {
+  return role === "onsite-mechanic" ? "mechanic" : "towing";
+}
+
 export async function submitRating(
   bookingId: string,
   bookingType: RatedBookingType,
   rating: number,
   comment?: string
 ): Promise<BookingRating> {
-  // Defensive clamp + round: protects against a caller passing 0, 6, or a
-  // decimal (e.g. from a future half-star UI) without the star row itself
-  // having to be the only thing enforcing valid values.
-  const clampedRating = Math.min(5, Math.max(1, Math.round(rating)));
+  const user = requireUser();
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new Error("Rating must be an integer from 1 to 5.");
+  const trimmedComment = comment?.trim() ?? "";
+  if (trimmedComment.length > 1000) throw new Error("Review comment cannot exceed 1000 characters.");
 
-  // Blank/whitespace-only comments are treated as "no comment" so we don't
-  // store empty strings — this keeps `comment` truly optional downstream.
-  const trimmedComment = comment?.trim();
+  const bookingSnapshot = await getDoc(doc(db, "bookings", bookingId));
+  if (!bookingSnapshot.exists()) throw new Error("Booking not found.");
+  const booking = bookingSnapshot.data();
+  const providerRole = booking.bookingType as RatedProviderRole;
+  if (booking.customerId !== user.uid) throw new Error("Only the booking customer can submit this review.");
+  if (booking.status !== "completed") throw new Error("Only completed bookings can be reviewed.");
+  if (booking.providerId === user.uid) throw new Error("Providers cannot review themselves.");
+  if (bookingTypeForRole(providerRole) !== bookingType) throw new Error("Booking type does not match this review.");
 
-  const record: BookingRating = {
+  await setDoc(reviewRef(bookingId), {
     bookingId,
-    bookingType,
-    rating: clampedRating,
-    ...(trimmedComment ? { comment: trimmedComment } : {}),
-    ratedAt: new Date().toISOString(),
-  };
+    customerId: user.uid,
+    providerId: booking.providerId,
+    providerRole,
+    rating,
+    comment: trimmedComment,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 
-  mockRatings.set(bookingId, record);
-  return record;
+  return { bookingId, customerId: user.uid, providerId: booking.providerId, providerRole,
+    bookingType, rating, ...(trimmedComment ? { comment: trimmedComment } : {}), ratedAt: new Date().toISOString() };
 }
 
-// Look up a rating for a single booking, regardless of which flow it came
-// from. Returns undefined if the booking hasn't been rated yet — callers
-// use that to decide whether to show "Rate this Provider" vs "Your Rating".
-export async function getRating(
-  bookingId: string
-): Promise<BookingRating | undefined> {
-  return mockRatings.get(bookingId);
+export async function getRating(bookingId: string): Promise<BookingRating | undefined> {
+  requireUser();
+  const snapshot = await getDoc(reviewRef(bookingId));
+  if (!snapshot.exists()) return undefined;
+  const data = snapshot.data();
+  const providerRole = data.providerRole as RatedProviderRole;
+  return { bookingId: data.bookingId, customerId: data.customerId, providerId: data.providerId,
+    providerRole, bookingType: bookingTypeForRole(providerRole), rating: data.rating,
+    ...(data.comment ? { comment: data.comment } : {}), ratedAt: toIso(data.createdAt) };
 }
 
-// Convenience helper: takes any booking-shaped object that has optional
-// `rating` / `comment` / `ratedAt` fields (both TowingBookingRequest and
-// MechanicBookingRequest qualify, via the generic constraint below) and
-// returns a new object with those fields filled in from a fetched
-// BookingRating, if one exists. If there's no rating yet, the object is
-// returned unchanged — this is what lets both booking-detail screens do:
-//
-//   const [booking, rating] = await Promise.all([
-//     getTowingBookingById(id),      // or getMechanicBookingById(id)
-//     getRating(id),
-//   ]);
-//   setBooking(mergeRating(booking, rating));
-//
-// without either screen needing to know anything about how ratings are
-// stored internally.
-export function mergeRating<T extends { rating?: number; comment?: string; ratedAt?: string }>(
-  target: T,
-  rating: BookingRating | undefined
-): T {
-  if (!rating) return target;
-  return {
-    ...target,
-    rating: rating.rating,
-    comment: rating.comment,
-    ratedAt: rating.ratedAt,
-  };
+export async function getProviderReviewSummary(providerId: string): Promise<ProviderReviewSummary> {
+  requireUser();
+  const snapshot = await getDocs(query(collection(db, "providerReviews"), where("providerId", "==", providerId)));
+  const reviews = snapshot.docs.map((item) => {
+    const data = item.data();
+    return { id: item.id, customerName: "Verified customer", rating: data.rating,
+      comment: data.comment || "", date: new Date(toIso(data.createdAt)).toLocaleDateString() };
+  });
+  const total = reviews.reduce((sum, review) => sum + review.rating, 0);
+  return { average: reviews.length ? total / reviews.length : 0, count: reviews.length, reviews };
+}
+
+export function mergeRating<T extends { rating?: number; comment?: string; ratedAt?: string }>(target: T, rating: BookingRating | undefined): T {
+  return rating ? { ...target, rating: rating.rating, comment: rating.comment, ratedAt: rating.ratedAt } : target;
 }

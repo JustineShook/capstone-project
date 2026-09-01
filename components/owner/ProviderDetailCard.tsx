@@ -119,6 +119,15 @@ export function ProviderDetailCard({
           <Text style={styles.hoursText}>{provider.hours}</Text>
         </View>
 
+        <View style={styles.hoursRow}>
+          <Ionicons name="flash-outline" size={14} color={colors.textSecondary} />
+          <Text style={styles.hoursText}>
+            {provider.emergencyServiceAvailable
+              ? "Emergency service available"
+              : "Emergency service not available"}
+          </Text>
+        </View>
+
         {/* Price */}
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Starting price</Text>

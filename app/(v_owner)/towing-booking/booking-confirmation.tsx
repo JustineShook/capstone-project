@@ -6,8 +6,6 @@ import { ActivityIndicator, Pressable, ScrollView, StatusBar, StyleSheet, Text, 
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
-import { MOCK_PROVIDERS } from "../../../data/owner/mockProviders";
-import { MOCK_VEHICLES } from "../../../data/owner/mockVehicles";
 import { getTowingBookingById } from "../../../services/owner/towingService";
 import { getTowingStatusLabel, TowingBookingRequest } from "../../../types/owner/towing";
 
@@ -49,8 +47,8 @@ export default function TowingBookingConfirmationScreen() {
     );
   }
 
-  const provider = MOCK_PROVIDERS.find((p) => p.id === booking.providerId);
-  const vehicle = MOCK_VEHICLES.find((v) => v.id === booking.vehicleId);
+  const provider = { name: booking.providerName };
+  const vehicle = { year: booking.vehicleYear, make: booking.vehicle, model: "", vehicleType: "" };
 
   return (
     <View style={styles.root}>
@@ -105,12 +103,6 @@ export default function TowingBookingConfirmationScreen() {
           <View style={styles.card}>
             <Text style={styles.cardLabel}>Provider</Text>
             <Text style={styles.cardValue}>{provider.name}</Text>
-            <View style={styles.metaRow}>
-              <Ionicons name="star" size={12} color={colors.rating} />
-              <Text style={styles.metaText}>{provider.rating.toFixed(1)}</Text>
-              <Text style={styles.metaDot}>{"\u2022"}</Text>
-              <Text style={styles.metaText}>{provider.distanceKm} km away</Text>
-            </View>
           </View>
         )}
 

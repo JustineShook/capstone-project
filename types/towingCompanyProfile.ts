@@ -1,4 +1,5 @@
 import type { VerificationStatus } from "./onsiteMechanicProfile";
+import type { PublicProviderListingInput } from "./providerListing";
 
 export interface TowingCompanyProfile {
   uid: string;
@@ -27,5 +28,7 @@ export interface TowingCompanyProfile {
     permitOrRegistrationNumber: string;
     permitOrRegistrationUrl: string;
   };
+  /** Explicit provider-chosen data eligible for the public map after approval. */
+  publicListing?: PublicProviderListingInput;
   verificationStatus: VerificationStatus;
 }

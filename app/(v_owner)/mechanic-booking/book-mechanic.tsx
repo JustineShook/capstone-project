@@ -1,7 +1,8 @@
 // app/(owner)/mechanic-booking/book-mechanic.tsx
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -16,8 +17,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { createBooking } from "../../../services/owner/bookingService";
 
 import { colors } from "../../../constants/owner/theme";
-import { MOCK_PROVIDERS } from "../../../data/owner/mockProviders";
+import { MockProvider } from "../../../data/owner/mockProviders";
 import { MOCK_VEHICLES } from "../../../data/owner/mockVehicles";
+import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 
 // General problem categories the owner picks from — the mechanic diagnoses
 // the exact repair/service on arrival, so this is intentionally coarse and
@@ -42,7 +44,22 @@ const PROBLEM_CATEGORIES = [
 
 export default function BookMechanicScreen() {
   const { providerId } = useLocalSearchParams<{ providerId: string }>();
-  const provider = MOCK_PROVIDERS.find((p) => p.id === providerId) ?? MOCK_PROVIDERS[0];
+  const [provider, setProvider] = useState<MockProvider | null>(null);
+  const [providerError, setProviderError] = useState("");
+
+  useEffect(() => {
+    if (!providerId) { setProviderError("No provider was selected."); return; }
+    getPublicProviderListing(providerId).then((listing) => {
+      if (!listing || listing.role !== "onsite-mechanic") { setProviderError("This mechanic is no longer available."); return; }
+      setProvider({ id: listing.providerId, name: listing.businessName, category: listing.category,
+        rating: listing.ratingSummary.average, reviewCount: listing.ratingSummary.count, distanceKm: 0,
+        startingPrice: listing.startingPrice == null ? "Price on assessment" : `₱${listing.startingPrice.toLocaleString()}`,
+        isPositiveStatus: listing.availability === "available", initials: listing.businessName.slice(0, 2).toUpperCase(),
+        color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
+        description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
+        emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
+    }).catch(() => setProviderError("Unable to load this provider."));
+  }, [providerId]);
 
   const defaultVehicle = MOCK_VEHICLES.find((v) => v.isPrimary) ?? MOCK_VEHICLES[0];
 
@@ -58,7 +75,7 @@ export default function BookMechanicScreen() {
 
   const selectedVehicle = MOCK_VEHICLES.find((v) => v.id === selectedVehicleId) ?? null;
   const isSelectedVehicleCompatible = selectedVehicle
-    ? provider.vehicleTypes.includes(selectedVehicle.vehicleType)
+    ? provider?.vehicleTypes.includes(selectedVehicle.vehicleType) ?? true
     : true;
 
   const canConfirm = !!selectedVehicle;
@@ -74,11 +91,21 @@ export default function BookMechanicScreen() {
   };
 
   const handleConfirm = async () => {
-  if (!canConfirm || !selectedVehicle) return;
+  if (!canConfirm || !selectedVehicle || !provider) return;
+
+  const permission = await Location.requestForegroundPermissionsAsync();
+  if (permission.status !== "granted") throw new Error("Location permission is required to send an onsite request.");
+  const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
 
   const booking = await createBooking({
     providerId: provider.id,
+    providerName: provider.name,
     vehicleId: selectedVehicle.id,
+    vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
+    vehicleYear: selectedVehicle.year,
+    vehiclePlate: selectedVehicle.plate,
+    latitude: currentLocation.coords.latitude,
+    longitude: currentLocation.coords.longitude,
     problem: selectedProblem ?? "Other / Unknown Problem",
     notes,
     startingPrice: provider.startingPrice,
@@ -92,6 +119,10 @@ export default function BookMechanicScreen() {
   });
 
 };
+
+  if (!provider) {
+    return <SafeAreaView style={styles.root}><View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Text style={styles.validationText}>{providerError || "Loading provider…"}</Text></View></SafeAreaView>;
+  }
 
   return (
     <View style={styles.root}>

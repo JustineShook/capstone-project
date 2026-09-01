@@ -19,8 +19,9 @@ import { createTowingBooking } from "../../../services/owner/towingService";
 import { buildDestinationMapHtml } from "../../../utils/owner/buildDestinationMapHtml";
 
 import { colors } from "../../../constants/owner/theme";
-import { MOCK_PROVIDERS } from "../../../data/owner/mockProviders";
+import { MockProvider } from "../../../data/owner/mockProviders";
 import { MOCK_VEHICLES } from "../../../data/owner/mockVehicles";
+import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 import { TOWING_TYPES, VEHICLE_CONDITIONS } from "../../../types/owner/towing";
 
 // Fallback center (Cebu City) shown before GPS resolves or if permission is denied.
@@ -35,7 +36,22 @@ type DestinationSuggestion = {
 
 export default function BookTowingScreen() {
   const { providerId } = useLocalSearchParams<{ providerId: string }>();
-  const provider = MOCK_PROVIDERS.find((p) => p.id === providerId) ?? MOCK_PROVIDERS[0];
+  const [provider, setProvider] = useState<MockProvider | null>(null);
+  const [providerError, setProviderError] = useState("");
+
+  useEffect(() => {
+    if (!providerId) { setProviderError("No provider was selected."); return; }
+    getPublicProviderListing(providerId).then((listing) => {
+      if (!listing || listing.role !== "towing-company") { setProviderError("This towing provider is no longer available."); return; }
+      setProvider({ id: listing.providerId, name: listing.businessName, category: listing.category,
+        rating: listing.ratingSummary.average, reviewCount: listing.ratingSummary.count, distanceKm: 0,
+        startingPrice: listing.startingPrice == null ? "Price on assessment" : `₱${listing.startingPrice.toLocaleString()}`,
+        isPositiveStatus: listing.availability === "available", initials: listing.businessName.slice(0, 2).toUpperCase(),
+        color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
+        description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
+        emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
+    }).catch(() => setProviderError("Unable to load this provider."));
+  }, [providerId]);
 
   const defaultVehicle = MOCK_VEHICLES.find((v) => v.isPrimary) ?? MOCK_VEHICLES[0];
 
@@ -61,6 +77,7 @@ export default function BookTowingScreen() {
   const [isLocating, setIsLocating] = useState(false);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [pickupCoordinates, setPickupCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
 
   // --- Destination map state (tap-to-select + autocomplete-driven) ------
   const destWebViewRef = useRef<WebView | null>(null);
@@ -79,6 +96,7 @@ export default function BookTowingScreen() {
 
   const canConfirm =
     !!selectedVehicle &&
+    !!pickupCoordinates &&
     pickupLocation.trim().length > 0 &&
     destination.trim().length > 0 &&
     !!selectedTowingType &&
@@ -166,6 +184,8 @@ export default function BookTowingScreen() {
       });
 
       const { latitude, longitude } = position.coords;
+
+      setPickupCoordinates({ latitude, longitude });
 
       await reverseGeocode(latitude, longitude);
     } catch {
@@ -272,11 +292,17 @@ export default function BookTowingScreen() {
   };
 
   const handleConfirm = async () => {
-    if (!canConfirm || !selectedVehicle || !selectedTowingType || !selectedCondition) return;
+    if (!canConfirm || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates) return;
 
     const booking = await createTowingBooking({
       providerId: provider.id,
+      providerName: provider.name,
       vehicleId: selectedVehicle.id,
+      vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
+      vehicleYear: selectedVehicle.year,
+      vehiclePlate: selectedVehicle.plate,
+      latitude: pickupCoordinates.latitude,
+      longitude: pickupCoordinates.longitude,
       pickupLocation,
       destination,
       towingType: selectedTowingType,
@@ -292,6 +318,10 @@ export default function BookTowingScreen() {
       },
     });
   };
+
+  if (!provider) {
+    return <SafeAreaView style={styles.root}><View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Text style={styles.validationText}>{providerError || "Loading provider…"}</Text></View></SafeAreaView>;
+  }
 
   return (
     <View style={styles.root}>
