@@ -803,7 +803,8 @@ export default function RequestDetailsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.completedBannerTitle}>Tow Completed</Text>
                 <Text style={styles.completedBannerText}>
-                  {request.customerName}'s vehicle was towed to {request.destination} for{" "}
+{request.customerName}
+{"'"}s vehicle was towed to {request.destination} for{" "}
                   {request.estimatedFee}.
                 </Text>
               </View>
@@ -1033,6 +1034,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: "center",
+  },
+  nextStepButtonDisabled: {
+    opacity: 0.75,
   },
   nextStepButtonText: {
     fontSize: 13,

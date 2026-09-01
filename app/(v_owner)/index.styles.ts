@@ -78,6 +78,38 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
+
+  locationBannerWrap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    zIndex: 5,
+  },
+  locationBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.busyLight,
+    borderWidth: 1,
+    borderColor: colors.busy,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  locationBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textPrimary,
+    lineHeight: 16,
+  },
+  locationBannerRetry: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: colors.busy,
+  },
   searchPlaceholder: { color: colors.textMuted, fontSize: 14 },
 
   locationRow: {

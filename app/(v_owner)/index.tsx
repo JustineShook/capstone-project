@@ -1,14 +1,14 @@
 // app/(owner)/index.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-    Animated,
-    PanResponder,
-    Pressable,
-    ScrollView,
-    StatusBar,
-    Text,
-    View,
+  Animated,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
@@ -18,15 +18,18 @@ import { StatusPill } from "../../components/owner/StatusPill";
 import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "../../constants/owner/bottomSheet";
 import { colors } from "../../constants/owner/theme";
 import {
-    CATEGORIES,
-    getCategoryBadge,
-    getCategoryIcon,
-    getServiceLabel,
-    MOCK_CENTER,
-    MOCK_LOCATION_LABEL,
-    MOCK_PROVIDERS,
-    ProviderCategory,
+  CATEGORIES,
+  getCategoryBadge,
+  getCategoryIcon,
+  getServiceLabel,
+  MOCK_CENTER,
+  MOCK_LOCATION_LABEL,
+  type MockProvider,
+  ProviderCategory,
 } from "../../data/owner/mockProviders";
+import { useMyLocation } from "../../hooks/useMyLocation";
+import { loadCustomerMapProviders } from "../../services/owner/providerMapService";
+import { haversineDistanceKm } from "../../utils/geo";
 import { buildMapHtml } from "../../utils/owner/buildMapHtml";
 import { styles } from "./index.styles";
 
@@ -36,18 +39,87 @@ import { styles } from "./index.styles";
 export default function OwnerDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<ProviderCategory>("All");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [providers, setProviders] = useState<MockProvider[]>([]);
+
+  // Real GPS position + permission/error state. `watch` keeps the user dot
+  // and distance values live as the user moves.
+  const { location: userLocation, error, refresh } = useMyLocation();
+
+  useEffect(() => {
+    let active = true;
+
+    loadCustomerMapProviders()
+      .then((nextProviders) => {
+        if (active) {
+          setProviders(nextProviders);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load customer map providers", error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredProviders =
     selectedCategory === "All"
-      ? MOCK_PROVIDERS
-      : MOCK_PROVIDERS.filter((p) => p.category === selectedCategory);
+      ? providers
+      : providers.filter((p) => p.category === selectedCategory);
 
-  const selectedProvider = MOCK_PROVIDERS.find((p) => p.id === selectedProviderId) ?? null;
+  useEffect(() => {
+    if (selectedProviderId && !filteredProviders.some((p) => p.id === selectedProviderId)) {
+      setSelectedProviderId(null);
+    }
+  }, [filteredProviders, selectedProviderId]);
+
+  const selectedProvider = filteredProviders.find((p) => p.id === selectedProviderId) ?? null;
+
+  // Real GPS wins as the map center when available; otherwise fall back to the
+  // provider average (existing behavior) or the mock center.
+  const mapCenter = useMemo(() => {
+    if (userLocation) {
+      return userLocation;
+    }
+    if (!filteredProviders.length) {
+      return MOCK_CENTER;
+    }
+
+    const averageLat =
+      filteredProviders.reduce((sum, provider) => sum + provider.lat, 0) / filteredProviders.length;
+    const averageLng =
+      filteredProviders.reduce((sum, provider) => sum + provider.lng, 0) / filteredProviders.length;
+
+    return { lat: averageLat, lng: averageLng };
+  }, [filteredProviders, userLocation]);
+
+  // Distance from the user's actual GPS position (Haversine). Falls back to
+  // the provider's static mock distance when GPS isn't available.
+  const distanceTo = (provider: MockProvider) =>
+    userLocation ? haversineDistanceKm(userLocation, provider) : provider.distanceKm;
 
   const mapHtml = useMemo(
-    () => buildMapHtml(MOCK_CENTER, filteredProviders, colors.primary),
-    [filteredProviders]
+    () => buildMapHtml(mapCenter, filteredProviders, colors.primary, userLocation),
+    [filteredProviders, mapCenter, userLocation]
   );
+
+  // ---- Live GPS dot bridge ----
+  const webViewRef = useRef<WebView>(null);
+
+  // Push GPS updates into the Leaflet page without a full WebView reload;
+  // `recenter = false` so we never yank the map away while the user pans.
+  useEffect(() => {
+    if (webViewRef.current && userLocation) {
+      webViewRef.current.injectJavaScript(
+        `window.updateUserLocation(${userLocation.lat}, ${userLocation.lng}, false); true;`
+      );
+    }
+  }, [userLocation]);
+
+  const handleRecenter = () => {
+    webViewRef.current?.injectJavaScript("window.recenterToUser(); true;");
+  };
 
   // ---- Draggable bottom sheet ----
   const sheetHeight = useRef(new Animated.Value(SHEET_MID)).current;
@@ -111,6 +183,7 @@ export default function OwnerDashboard() {
           and interactive even while a provider's details are expanded below */}
       <WebView
         key={selectedCategory}
+        ref={webViewRef}
         source={{ html: mapHtml }}
         style={styles.fullscreenMap}
         scrollEnabled={false}
@@ -143,9 +216,20 @@ export default function OwnerDashboard() {
         </View>
       </SafeAreaView>
 
-      {/* Recenter button — floats over the map, tracks the sheet as it's dragged */}
+      {/* Permission / GPS error banner — floats under the top overlay; tap to retry */}
+      {error && (
+        <View style={styles.locationBannerWrap}>
+          <Pressable style={styles.locationBanner} onPress={refresh}>
+            <Ionicons name="alert-circle" size={18} color={colors.busy} />
+            <Text style={styles.locationBannerText}>{error}</Text>
+            <Text style={styles.locationBannerRetry}>Retry</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Recenter button — moves the map onto the user's actual GPS position */}
       <Animated.View style={[styles.recenterButtonWrap, { bottom: floatingBottom }]}>
-        <Pressable style={styles.recenterButton}>
+        <Pressable style={styles.recenterButton} onPress={handleRecenter}>
           <Ionicons name="navigate-outline" size={18} color={colors.primary} />
         </Pressable>
       </Animated.View>
@@ -163,6 +247,7 @@ export default function OwnerDashboard() {
         {selectedProvider ? (
           <ProviderDetailCard
             provider={selectedProvider}
+            distanceKm={userLocation ? distanceTo(selectedProvider) : undefined}
             onClose={() => selectProvider(null)}
           />
         ) : (
@@ -225,11 +310,14 @@ export default function OwnerDashboard() {
               {filteredProviders.map((provider) => {
                 const isSelected = provider.id === selectedProviderId;
                 const badge = getCategoryBadge(provider.category);
+                const distanceKm = distanceTo(provider);
                 return (
                   <Pressable
                     key={provider.id}
                     style={[styles.listingCard, isSelected && styles.listingCardSelected]}
-                    onPress={() => selectProvider(provider.id)}
+                    onPress={() => {
+                      selectProvider(provider.id);
+                    }}
                   >
                     {/* Small rounded-square thumbnail on the left */}
                     <View style={[styles.listingThumb, { backgroundColor: provider.color }]}>
@@ -257,7 +345,7 @@ export default function OwnerDashboard() {
                         <Text style={styles.listingMetaTextMuted}>({provider.reviewCount})</Text>
                         <Text style={styles.listingMetaDot}>{"\u2022"}</Text>
                         <Ionicons name="navigate-outline" size={11} color={colors.textMuted} />
-                        <Text style={styles.listingMetaText}>{provider.distanceKm} km</Text>
+                        <Text style={styles.listingMetaText}>{distanceKm.toFixed(1)} km</Text>
                       </View>
 
                       <View style={styles.listingBottomRow}>

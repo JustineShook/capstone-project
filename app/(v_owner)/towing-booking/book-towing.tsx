@@ -115,7 +115,7 @@ export default function BookTowingScreen() {
       } else {
         setPickupLocation(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
       }
-    } catch (err) {
+    } catch {
       setPickupLocation(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
     } finally {
       setIsReverseGeocoding(false);
@@ -139,7 +139,7 @@ export default function BookTowingScreen() {
       } else {
         setDestination(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
       }
-    } catch (err) {
+    } catch {
       setDestination(`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
     } finally {
       setIsReverseGeocodingDestination(false);
@@ -168,7 +168,7 @@ export default function BookTowingScreen() {
       const { latitude, longitude } = position.coords;
 
       await reverseGeocode(latitude, longitude);
-    } catch (err) {
+    } catch {
       setLocationError(
         "Couldn't get your current location. You can type the pickup address manually below."
       );
@@ -202,7 +202,7 @@ export default function BookTowingScreen() {
         setDestinationSuggestions([]);
         reverseGeocodeDestination(data.lat, data.lng);
       }
-    } catch (err) {
+    } catch {
       // ignore malformed messages
     }
   };
@@ -235,12 +235,12 @@ export default function BookTowingScreen() {
           )}`,
           { headers: { Accept: "application/json" } }
         );
-        const data = (await response.json()) as Array<{
+        const data = (await response.json()) as {
           place_id: number | string;
           display_name: string;
           lat: string;
           lon: string;
-        }>;
+        }[];
         setDestinationSuggestions(
           data.map((item, index) => ({
             id: `${item.place_id ?? index}`,
@@ -249,7 +249,7 @@ export default function BookTowingScreen() {
             lng: parseFloat(item.lon),
           }))
         );
-      } catch (err) {
+      } catch {
         setDestinationSuggestions([]);
       } finally {
         setIsSearchingDestination(false);

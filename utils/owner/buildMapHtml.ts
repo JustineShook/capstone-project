@@ -7,7 +7,8 @@ import { MockProvider } from "../../data/owner/mockProviders";
 export function buildMapHtml(
   center: { lat: number; lng: number },
   providers: MockProvider[],
-  accentColor: string
+  accentColor: string,
+  userLocation?: { lat: number; lng: number } | null
 ) {
   const markerScript = providers
     .map(
@@ -27,6 +28,10 @@ export function buildMapHtml(
   `
     )
     .join("\n");
+
+  // Real GPS wins over the map-center placeholder; caller falls back to
+  // MOCK_CENTER when permission is missing/denied.
+  const userCenter = userLocation ?? center;
 
   return `
 <!DOCTYPE html>
@@ -84,7 +89,7 @@ export function buildMapHtml(
       attributionControl: false,
       dragging: true,
       scrollWheelZoom: false,
-    }).setView([${center.lat}, ${center.lng}], 14);
+    }).setView([${userCenter.lat}, ${userCenter.lng}], 14);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -96,7 +101,25 @@ export function buildMapHtml(
       iconSize: [26, 26],
       iconAnchor: [13, 13],
     });
-    L.marker([${center.lat}, ${center.lng}], { icon: currentIcon, zIndexOffset: 1000 }).addTo(map);
+    var currentMarker = L.marker([${userCenter.lat}, ${userCenter.lng}], {
+      icon: currentIcon,
+      zIndexOffset: 1000,
+    }).addTo(map);
+
+    // Bridge from React Native: move the live GPS dot and optionally recenter.
+    window.updateUserLocation = function(lat, lng, recenter) {
+      currentMarker.setLatLng([lat, lng]);
+      if (recenter) {
+        map.setView([lat, lng], map.getZoom());
+      }
+    };
+
+    // Bridge from React Native: move the map back onto the user.
+    window.recenterToUser = function() {
+      if (currentMarker) {
+        map.setView(currentMarker.getLatLng(), 14);
+      }
+    };
 
     ${markerScript}
   </script>

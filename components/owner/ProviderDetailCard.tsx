@@ -23,9 +23,11 @@ function renderStars(rating: number) {
 
 export function ProviderDetailCard({
   provider,
+  distanceKm,
   onClose,
 }: {
   provider: MockProvider;
+  distanceKm?: number;
   onClose: () => void;
 }) {
   const badge = getCategoryBadge(provider.category);
@@ -54,7 +56,7 @@ export function ProviderDetailCard({
               </Text>
               <Text style={styles.metaDot}>{"\u2022"}</Text>
               <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
-              <Text style={styles.metaText}>{provider.distanceKm} km</Text>
+              <Text style={styles.metaText}>{distanceKm?.toFixed(1) ?? provider.distanceKm} km</Text>
             </View>
             <StatusPill category={provider.category} isPositive={provider.isPositiveStatus} />
           </View>
