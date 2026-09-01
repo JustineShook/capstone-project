@@ -29,7 +29,7 @@ import {
 } from "../../data/owner/mockProviders";
 import { useMyLocation } from "../../hooks/useMyLocation";
 import { loadCustomerMapProviders } from "../../services/owner/providerMapService";
-import { haversineDistanceKm } from "../../utils/geo";
+import { estimateEtaMinutes, haversineDistanceKm } from "../../utils/geo";
 import { buildMapHtml } from "../../utils/owner/buildMapHtml";
 import { styles } from "./index.styles";
 
@@ -99,9 +99,23 @@ export default function OwnerDashboard() {
   const distanceTo = (provider: MockProvider) =>
     userLocation ? haversineDistanceKm(userLocation, provider) : provider.distanceKm;
 
+  // Route from the user's real GPS to the selected provider. Only exists when
+  // both a provider is selected AND GPS is available; otherwise the map shows
+  // no route (graceful fallback).
+  const route = useMemo(() => {
+    if (!selectedProvider || !userLocation) return null;
+    const distanceKm = haversineDistanceKm(userLocation, selectedProvider);
+    return {
+      from: userLocation,
+      to: { lat: selectedProvider.lat, lng: selectedProvider.lng },
+      distanceKm,
+      etaMinutes: estimateEtaMinutes(distanceKm),
+    };
+  }, [selectedProvider, userLocation]);
+
   const mapHtml = useMemo(
-    () => buildMapHtml(mapCenter, filteredProviders, colors.primary, userLocation),
-    [filteredProviders, mapCenter, userLocation]
+    () => buildMapHtml(mapCenter, filteredProviders, colors.primary, userLocation, route),
+    [filteredProviders, mapCenter, userLocation, route]
   );
 
   // ---- Live GPS dot bridge ----
@@ -116,6 +130,20 @@ export default function OwnerDashboard() {
       );
     }
   }, [userLocation]);
+
+  // Push route updates (or clear the route) whenever the selected provider or
+  // the user's GPS changes. Uses the same WebView JS bridge as the GPS dot.
+  useEffect(() => {
+    if (!webViewRef.current) return;
+
+    if (route) {
+      webViewRef.current.injectJavaScript(
+        `window.updateRoute(${route.from.lat}, ${route.from.lng}, ${route.to.lat}, ${route.to.lng}, ${route.distanceKm}, ${route.etaMinutes}); true;`
+      );
+    } else {
+      webViewRef.current.injectJavaScript("window.clearRoute(); true;");
+    }
+  }, [route]);
 
   const handleRecenter = () => {
     webViewRef.current?.injectJavaScript("window.recenterToUser(); true;");

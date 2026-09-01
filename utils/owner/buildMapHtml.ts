@@ -4,11 +4,20 @@ import { MockProvider } from "../../data/owner/mockProviders";
 // ---------------------------------------------------------------------------
 // LEAFLET MAP HTML (real OSM tiles inside a WebView — no API key needed)
 // ---------------------------------------------------------------------------
+
+export interface MapRoute {
+  from: { lat: number; lng: number };
+  to: { lat: number; lng: number };
+  distanceKm: number;
+  etaMinutes: number;
+}
+
 export function buildMapHtml(
   center: { lat: number; lng: number },
   providers: MockProvider[],
   accentColor: string,
-  userLocation?: { lat: number; lng: number } | null
+  userLocation?: { lat: number; lng: number } | null,
+  route?: MapRoute | null
 ) {
   const markerScript = providers
     .map(
@@ -32,6 +41,30 @@ export function buildMapHtml(
   // Real GPS wins over the map-center placeholder; caller falls back to
   // MOCK_CENTER when permission is missing/denied.
   const userCenter = userLocation ?? center;
+
+  // Initial route polyline + midpoint label (only when a route is provided).
+  const initialRouteScript = route
+    ? `
+    var routeLine = L.polyline(
+      [[${route.from.lat}, ${route.from.lng}], [${route.to.lat}, ${route.to.lng}]],
+      { color: '${accentColor}', weight: 3, dashArray: '6,6', opacity: 0.9 }
+    ).addTo(map);
+
+    var routeLabel = L.marker(
+      [${(route.from.lat + route.to.lat) / 2}, ${(route.from.lng + route.to.lng) / 2}],
+      {
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="route-label">${route.distanceKm.toFixed(1)} km · ~${route.etaMinutes} min</div>',
+          iconSize: [0, 0],
+        }),
+      }
+    ).addTo(map);
+  `
+    : `
+    var routeLine = null;
+    var routeLabel = null;
+  `;
 
   return `
 <!DOCTYPE html>
@@ -78,6 +111,18 @@ export function buildMapHtml(
       box-shadow: 0 1px 4px rgba(0,0,0,0.25);
     }
     .provider-pin-dot { width: 10px; height: 10px; border-radius: 5px; }
+
+    .route-label {
+      background: #1A1A1A;
+      color: #fff;
+      font-family: -apple-system, sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    }
   </style>
 </head>
 <body>
@@ -121,6 +166,45 @@ export function buildMapHtml(
       }
     };
 
+    // Bridge from React Native: draw/update the route line + distance/ETA label.
+    window.updateRoute = function(fromLat, fromLng, toLat, toLng, distanceKm, etaMinutes) {
+      if (routeLine) {
+        routeLine.setLatLngs([[fromLat, fromLng], [toLat, toLng]]);
+      } else {
+        routeLine = L.polyline(
+          [[fromLat, fromLng], [toLat, toLng]],
+          { color: '${accentColor}', weight: 3, dashArray: '6,6', opacity: 0.9 }
+        ).addTo(map);
+      }
+
+      var midLat = (fromLat + toLat) / 2;
+      var midLng = (fromLng + toLng) / 2;
+      var labelHtml = '<div class="route-label">' + distanceKm.toFixed(1) + ' km · ~' + etaMinutes + ' min</div>';
+
+      if (routeLabel) {
+        routeLabel.setLatLng([midLat, midLng]);
+        routeLabel.setIcon(L.divIcon({ className: '', html: labelHtml, iconSize: [0, 0] }));
+      } else {
+        routeLabel = L.marker([midLat, midLng], {
+          icon: L.divIcon({ className: '', html: labelHtml, iconSize: [0, 0] }),
+        }).addTo(map);
+      }
+    };
+
+    // Bridge from React Native: remove the route when no provider is selected
+    // or GPS becomes unavailable.
+    window.clearRoute = function() {
+      if (routeLine) {
+        map.removeLayer(routeLine);
+        routeLine = null;
+      }
+      if (routeLabel) {
+        map.removeLayer(routeLabel);
+        routeLabel = null;
+      }
+    };
+
+    ${initialRouteScript}
     ${markerScript}
   </script>
 </body>

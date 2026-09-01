@@ -35,3 +35,16 @@ export function haversineDistanceKm(a: LatLng, b: LatLng): number {
 
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
+
+/**
+ * Rough ETA estimate from straight-line distance.
+ *
+ * Assumes ~30 km/h average city driving (deliberately conservative for
+ * urban traffic). Returns whole minutes with a minimum of 1 so the UI
+ * never shows "0 min". This is a Phase 2A placeholder — a real road
+ * routing API (e.g. OSRM) can replace it later without changing callers.
+ */
+export function estimateEtaMinutes(distanceKm: number, averageSpeedKmh = 30): number {
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return 1;
+  return Math.max(1, Math.round((distanceKm / averageSpeedKmh) * 60));
+}
