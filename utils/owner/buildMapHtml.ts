@@ -116,8 +116,8 @@ export function buildMapHtml(
       background: #1A1A1A;
       color: #fff;
       font-family: -apple-system, sans-serif;
-      font-size: 11px;
-      font-weight: 700;
+      font-size: 12px;
+      font-weight: 600;
       padding: 3px 8px;
       border-radius: 999px;
       white-space: nowrap;

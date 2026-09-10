@@ -19,7 +19,7 @@ import { auth } from "../../services/firebase";
 import { updatePublicProviderListing } from "../../services/publicProviderListingService";
 import type { PublicProviderListingInput } from "../../types/providerListing";
 
-type ProviderRole = "onsite-mechanic" | "towing-company";
+type ProviderRole = "onsite-mechanic" | "towing-company" | "shop-owner";
 type Availability = PublicProviderListingInput["availability"];
 
 interface Props {
@@ -89,7 +89,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
   );
   const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const serviceOptions = role === "onsite-mechanic" ? MECHANIC_SERVICES : TOWING_SERVICES;
+  const serviceOptions = role === "towing-company" ? TOWING_SERVICES : MECHANIC_SERVICES;
   const vehicleTypeOptions = role === "onsite-mechanic" ? MECHANIC_VEHICLE_TYPES : TOWING_VEHICLE_TYPES;
 
   const toggle = (value: string, values: string[], setValues: (next: string[]) => void) => {
@@ -139,7 +139,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
       return;
     }
     if (!isValidLocation(location)) {
-      Alert.alert("Location required", "Use your current GPS location before saving.");
+      Alert.alert("Location required", role === "shop-owner" ? "Set your shop coordinates in Profile before publishing." : "Use your current GPS location before saving.");
       return;
     }
     const publicArea = serviceAreaLabel.trim();
@@ -220,12 +220,14 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         <Text style={styles.label}>PUBLIC BUSINESS NAME</Text>
         <TextInput
           value={businessName}
+          editable={role !== "shop-owner"}
           onChangeText={setBusinessName}
           maxLength={120}
           placeholder="Name shown to customers"
           style={styles.input}
         />
 
+        {role === "shop-owner" ? <Text style={styles.intro}>Your shop name and location come from Profile. Open/Closed availability is managed from Home. Customers bring their vehicles for emergency repairs.</Text> : <>
         <Text style={styles.label}>AVAILABILITY</Text>
         <View style={styles.options}>
           {AVAILABILITY.map((option) => (
@@ -245,8 +247,9 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             </TouchableOpacity>
           ))}
         </View>
+        </>}
 
-        <Text style={styles.label}>{role === "towing-company" ? "TOWING SERVICES" : "MECHANIC SERVICES"}</Text>
+        <Text style={styles.label}>{role === "towing-company" ? "TOWING SERVICES" : role === "shop-owner" ? "SHOP SERVICES" : "MECHANIC SERVICES"}</Text>
         <View style={styles.chips}>
           {serviceOptions.map((option) => {
             const selected = services.includes(option);
@@ -298,6 +301,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           style={styles.input}
         />
 
+        {role !== "shop-owner" && <>
         <Text style={styles.label}>EMERGENCY SERVICE AVAILABLE</Text>
         <View style={styles.options}>
           {[true, false].map((option) => (
@@ -312,6 +316,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             </TouchableOpacity>
           ))}
         </View>
+        </>}
 
         <Text style={styles.label}>PUBLIC SERVICE LOCATION</Text>
         <View style={styles.locationCard}>
@@ -329,7 +334,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             )}
           </View>
         </View>
-        <TouchableOpacity
+        {role !== "shop-owner" && <TouchableOpacity
           style={styles.locationButton}
           onPress={() => void handleUseCurrentLocation()}
           disabled={locating || saving}
@@ -340,7 +345,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             <Feather name="crosshair" size={17} color={COLORS.primary} />
           )}
           <Text style={styles.locationButtonText}>Use My Current Location</Text>
-        </TouchableOpacity>
+        </TouchableOpacity>}
 
         <TouchableOpacity
           style={[styles.saveButton, (saving || locating) && styles.disabled]}

@@ -40,7 +40,7 @@ export default function TowingBookingConfirmationScreen() {
     return (
       <View style={styles.loadingRoot}>
         <Text style={styles.notFoundText}>This request could not be found.</Text>
-        <Pressable style={styles.homeButton} onPress={() => router.push("/")}>
+        <Pressable style={styles.homeButton} onPress={() => router.replace("/(v_owner)")}>
           <Text style={styles.homeButtonText}>Back to Home</Text>
         </Pressable>
       </View>
@@ -107,8 +107,14 @@ export default function TowingBookingConfirmationScreen() {
         )}
 
         <View style={styles.card}>
-          <Text style={styles.cardLabel}>Starting Price</Text>
-          <Text style={styles.cardValue}>{booking.startingPrice}</Text>
+          <Text style={styles.cardLabel}>Estimated Towing Price</Text>
+            <Text style={styles.cardValue}>₱{(booking.estimatedTotalPrice ?? booking.estimatedPrice ?? 0).toLocaleString("en-PH")}</Text>
+            <Text style={styles.cardSubvalue}>Estimated trip distance: {booking.totalDistanceKm.toFixed(1)} km</Text>
+            {typeof booking.basePrice === "number" && <>
+              <Text style={styles.cardSubvalue}>Base fee: ₱{booking.basePrice.toLocaleString("en-PH")}</Text>
+              <Text style={styles.cardSubvalue}>Rate: ₱{booking.pricePerKm.toLocaleString("en-PH")}/km</Text>
+              <Text style={styles.cardSubvalue}>Distance charge: ₱{booking.distanceCharge.toLocaleString("en-PH")}</Text>
+            </>}
         </View>
 
         <View style={styles.card}>
@@ -129,7 +135,7 @@ export default function TowingBookingConfirmationScreen() {
         >
           <Text style={styles.viewRequestButtonText}>View Request</Text>
         </Pressable>
-        <Pressable style={styles.homeButton} onPress={() => router.push("/")}>
+        <Pressable style={styles.homeButton} onPress={() => router.replace("/(v_owner)")}>
           <Text style={styles.homeButtonText}>Back to Home</Text>
         </Pressable>
       </SafeAreaView>
@@ -140,7 +146,7 @@ export default function TowingBookingConfirmationScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.white },
   loadingRoot: { flex: 1, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
-  notFoundText: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
+  notFoundText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: "center" },
 
   content: { padding: 24, paddingTop: 48, alignItems: "center" },
 
@@ -153,9 +159,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 16,
   },
-  title: { fontSize: 20, fontWeight: "800", color: colors.textPrimary, marginBottom: 6 },
+  title: { fontSize: 24, fontWeight: "700", color: colors.textPrimary, marginBottom: 6 },
   subtitle: {
     fontSize: 13,
+    lineHeight: 19,
     color: colors.textSecondary,
     textAlign: "center",
     marginBottom: 24,
@@ -169,9 +176,9 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
-  cardLabel: { fontSize: 11, fontWeight: "700", color: colors.textMuted, marginBottom: 4, textTransform: "uppercase" },
-  cardValue: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
-  cardSubvalue: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  cardLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 },
+  cardValue: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  cardSubvalue: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
 
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   metaText: { fontSize: 12, color: colors.textSecondary },
@@ -179,7 +186,7 @@ const styles = StyleSheet.create({
 
   statusRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.rating },
-  statusText: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
+  statusText: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
 
   footer: { paddingHorizontal: 16, paddingTop: 8, gap: 10 },
   viewRequestButton: {
@@ -188,7 +195,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
   },
-  viewRequestButtonText: { fontSize: 14, fontWeight: "800", color: colors.white },
+  viewRequestButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   homeButton: {
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -197,5 +204,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
-  homeButtonText: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  homeButtonText: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
 });

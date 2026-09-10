@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, runTransaction, setDoc } from "firebase/firestore";
 
 import type { ProviderListing, PublicProviderListingInput } from "../types/providerListing";
 import { db } from "./firebase";
@@ -24,7 +24,7 @@ export async function updatePublicProviderListing(
 ): Promise<void> {
   const category: ProviderListing["category"] = role === "onsite-mechanic"
     ? "Onsite Mechanics"
-    : "Towing";
+    : role === "shop-owner" ? "Auto Shops" : "Towing";
 
   const listing: ProviderListing = {
     providerId: uid,
@@ -46,5 +46,21 @@ export async function updatePublicProviderListing(
     emergencyServiceAvailable: input.emergencyServiceAvailable,
   };
 
+  if (role === "shop-owner") {
+    await runTransaction(db, async (transaction) => {
+      const profile = (await transaction.get(doc(db, "providers", uid))).data();
+      if (profile?.uid !== uid || profile.role !== "shop-owner" || profile.verified !== true) {
+        throw new Error("Your shop must be approved before publishing a listing.");
+      }
+      transaction.set(publicProviderListingRef(uid), {
+        ...listing,
+        businessName: profile.businessName,
+        location: { latitude: profile.latitude, longitude: profile.longitude },
+        availability: profile.status === "open" ? "available" : "offline",
+        emergencyServiceAvailable: true,
+      });
+    });
+    return;
+  }
   await setDoc(publicProviderListingRef(uid), listing);
 }

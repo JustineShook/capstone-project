@@ -18,8 +18,9 @@ import { createBooking } from "../../../services/owner/bookingService";
 
 import { colors } from "../../../constants/owner/theme";
 import { MockProvider } from "../../../data/owner/mockProviders";
-import { MOCK_VEHICLES } from "../../../data/owner/mockVehicles";
+import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
+import type { SavedVehicle } from "../../../types/owner/vehicle";
 
 // General problem categories the owner picks from — the mechanic diagnoses
 // the exact repair/service on arrival, so this is intentionally coarse and
@@ -61,21 +62,34 @@ export default function BookMechanicScreen() {
     }).catch(() => setProviderError("Unable to load this provider."));
   }, [providerId]);
 
-  const defaultVehicle = MOCK_VEHICLES.find((v) => v.isPrimary) ?? MOCK_VEHICLES[0];
-
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
-    defaultVehicle?.id ?? null
-  );
+  const [vehicles, setVehicles] = useState<SavedVehicle[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehicleError, setVehicleError] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [isVehicleModalVisible, setVehicleModalVisible] = useState(false);
+
+  useEffect(() => {
+    try {
+      return subscribeToMyVehicles((items) => {
+        setVehicles(items);
+        setSelectedVehicleId((current) => current && items.some((item) => item.vehicleId === current)
+          ? current : items[0]?.vehicleId ?? null);
+        setVehiclesLoading(false);
+      }, (error) => { setVehicleError(error.message); setVehiclesLoading(false); });
+    } catch (error) {
+      setVehicleError((error as Error).message);
+      setVehiclesLoading(false);
+    }
+  }, []);
 
   const [selectedProblem, setSelectedProblem] = useState<string | null>(null);
   const [isProblemModalVisible, setProblemModalVisible] = useState(false);
 
   const [notes, setNotes] = useState("");
 
-  const selectedVehicle = MOCK_VEHICLES.find((v) => v.id === selectedVehicleId) ?? null;
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.vehicleId === selectedVehicleId) ?? null;
   const isSelectedVehicleCompatible = selectedVehicle
-    ? provider?.vehicleTypes.includes(selectedVehicle.vehicleType) ?? true
+    ? provider?.vehicleTypes.includes(selectedVehicle.type) ?? true
     : true;
 
   const canConfirm = !!selectedVehicle;
@@ -100,10 +114,10 @@ export default function BookMechanicScreen() {
   const booking = await createBooking({
     providerId: provider.id,
     providerName: provider.name,
-    vehicleId: selectedVehicle.id,
+    vehicleId: selectedVehicle.vehicleId,
     vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
     vehicleYear: selectedVehicle.year,
-    vehiclePlate: selectedVehicle.plate,
+    vehiclePlate: selectedVehicle.plateNumber,
     latitude: currentLocation.coords.latitude,
     longitude: currentLocation.coords.longitude,
     problem: selectedProblem ?? "Other / Unknown Problem",
@@ -129,7 +143,10 @@ export default function BookMechanicScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={10}>
+          <Pressable
+            onPress={() => router.replace("/(v_owner)")}
+            hitSlop={10}
+          >
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Book Mechanic</Text>
@@ -161,15 +178,15 @@ export default function BookMechanicScreen() {
         {selectedVehicle ? (
           <Pressable style={styles.selectedCard} onPress={() => setVehicleModalVisible(true)}>
             <View
-              style={[styles.vehicleCardThumb, { backgroundColor: selectedVehicle.thumbColor }]}
+              style={[styles.vehicleCardThumb, { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.vehicleCardThumbText}>{selectedVehicle.initials}</Text>
+              <Text style={styles.vehicleCardThumbText}>{`${selectedVehicle.make[0] ?? ""}${selectedVehicle.model[0] ?? ""}`.toUpperCase()}</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.selectedCardTitle}>
                 {selectedVehicle.year} {selectedVehicle.make} {selectedVehicle.model}
               </Text>
-              <Text style={styles.selectedCardSubtitle}>{selectedVehicle.vehicleType}</Text>
+              <Text style={styles.selectedCardSubtitle}>{selectedVehicle.type} · {selectedVehicle.plateNumber}</Text>
               {!isSelectedVehicleCompatible && (
                 <View style={styles.compatibilityRow}>
                   <Ionicons name="alert-circle-outline" size={12} color={colors.rating} />
@@ -183,9 +200,13 @@ export default function BookMechanicScreen() {
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         ) : (
-          <Pressable style={styles.emptyCard} onPress={() => setVehicleModalVisible(true)}>
+          <Pressable style={styles.emptyCard} onPress={() => {
+            if (vehiclesLoading) return;
+            if (vehicles.length) setVehicleModalVisible(true);
+            else router.push("/(v_owner)/vehicle");
+          }}>
             <Ionicons name="car-outline" size={18} color={colors.primary} />
-            <Text style={styles.emptyCardText}>Select a vehicle</Text>
+            <Text style={styles.emptyCardText}>{vehiclesLoading ? "Loading your vehicles..." : vehicleError || "Add a vehicle in My Vehicles"}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         )}
@@ -263,22 +284,22 @@ export default function BookMechanicScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
-            {MOCK_VEHICLES.map((vehicle) => {
-              const isSelected = vehicle.id === selectedVehicleId;
+            {vehiclesLoading ? <Text style={styles.validationText}>Loading your vehicles...</Text> : vehicles.length === 0 ? <Text style={styles.validationText}>{vehicleError || "No saved vehicles. Add one from My Vehicles first."}</Text> : vehicles.map((vehicle) => {
+              const isSelected = vehicle.vehicleId === selectedVehicleId;
               return (
                 <Pressable
-                  key={vehicle.id}
+                  key={vehicle.vehicleId}
                   style={[styles.modalOptionCard, isSelected && styles.modalOptionCardSelected]}
-                  onPress={() => handleSelectVehicle(vehicle.id)}
+                  onPress={() => handleSelectVehicle(vehicle.vehicleId)}
                 >
-                  <View style={[styles.vehicleCardThumb, { backgroundColor: vehicle.thumbColor }]}>
-                    <Text style={styles.vehicleCardThumbText}>{vehicle.initials}</Text>
+                  <View style={[styles.vehicleCardThumb, { backgroundColor: colors.primary }]}>
+                    <Text style={styles.vehicleCardThumbText}>{`${vehicle.make[0] ?? ""}${vehicle.model[0] ?? ""}`.toUpperCase()}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.selectedCardTitle}>
                       {vehicle.year} {vehicle.make} {vehicle.model}
                     </Text>
-                    <Text style={styles.selectedCardSubtitle}>{vehicle.vehicleType}</Text>
+                    <Text style={styles.selectedCardSubtitle}>{vehicle.type} · {vehicle.plateNumber}</Text>
                   </View>
                   {isSelected && (
                     <View style={styles.checkCircle}>
@@ -344,7 +365,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
   },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   content: { padding: 16, paddingBottom: 24 },
 
   providerCard: {
@@ -352,14 +373,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt, borderRadius: 14, padding: 12, marginBottom: 20,
   },
   avatar: { width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.white, fontWeight: "800", fontSize: 14 },
-  providerName: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
+  avatarText: { color: colors.white, fontWeight: "700", fontSize: 14 },
+  providerName: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
-  metaText: { fontSize: 12, color: colors.textSecondary },
+  metaText: { fontSize: 12.5, color: colors.textSecondary },
   metaDot: { fontSize: 12, color: colors.textMuted },
 
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: colors.textPrimary, marginBottom: 4, marginTop: 4 },
-  sectionSubtitle: { fontSize: 12, color: colors.textMuted, marginBottom: 10 },
+  sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
+  sectionSubtitle: { fontSize: 12.5, lineHeight: 18, color: colors.textSecondary, marginBottom: 10 },
 
   // Generic "current selection" card — reused for both Vehicle and Problem
   selectedCard: {
@@ -372,9 +393,9 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: colors.surfaceAlt,
   },
-  selectedCardTitle: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
-  selectedCardSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  changeLabel: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  selectedCardTitle: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  selectedCardSubtitle: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
+  changeLabel: { fontSize: 12.5, fontWeight: "600", color: colors.primary },
 
   emptyCard: {
     flexDirection: "row",
@@ -386,10 +407,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
-  emptyCardText: { flex: 1, fontSize: 13, fontWeight: "600", color: colors.primary },
+  emptyCardText: { flex: 1, fontSize: 14.5, fontWeight: "500", color: colors.primary },
 
   vehicleCardThumb: { width: 42, height: 42, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  vehicleCardThumbText: { color: colors.white, fontWeight: "800", fontSize: 13 },
+  vehicleCardThumbText: { color: colors.white, fontWeight: "700", fontSize: 13 },
   problemIconWrap: {
     width: 38,
     height: 38,
@@ -399,11 +420,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   compatibilityRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  compatibilityText: { fontSize: 11, color: colors.rating, flexShrink: 1 },
+  compatibilityText: { fontSize: 12, lineHeight: 17, color: colors.rating, flexShrink: 1 },
 
   notesInput: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 12,
-    padding: 12, fontSize: 13, color: colors.textPrimary,
+    padding: 12, fontSize: 14, lineHeight: 20, color: colors.textPrimary,
     minHeight: 80, textAlignVertical: "top",
   },
 
@@ -412,9 +433,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 12,
   },
   priceRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
-  priceLabel: { fontSize: 12, color: colors.textMuted },
-  priceValue: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
-  validationText: { fontSize: 12, color: colors.rating, marginBottom: 8, textAlign: "center" },
+  priceLabel: { fontSize: 12.5, color: colors.textSecondary },
+  priceValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+  validationText: { fontSize: 12.5, lineHeight: 18, color: colors.rating, marginBottom: 8, textAlign: "center" },
   confirmButton: {
     backgroundColor: colors.primary, borderRadius: 14,
     paddingVertical: 14, alignItems: "center", marginBottom: 8,
@@ -422,7 +443,7 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     backgroundColor: colors.border,
   },
-  confirmButtonText: { fontSize: 14, fontWeight: "800", color: colors.white },
+  confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   confirmButtonTextDisabled: { color: colors.textMuted },
 
   // Shared bottom-sheet modal (Vehicle + Problem)
@@ -452,7 +473,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 14,
   },
-  modalTitle: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   modalList: { gap: 10, paddingBottom: 20 },
 
   modalOptionCard: {

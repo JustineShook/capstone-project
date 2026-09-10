@@ -118,7 +118,10 @@ export default function BookingDetailScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={10}>
+          <Pressable
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)/history")}
+            hitSlop={10}
+          >
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Request Status</Text>
@@ -438,9 +441,9 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
   },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   loadingRoot: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  notFoundText: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
+  notFoundText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: "center" },
 
   // Fixed (non-scrolling) section: provider card + status.
   fixedTop: {
@@ -459,9 +462,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt, borderRadius: 14, padding: 12, marginBottom: 20,
   },
   avatar: { width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.white, fontWeight: "800", fontSize: 14 },
-  providerName: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
-  problemText: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  avatarText: { color: colors.white, fontWeight: "700", fontSize: 14 },
+  providerName: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  problemText: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
   providerActionsRow: {
     flexDirection: "row",
     gap: 8,
@@ -475,12 +478,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: colors.textPrimary, marginBottom: 12, marginTop: 4 },
+  sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 12, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
 
   statusBlock: { marginBottom: 4 },
   currentStatusText: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: colors.primary,
     marginBottom: 14,
   },
@@ -534,7 +537,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: "center",
   },
-  progressStepLabelCurrent: { color: colors.primary, fontWeight: "800" },
+  progressStepLabelCurrent: { color: colors.primary, fontWeight: "700" },
   progressStepLabelDone: { color: colors.textSecondary, fontWeight: "600" },
 
   cancelledBadge: {
@@ -547,7 +550,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
-  cancelledBadgeText: { color: colors.white, fontSize: 13, fontWeight: "800" },
+  cancelledBadgeText: { color: colors.white, fontSize: 12, fontWeight: "600" },
 
   // --- Rating ---
   ratingCard: {
@@ -557,9 +560,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     alignItems: "center",
   },
-  ratingCardTitle: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
+  ratingCardTitle: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
   ratingCardSubtitle: {
-    fontSize: 12,
+    fontSize: 12.5,
+    lineHeight: 18,
     color: colors.textSecondary,
     marginTop: 4,
     textAlign: "center",
@@ -579,7 +583,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: 12,
-    fontSize: 13,
+    fontSize: 14,
+    lineHeight: 20,
     color: colors.textPrimary,
     textAlignVertical: "top",
     marginBottom: 14,
@@ -597,11 +602,12 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     color: colors.white,
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: 15,
+    fontWeight: "700",
   },
   submittedCommentText: {
-    fontSize: 13,
+    fontSize: 12.5,
+    lineHeight: 18,
     color: colors.textSecondary,
     fontStyle: "italic",
     textAlign: "center",
@@ -616,9 +622,11 @@ const styles = StyleSheet.create({
   },
   detailCardTitle: {
     fontSize: 13,
-    fontWeight: "800",
-    color: colors.textPrimary,
+    fontWeight: "600",
+    color: colors.textSecondary,
     marginBottom: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   detailRow: {
     flexDirection: "row",
@@ -633,14 +641,14 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   detailLabel: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.textSecondary,
     width: 90,
   },
   detailValue: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: "700",
+    fontSize: 12.5,
+    fontWeight: "500",
     color: colors.textPrimary,
     textAlign: "right",
   },

@@ -268,7 +268,7 @@ export default function TowingRequestsScreen() {
       vehicleYear: item.vehicleYear, plateNumber: item.vehiclePlate, requestType: item.towingType,
       problemDescription: item.vehicleCondition, pickupLocation: item.pickupLocation,
       pickupAddress: item.pickupLocation, destination: item.destination, destinationAddress: item.destination,
-      distanceKm: 0, estimatedFee: item.startingPrice,
+      distanceKm: item.totalDistanceKm, estimatedFee: `₱${(item.estimatedTotalPrice ?? item.estimatedPrice ?? 0).toLocaleString("en-PH")}`,
       status: item.status === "pending" ? "PENDING" : item.status === "completed" ? "COMPLETED" : item.status === "rejected" ? "DECLINED" : item.status === "cancelled" ? "CANCELLED" : item.status === "in_progress" ? "IN_PROGRESS" : "ACCEPTED",
       requestedAt: new Date(item.createdAt).toLocaleString(), priority: "MEDIUM", latitude: item.latitude, longitude: item.longitude };
   }))), []);

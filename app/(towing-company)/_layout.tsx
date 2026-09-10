@@ -71,6 +71,7 @@ export default function TowingCompanyLayout() {
         options={{ href: null }}
       />
       <Tabs.Screen name="public-listing" options={{ href: null }} />
+      <Tabs.Screen name="towing-pricing" options={{ href: null }} />
       <Tabs.Screen
         name="request-details"
         options={{

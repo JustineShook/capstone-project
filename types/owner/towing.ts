@@ -107,6 +107,20 @@ export interface TowingBookingRequest {
   vehiclePlate: string;
   latitude: number;
   longitude: number;
+  providerLatitude: number;
+  providerLongitude: number;
+  destinationLatitude: number;
+  destinationLongitude: number;
+  providerToPickupDistanceKm: number;
+  pickupToDestinationDistanceKm: number;
+  totalDistanceKm: number;
+  basePrice: number;
+  pricePerKm: number;
+  distanceCharge: number;
+  estimatedTotalPrice: number;
+  /** Legacy bracket-pricing fields retained when reading historical bookings. */
+  pricingBracketId?: string;
+  estimatedPrice?: number;
   pickupLocation: string;
   destination: string;
   towingType: string;

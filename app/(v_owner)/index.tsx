@@ -29,7 +29,7 @@ import {
   ProviderCategory,
 } from "../../data/owner/mockProviders";
 import { useMyLocation } from "../../hooks/useMyLocation";
-import { loadCustomerMapProviders } from "../../services/owner/providerMapService";
+import { loadCustomerMapProviders, subscribeToCustomerMapShops } from "../../services/owner/providerMapService";
 import { estimateEtaMinutes, haversineDistanceKm } from "../../utils/geo";
 import { buildMapHtml } from "../../utils/owner/buildMapHtml";
 import { styles } from "./index.styles";
@@ -41,6 +41,8 @@ export default function OwnerDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<ProviderCategory>("All");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [providers, setProviders] = useState<MockProvider[]>([]);
+  const [shops, setShops] = useState<MockProvider[]>([]);
+  const [shopError, setShopError] = useState<string | null>(null);
 
   // Real GPS position + permission/error state. `watch` keeps the user dot
   // and distance values live as the user moves.
@@ -49,11 +51,17 @@ export default function OwnerDashboard() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      setShopError(null);
+      const stopShops = subscribeToCustomerMapShops((items) => {
+        if (active) { setShops(items); setShopError(null); }
+      }, () => {
+        if (active) { setShops([]); setShopError("Unable to load Auto Shops. Return to Home to try again."); }
+      });
 
       loadCustomerMapProviders()
         .then((nextProviders) => {
           if (active) {
-            setProviders(nextProviders);
+            setProviders(nextProviders.filter((provider) => provider.category !== "Auto Shops"));
           }
         })
         .catch((error) => {
@@ -62,14 +70,16 @@ export default function OwnerDashboard() {
 
       return () => {
         active = false;
+        stopShops();
       };
     }, [])
   );
 
+  const allProviders = [...providers, ...shops];
   const filteredProviders =
     selectedCategory === "All"
-      ? providers
-      : providers.filter((p) => p.category === selectedCategory);
+      ? allProviders
+      : allProviders.filter((p) => p.category === selectedCategory);
 
   useEffect(() => {
     if (selectedProviderId && !filteredProviders.some((p) => p.id === selectedProviderId)) {
@@ -336,6 +346,9 @@ export default function OwnerDashboard() {
               <Text style={styles.sectionTitle}>Nearby Providers</Text>
               <Text style={styles.listingCount}>{filteredProviders.length} found</Text>
             </View>
+
+            {(selectedCategory === "Auto Shops" || selectedCategory === "All") && shopError && <Text style={styles.listingMetaTextMuted}>{shopError}</Text>}
+            {selectedCategory === "Auto Shops" && !shopError && shops.length === 0 && <Text style={styles.listingMetaTextMuted}>No approved shops are currently open for emergency requests.</Text>}
 
             <View style={styles.listingList}>
               {filteredProviders.map((provider) => {

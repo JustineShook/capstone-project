@@ -414,7 +414,7 @@ export default function RequestDetailsScreen() {
         vehicleYear: item.vehicleYear, vehicleType: "Vehicle", requestType: item.towingType,
         problem: item.vehicleCondition + (item.notes ? ` — ${item.notes}` : ""), pickupLocation: item.pickupLocation,
         pickupAddress: item.pickupLocation, destination: item.destination, destinationAddress: item.destination,
-        distanceKm: 0, estimatedFee: item.startingPrice,
+        distanceKm: item.totalDistanceKm, estimatedFee: `₱${(item.estimatedTotalPrice ?? item.estimatedPrice ?? 0).toLocaleString("en-PH")}`,
         status: item.status === "pending" ? "PENDING" : item.status === "accepted" ? "ACCEPTED" : item.status === "en_route" ? "EN_ROUTE" : item.status === "arrived" ? "ARRIVED" : item.status === "in_progress" ? "IN_PROGRESS" : item.status === "completed" ? "COMPLETED" : item.status === "rejected" ? "DECLINED" : "CANCELLED",
         priority: "MEDIUM", latitude: item.latitude, longitude: item.longitude });
     });

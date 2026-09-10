@@ -1,7 +1,6 @@
 // app/(onsite-mechanic)/profile.tsx
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { signOut } from "firebase/auth";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { logout } from "../../services/auth";
 import { auth } from "../../services/firebase";
 import { getProviderProfile } from "../../services/providerProfileService";
 import type { OnsiteMechanicProviderProfile, VerificationStatus } from "../../types/onsiteMechanicProfile";
@@ -30,6 +30,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<OnsiteMechanicProviderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   const loadProfile = useCallback(async () => {
     const user = auth.currentUser;
@@ -60,10 +61,23 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
-      { text: "Log Out", style: "destructive", onPress: () => {
-        signOut(auth).catch(() => Alert.alert("Error", "Could not log out. Please try again."));
-      } },
+      { text: "Log Out", style: "destructive", onPress: () => void performLogout() },
     ]);
+  };
+
+  const performLogout = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await logout();
+      setProfile(null);
+      setError(null);
+      router.replace("/(auth)/login");
+    } catch (cause) {
+      Alert.alert("Log Out Failed", (cause as Error)?.message ?? "Please try again.");
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const openVerification = () => router.push("/(onsite-mechanic)/verification");
@@ -107,7 +121,7 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </Section>
           )}
-          <Section heading="ACCOUNT"><TouchableOpacity style={styles.logoutRow} onPress={handleLogout}><Feather name="log-out" size={16} color={COLORS.primary} /><Text style={styles.logoutText}>Logout</Text></TouchableOpacity></Section>
+          <Section heading="ACCOUNT"><TouchableOpacity style={styles.logoutRow} onPress={handleLogout} disabled={signingOut}>{signingOut ? <ActivityIndicator color={COLORS.primary} /> : <><Feather name="log-out" size={16} color={COLORS.primary} /><Text style={styles.logoutText}>Logout</Text></>}</TouchableOpacity></Section>
         </ScrollView>
       )}
     </SafeAreaView>

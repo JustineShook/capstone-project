@@ -1,6 +1,7 @@
 // components/ProviderDetailCard.tsx
 
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { router } from "expo-router";
@@ -14,6 +15,7 @@ import {
   MockProvider,
   supportsBooking,
 } from "../../data/owner/mockProviders";
+import { getTowingPricing } from "../../services/towingPricingService";
 import { StatusPill } from "./StatusPill";
 
 function renderStars(rating: number) {
@@ -31,7 +33,35 @@ export function ProviderDetailCard({
   onClose: () => void;
 }) {
   const badge = getCategoryBadge(provider.category);
-  const showBookButton = supportsBooking(provider.category);
+  const showBookButton = supportsBooking(provider.category)
+    && (provider.category !== "Auto Shops" || (provider.isPositiveStatus && provider.emergencyServiceAvailable === true));
+  const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
+  const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (provider.category !== "Towing") {
+      setTowingBasePrice(null);
+      setIsLoadingTowingPrice(false);
+      return () => { active = false; };
+    }
+
+    setIsLoadingTowingPrice(true);
+    getTowingPricing(provider.id)
+      .then((pricing) => {
+        if (active) {
+          setTowingBasePrice(pricing && Number.isFinite(pricing.basePrice) ? pricing.basePrice : null);
+        }
+      })
+      .catch(() => {
+        if (active) setTowingBasePrice(null);
+      })
+      .finally(() => {
+        if (active) setIsLoadingTowingPrice(false);
+      });
+
+    return () => { active = false; };
+  }, [provider.category, provider.id]);
 
   return (
     <View style={styles.card}>
@@ -130,8 +160,18 @@ export function ProviderDetailCard({
 
         {/* Price */}
         <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Starting price</Text>
-          <Text style={styles.priceValue}>Starts at {provider.startingPrice}</Text>
+          <Text style={styles.priceLabel}>
+            {provider.category === "Towing" ? "Base Price" : "Starting price"}
+          </Text>
+          <Text style={styles.priceValue}>
+            {provider.category === "Towing"
+              ? isLoadingTowingPrice
+                ? "Loading..."
+                : towingBasePrice == null
+                  ? "Not configured"
+                  : `₱${towingBasePrice.toLocaleString("en-PH")}`
+              : `Starts at ${provider.startingPrice}`}
+          </Text>
         </View>
 
         {/* Reviews */}
@@ -170,7 +210,9 @@ export function ProviderDetailCard({
               onPress={() =>
                 router.push({
                   pathname:
-                    provider.category === "Towing"
+                    provider.category === "Auto Shops"
+                      ? "/(v_owner)/shop-booking/book-shop"
+                      : provider.category === "Towing"
                       ? "../towing-booking/book-towing"
                       : "../mechanic-booking/book-mechanic",
                   params: {
@@ -179,7 +221,7 @@ export function ProviderDetailCard({
                 })
               }
             >
-              <Text style={styles.bookButtonText}>Book Service</Text>
+              <Text style={styles.bookButtonText}>{provider.category === "Auto Shops" ? "Request Emergency Repair" : "Book Service"}</Text>
             </Pressable>
           )}
         </View>
@@ -212,11 +254,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { color: colors.white, fontWeight: "800", fontSize: 16 },
+  avatarText: { color: colors.white, fontWeight: "700", fontSize: 16 },
   headerInfo: { flex: 1, gap: 4 },
-  name: { fontSize: 17, fontWeight: "800", color: colors.textPrimary },
+  name: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { fontSize: 12, color: colors.textSecondary },
+  metaText: { fontSize: 12.5, color: colors.textSecondary },
   metaDot: { fontSize: 12, color: colors.textMuted },
   closeButton: { padding: 4 },
 
@@ -234,18 +276,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  tagText: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  tagText: { fontSize: 12, fontWeight: "600", color: colors.primary },
 
   sectionLabel: {
     fontSize: 13,
-    fontWeight: "800",
-    color: colors.textPrimary,
+    fontWeight: "600",
+    color: colors.textSecondary,
     marginBottom: 6,
     marginTop: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   description: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12.5,
+    lineHeight: 18,
     color: colors.textSecondary,
     marginBottom: 16,
   },
@@ -258,7 +302,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.primary,
   },
-  serviceText: { fontSize: 13, color: colors.textSecondary },
+  serviceText: { fontSize: 12.5, color: colors.textSecondary },
 
   vehicleTypesRow: {
     flexDirection: "row",
@@ -275,7 +319,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
-  vehicleTypeText: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
+  vehicleTypeText: { fontSize: 12.5, fontWeight: "500", color: colors.textPrimary },
 
   hoursRow: {
     flexDirection: "row",
@@ -283,7 +327,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 16,
   },
-  hoursText: { fontSize: 13, color: colors.textSecondary },
+  hoursText: { fontSize: 12.5, color: colors.textSecondary },
 
   priceRow: {
     flexDirection: "row",
@@ -295,8 +339,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 16,
   },
-  priceLabel: { fontSize: 12, color: colors.textMuted },
-  priceValue: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
+  priceLabel: { fontSize: 12.5, color: colors.textSecondary },
+  priceValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
 
   reviewsSummaryRow: {
     flexDirection: "row",
@@ -304,8 +348,8 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 12,
   },
-  reviewsSummaryRating: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
-  reviewsSummaryCount: { fontSize: 12, color: colors.textMuted },
+  reviewsSummaryRating: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  reviewsSummaryCount: { fontSize: 12.5, color: colors.textSecondary },
 
   reviewsList: { gap: 10, marginBottom: 16 },
   reviewCard: {
@@ -315,10 +359,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   reviewStars: { fontSize: 13, color: colors.rating, letterSpacing: 1 },
-  reviewComment: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  reviewComment: { fontSize: 12.5, color: colors.textSecondary, lineHeight: 18 },
   reviewFooterRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
-  reviewAuthor: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
-  reviewDate: { fontSize: 12, color: colors.textMuted },
+  reviewAuthor: { fontSize: 12.5, fontWeight: "500", color: colors.textPrimary },
+  reviewDate: { fontSize: 12, color: colors.textSecondary },
 
   actionsRow: {
     flexDirection: "row",
@@ -348,7 +392,7 @@ const styles = StyleSheet.create({
   messageButtonWide: {
     flex: 2.4,
   },
-  messageButtonText: { fontSize: 13, fontWeight: "700", color: colors.primary },
+  messageButtonText: { fontSize: 15, fontWeight: "700", color: colors.primary },
   bookButton: {
     flex: 1.4,
     alignItems: "center",
@@ -357,5 +401,5 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: colors.primary,
   },
-  bookButtonText: { fontSize: 13, fontWeight: "800", color: colors.white },
+  bookButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
 });

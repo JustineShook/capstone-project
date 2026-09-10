@@ -2,9 +2,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -16,13 +18,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import WebView, { WebViewMessageEvent } from "react-native-webview";
 import { createTowingBooking } from "../../../services/owner/towingService";
+import { getTowingPricing } from "../../../services/towingPricingService";
+import type { TowingPricingConfig } from "../../../types/towingPricing";
+import { haversineDistanceKm } from "../../../utils/geo";
 import { buildDestinationMapHtml } from "../../../utils/owner/buildDestinationMapHtml";
 
 import { colors } from "../../../constants/owner/theme";
 import { MockProvider } from "../../../data/owner/mockProviders";
-import { MOCK_VEHICLES } from "../../../data/owner/mockVehicles";
+import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 import { TOWING_TYPES, VEHICLE_CONDITIONS } from "../../../types/owner/towing";
+import type { SavedVehicle } from "../../../types/owner/vehicle";
 
 // Fallback center (Cebu City) shown before GPS resolves or if permission is denied.
 const DEFAULT_CENTER = { lat: 10.3157, lng: 123.8854 };
@@ -34,10 +40,23 @@ type DestinationSuggestion = {
   lng: number;
 };
 
+type PhotonFeature = {
+  geometry?: { coordinates?: [number, number] };
+  properties?: Record<string, string | number | undefined>;
+};
+
+function photonLabel(properties: PhotonFeature["properties"]) {
+  if (!properties) return "Selected location";
+  const parts = [properties.name, properties.housenumber, properties.street, properties.district,
+    properties.city, properties.county, properties.state, properties.country];
+  return [...new Set(parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0))].join(", ");
+}
+
 export default function BookTowingScreen() {
   const { providerId } = useLocalSearchParams<{ providerId: string }>();
   const [provider, setProvider] = useState<MockProvider | null>(null);
   const [providerError, setProviderError] = useState("");
+  const [pricingConfig, setPricingConfig] = useState<TowingPricingConfig | null>(null);
 
   useEffect(() => {
     if (!providerId) { setProviderError("No provider was selected."); return; }
@@ -51,14 +70,28 @@ export default function BookTowingScreen() {
         description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
         emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
     }).catch(() => setProviderError("Unable to load this provider."));
+    getTowingPricing(providerId).then(setPricingConfig).catch(() => setProviderError("Unable to load this provider's towing pricing."));
   }, [providerId]);
 
-  const defaultVehicle = MOCK_VEHICLES.find((v) => v.isPrimary) ?? MOCK_VEHICLES[0];
-
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
-    defaultVehicle?.id ?? null
-  );
+  const [vehicles, setVehicles] = useState<SavedVehicle[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(true);
+  const [vehicleError, setVehicleError] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [isVehicleModalVisible, setVehicleModalVisible] = useState(false);
+
+  useEffect(() => {
+    try {
+      return subscribeToMyVehicles((items) => {
+        setVehicles(items);
+        setSelectedVehicleId((current) => current && items.some((item) => item.vehicleId === current)
+          ? current : items[0]?.vehicleId ?? null);
+        setVehiclesLoading(false);
+      }, (error) => { setVehicleError(error.message); setVehiclesLoading(false); });
+    } catch (error) {
+      setVehicleError((error as Error).message);
+      setVehiclesLoading(false);
+    }
+  }, []);
 
   // Pickup location — string state kept exactly as before so createTowingBooking()
   // keeps working unchanged.
@@ -78,6 +111,12 @@ export default function BookTowingScreen() {
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [pickupCoordinates, setPickupCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [destinationCoordinates, setDestinationCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [pickupSuggestions, setPickupSuggestions] = useState<DestinationSuggestion[]>([]);
+  const [isSearchingPickup, setIsSearchingPickup] = useState(false);
+  const [showPickupSuggestions, setShowPickupSuggestions] = useState(false);
+  const pickupSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickupSearchController = useRef<AbortController | null>(null);
 
   // --- Destination map state (tap-to-select + autocomplete-driven) ------
   const destWebViewRef = useRef<WebView | null>(null);
@@ -91,12 +130,41 @@ export default function BookTowingScreen() {
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false);
   const destinationSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const destinationSearchController = useRef<AbortController | null>(null);
+  const [destinationSearchMessage, setDestinationSearchMessage] = useState("");
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
 
-  const selectedVehicle = MOCK_VEHICLES.find((v) => v.id === selectedVehicleId) ?? null;
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.vehicleId === selectedVehicleId) ?? null;
+  const distanceEstimate = useMemo(() => {
+    if (!provider || !pickupCoordinates || !destinationCoordinates) return null;
+    const providerToPickupDistanceKm = haversineDistanceKm(
+      { lat: provider.lat, lng: provider.lng },
+      { lat: pickupCoordinates.latitude, lng: pickupCoordinates.longitude }
+    );
+    const pickupToDestinationDistanceKm = haversineDistanceKm(
+      { lat: pickupCoordinates.latitude, lng: pickupCoordinates.longitude },
+      { lat: destinationCoordinates.latitude, lng: destinationCoordinates.longitude }
+    );
+    return { providerToPickupDistanceKm, pickupToDestinationDistanceKm,
+      totalDistanceKm: providerToPickupDistanceKm + pickupToDestinationDistanceKm };
+  }, [destinationCoordinates, pickupCoordinates, provider]);
+  const pricingEstimate = useMemo(() => {
+    if (!distanceEstimate || !pricingConfig) return null;
+    const totalDistanceKm = Number(distanceEstimate.totalDistanceKm.toFixed(2));
+    const distanceCharge = Number((totalDistanceKm * pricingConfig.pricePerKm).toFixed(2));
+    return {
+      ...pricingConfig,
+      totalDistanceKm,
+      distanceCharge,
+      estimatedTotalPrice: Number((pricingConfig.basePrice + distanceCharge).toFixed(2)),
+    };
+  }, [distanceEstimate, pricingConfig]);
 
   const canConfirm =
     !!selectedVehicle &&
     !!pickupCoordinates &&
+    !!destinationCoordinates &&
+    !!pricingEstimate &&
     pickupLocation.trim().length > 0 &&
     destination.trim().length > 0 &&
     !!selectedTowingType &&
@@ -186,6 +254,8 @@ export default function BookTowingScreen() {
       const { latitude, longitude } = position.coords;
 
       setPickupCoordinates({ latitude, longitude });
+      setPickupSuggestions([]);
+      setShowPickupSuggestions(false);
 
       await reverseGeocode(latitude, longitude);
     } catch {
@@ -218,8 +288,10 @@ export default function BookTowingScreen() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data?.type === "select" && typeof data.lat === "number" && typeof data.lng === "number") {
+        Keyboard.dismiss();
         setShowDestinationSuggestions(false);
         setDestinationSuggestions([]);
+        setDestinationCoordinates({ latitude: data.lat, longitude: data.lng });
         reverseGeocodeDestination(data.lat, data.lng);
       }
     } catch {
@@ -237,48 +309,83 @@ export default function BookTowingScreen() {
     }
   };
 
-  // --- Destination autocomplete (OpenStreetMap Nominatim, no API key) --
+  const fetchLocationSuggestions = useCallback(async (
+    query: string,
+    controllerRef: React.MutableRefObject<AbortController | null>,
+  ) => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const bias = pickupCoordinates
+      ? `&lat=${pickupCoordinates.latitude}&lon=${pickupCoordinates.longitude}`
+      : `&lat=${DEFAULT_CENTER.lat}&lon=${DEFAULT_CENTER.lng}`;
+    const response = await fetch(
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(query.trim())}&limit=5&lang=en${bias}`,
+      { headers: { Accept: "application/json" }, signal: controller.signal },
+    );
+    if (!response.ok) throw new Error(`Location search failed (${response.status}).`);
+    const data = (await response.json()) as { features?: PhotonFeature[] };
+    return (data.features ?? []).flatMap((feature, index) => {
+      const coordinates = feature.geometry?.coordinates;
+      if (!coordinates || !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1])) return [];
+      return [{
+        id: `${feature.properties?.osm_type ?? "place"}-${feature.properties?.osm_id ?? index}`,
+        label: photonLabel(feature.properties),
+        lat: coordinates[1],
+        lng: coordinates[0],
+      }];
+    });
+  }, [pickupCoordinates]);
+
   const searchDestination = useCallback((query: string) => {
     if (destinationSearchTimeout.current) clearTimeout(destinationSearchTimeout.current);
-
+    destinationSearchController.current?.abort();
+    setDestinationSearchMessage("");
     if (query.trim().length < 3) {
       setDestinationSuggestions([]);
+      setIsSearchingDestination(false);
       return;
     }
-
     destinationSearchTimeout.current = setTimeout(async () => {
       try {
         setIsSearchingDestination(true);
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&addressdetails=0&limit=5&q=${encodeURIComponent(
-            query
-          )}`,
-          { headers: { Accept: "application/json" } }
-        );
-        const data = (await response.json()) as {
-          place_id: number | string;
-          display_name: string;
-          lat: string;
-          lon: string;
-        }[];
-        setDestinationSuggestions(
-          data.map((item, index) => ({
-            id: `${item.place_id ?? index}`,
-            label: item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon),
-          }))
-        );
-      } catch {
-        setDestinationSuggestions([]);
+        const results = await fetchLocationSuggestions(query, destinationSearchController);
+        setDestinationSuggestions(results);
+        setDestinationSearchMessage(results.length ? "" : "No matching locations found.");
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          setDestinationSuggestions([]);
+          setDestinationSearchMessage("Location search is unavailable. Try again or tap the map.");
+        }
       } finally {
         setIsSearchingDestination(false);
       }
-    }, 500);
-  }, []);
+    }, 650);
+  }, [fetchLocationSuggestions]);
+
+  const searchPickup = useCallback((query: string) => {
+    if (pickupSearchTimeout.current) clearTimeout(pickupSearchTimeout.current);
+    pickupSearchController.current?.abort();
+    if (query.trim().length < 3) {
+      setPickupSuggestions([]);
+      setIsSearchingPickup(false);
+      return;
+    }
+    pickupSearchTimeout.current = setTimeout(async () => {
+      try {
+        setIsSearchingPickup(true);
+        setPickupSuggestions(await fetchLocationSuggestions(query, pickupSearchController));
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") setPickupSuggestions([]);
+      } finally {
+        setIsSearchingPickup(false);
+      }
+    }, 650);
+  }, [fetchLocationSuggestions]);
 
   const handleDestinationChange = (text: string) => {
     setDestination(text);
+    setDestinationCoordinates(null);
     setShowDestinationSuggestions(true);
     searchDestination(text);
   };
@@ -288,27 +395,62 @@ export default function BookTowingScreen() {
     setDestination(item.label);
     setDestinationSuggestions([]);
     setShowDestinationSuggestions(false);
+    setDestinationCoordinates({ latitude: item.lat, longitude: item.lng });
     moveDestinationMarker(item.lat, item.lng, 16);
+    Keyboard.dismiss();
   };
 
+  const handlePickupChange = (text: string) => {
+    setPickupLocation(text);
+    setPickupCoordinates(null);
+    setShowPickupSuggestions(true);
+    searchPickup(text);
+  };
+
+  const handleSelectPickup = (item: DestinationSuggestion) => {
+    setPickupLocation(item.label);
+    setPickupCoordinates({ latitude: item.lat, longitude: item.lng });
+    setPickupSuggestions([]);
+    setShowPickupSuggestions(false);
+    Keyboard.dismiss();
+  };
+
+  useEffect(() => () => {
+    if (pickupSearchTimeout.current) clearTimeout(pickupSearchTimeout.current);
+    if (destinationSearchTimeout.current) clearTimeout(destinationSearchTimeout.current);
+    pickupSearchController.current?.abort();
+    destinationSearchController.current?.abort();
+  }, []);
+
   const handleConfirm = async () => {
-    if (!canConfirm || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates) return;
+    if (!canConfirm || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates || !destinationCoordinates || !distanceEstimate || !pricingEstimate) return;
 
     const booking = await createTowingBooking({
       providerId: provider.id,
       providerName: provider.name,
-      vehicleId: selectedVehicle.id,
+      vehicleId: selectedVehicle.vehicleId,
       vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
       vehicleYear: selectedVehicle.year,
-      vehiclePlate: selectedVehicle.plate,
+      vehiclePlate: selectedVehicle.plateNumber,
       latitude: pickupCoordinates.latitude,
       longitude: pickupCoordinates.longitude,
+      providerLatitude: provider.lat,
+      providerLongitude: provider.lng,
+      destinationLatitude: destinationCoordinates.latitude,
+      destinationLongitude: destinationCoordinates.longitude,
+      providerToPickupDistanceKm: Number(distanceEstimate.providerToPickupDistanceKm.toFixed(2)),
+      pickupToDestinationDistanceKm: Number(distanceEstimate.pickupToDestinationDistanceKm.toFixed(2)),
+      totalDistanceKm: pricingEstimate.totalDistanceKm,
+      basePrice: pricingEstimate.basePrice,
+      pricePerKm: pricingEstimate.pricePerKm,
+      distanceCharge: pricingEstimate.distanceCharge,
+      estimatedTotalPrice: pricingEstimate.estimatedTotalPrice,
       pickupLocation,
       destination,
       towingType: selectedTowingType,
       vehicleCondition: selectedCondition,
       notes,
-      startingPrice: provider.startingPrice,
+      startingPrice: `₱${pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}`,
     });
 
     router.push({
@@ -328,7 +470,10 @@ export default function BookTowingScreen() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} hitSlop={10}>
+          <Pressable
+            onPress={() => router.replace("/(v_owner)")}
+            hitSlop={10}
+          >
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Book Towing</Text>
@@ -340,6 +485,8 @@ export default function BookTowingScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        scrollEnabled={!isMapInteracting}
       >
         {/* Provider summary */}
         <View style={styles.providerCard}>
@@ -364,23 +511,27 @@ export default function BookTowingScreen() {
         {selectedVehicle ? (
           <Pressable style={styles.selectedCard} onPress={() => setVehicleModalVisible(true)}>
             <View
-              style={[styles.vehicleCardThumb, { backgroundColor: selectedVehicle.thumbColor }]}
+              style={[styles.vehicleCardThumb, { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.vehicleCardThumbText}>{selectedVehicle.initials}</Text>
+              <Text style={styles.vehicleCardThumbText}>{`${selectedVehicle.make[0] ?? ""}${selectedVehicle.model[0] ?? ""}`.toUpperCase()}</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.selectedCardTitle}>
                 {selectedVehicle.year} {selectedVehicle.make} {selectedVehicle.model}
               </Text>
-              <Text style={styles.selectedCardSubtitle}>{selectedVehicle.vehicleType}</Text>
+              <Text style={styles.selectedCardSubtitle}>{selectedVehicle.type} · {selectedVehicle.plateNumber}</Text>
             </View>
             <Text style={styles.changeLabel}>Change</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         ) : (
-          <Pressable style={styles.emptyCard} onPress={() => setVehicleModalVisible(true)}>
+          <Pressable style={styles.emptyCard} onPress={() => {
+            if (vehiclesLoading) return;
+            if (vehicles.length) setVehicleModalVisible(true);
+            else router.push("/(v_owner)/vehicle");
+          }}>
             <Ionicons name="car-outline" size={18} color={colors.primary} />
-            <Text style={styles.emptyCardText}>Select a vehicle</Text>
+            <Text style={styles.emptyCardText}>{vehiclesLoading ? "Loading your vehicles..." : vehicleError || "Add a vehicle in My Vehicles"}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         )}
@@ -417,11 +568,23 @@ export default function BookTowingScreen() {
         {/* Manual fallback — also used when permission is denied */}
         <TextInput
           style={[styles.textInput, { marginTop: 8 }]}
-          placeholder="Or type the pickup address manually"
+          placeholder="Search for a pickup location"
           placeholderTextColor={colors.textMuted}
           value={pickupLocation}
-          onChangeText={setPickupLocation}
+          onChangeText={handlePickupChange}
+          onFocus={() => setShowPickupSuggestions(true)}
         />
+        {isSearchingPickup ? <Text style={styles.suggestionHint}>Searching pickup locations...</Text> : null}
+        {showPickupSuggestions && pickupSuggestions.length > 0 ? (
+          <View style={styles.inlineSuggestionList}>
+            {pickupSuggestions.map((item) => (
+              <Pressable key={item.id} style={styles.suggestionItem} onPress={() => handleSelectPickup(item)}>
+                <Ionicons name="location-outline" size={16} color={colors.primary} />
+                <Text style={styles.suggestionText} numberOfLines={2}>{item.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
 
         {/* Destination — address autocomplete + tap-to-select map */}
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Destination</Text>
@@ -439,7 +602,7 @@ export default function BookTowingScreen() {
             <Text style={styles.suggestionHint}>Searching...</Text>
           )}
           {showDestinationSuggestions && destinationSuggestions.length > 0 && (
-            <View style={styles.suggestionList}>
+            <View style={styles.inlineSuggestionList}>
               {destinationSuggestions.map((item) => (
                 <Pressable
                   key={item.id}
@@ -454,7 +617,17 @@ export default function BookTowingScreen() {
               ))}
             </View>
           )}
+          {!isSearchingDestination && showDestinationSuggestions && destinationSearchMessage ? (
+            <Text style={styles.searchMessage}>{destinationSearchMessage}</Text>
+          ) : null}
         </View>
+
+        {destinationCoordinates ? (
+          <View style={styles.selectedLocationRow}>
+            <Ionicons name="checkmark-circle" size={17} color={colors.success} />
+            <Text style={styles.selectedLocationText} numberOfLines={2}>{destination}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.destMapWrapper}>
           <WebView
@@ -465,8 +638,13 @@ export default function BookTowingScreen() {
             javaScriptEnabled
             domStorageEnabled
             startInLoadingState
+            nestedScrollEnabled
+            overScrollMode="never"
             onMessage={handleDestMapMessage}
             onLoadEnd={handleDestMapLoadEnd}
+            onTouchStart={() => setIsMapInteracting(true)}
+            onTouchEnd={() => setIsMapInteracting(false)}
+            onTouchCancel={() => setIsMapInteracting(false)}
           />
         </View>
         <Text style={styles.mapHintText}>
@@ -536,11 +714,17 @@ export default function BookTowingScreen() {
       {/* Confirm bar */}
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
         <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Starting price</Text>
-          <Text style={styles.priceValue}>Starts at {provider.startingPrice}</Text>
+          <Text style={styles.priceLabel}>Base towing fee</Text>
+          <Text style={styles.priceValue}>{pricingConfig ? `₱${pricingConfig.basePrice.toLocaleString("en-PH")}` : "Not configured"}</Text>
         </View>
+        {pricingEstimate && <>
+          <View style={styles.priceRow}><Text style={styles.priceLabel}>Estimated distance</Text><Text style={styles.priceValue}>{pricingEstimate.totalDistanceKm.toFixed(2)} km</Text></View>
+          <View style={styles.priceRow}><Text style={styles.priceLabel}>Rate</Text><Text style={styles.priceValue}>₱{pricingEstimate.pricePerKm.toLocaleString("en-PH")}/km</Text></View>
+          <View style={styles.priceRow}><Text style={styles.priceLabel}>Distance charge</Text><Text style={styles.priceValue}>₱{pricingEstimate.distanceCharge.toLocaleString("en-PH")}</Text></View>
+          <View style={styles.priceRow}><Text style={styles.priceLabel}>Estimated total</Text><Text style={styles.priceValue}>₱{pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}</Text></View>
+        </>}
         {!canConfirm && (
-          <Text style={styles.validationText}>Please fill in all fields above.</Text>
+          <Text style={styles.validationText}>{!pricingConfig ? "This provider has not configured towing pricing yet." : "Please fill in all fields and select a mapped destination."}</Text>
         )}
         <Pressable
           style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
@@ -571,22 +755,22 @@ export default function BookTowingScreen() {
           </View>
 
           <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
-            {MOCK_VEHICLES.map((vehicle) => {
-              const isSelected = vehicle.id === selectedVehicleId;
+            {vehiclesLoading ? <Text style={styles.validationText}>Loading your vehicles...</Text> : vehicles.length === 0 ? <Text style={styles.validationText}>{vehicleError || "No saved vehicles. Add one from My Vehicles first."}</Text> : vehicles.map((vehicle) => {
+              const isSelected = vehicle.vehicleId === selectedVehicleId;
               return (
                 <Pressable
-                  key={vehicle.id}
+                  key={vehicle.vehicleId}
                   style={[styles.modalOptionCard, isSelected && styles.modalOptionCardSelected]}
-                  onPress={() => handleSelectVehicle(vehicle.id)}
+                  onPress={() => handleSelectVehicle(vehicle.vehicleId)}
                 >
-                  <View style={[styles.vehicleCardThumb, { backgroundColor: vehicle.thumbColor }]}>
-                    <Text style={styles.vehicleCardThumbText}>{vehicle.initials}</Text>
+                  <View style={[styles.vehicleCardThumb, { backgroundColor: colors.primary }]}>
+                    <Text style={styles.vehicleCardThumbText}>{`${vehicle.make[0] ?? ""}${vehicle.model[0] ?? ""}`.toUpperCase()}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.selectedCardTitle}>
                       {vehicle.year} {vehicle.make} {vehicle.model}
                     </Text>
-                    <Text style={styles.selectedCardSubtitle}>{vehicle.vehicleType}</Text>
+                    <Text style={styles.selectedCardSubtitle}>{vehicle.type} · {vehicle.plateNumber}</Text>
                   </View>
                   {isSelected && (
                     <View style={styles.checkCircle}>
@@ -694,7 +878,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
   },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   content: { padding: 16, paddingBottom: 24 },
 
   providerCard: {
@@ -702,14 +886,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt, borderRadius: 14, padding: 12, marginBottom: 20,
   },
   avatar: { width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.white, fontWeight: "800", fontSize: 14 },
-  providerName: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
+  avatarText: { color: colors.white, fontWeight: "700", fontSize: 14 },
+  providerName: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
-  metaText: { fontSize: 12, color: colors.textSecondary },
+  metaText: { fontSize: 12.5, color: colors.textSecondary },
   metaDot: { fontSize: 12, color: colors.textMuted },
 
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: colors.textPrimary, marginBottom: 4, marginTop: 4 },
-  sectionSubtitle: { fontSize: 12, color: colors.textMuted, marginBottom: 10 },
+  sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
+  sectionSubtitle: { fontSize: 12.5, lineHeight: 18, color: colors.textSecondary, marginBottom: 10 },
 
   // Generic "current selection" card — reused for Vehicle, Towing Type, Condition
   selectedCard: {
@@ -722,9 +906,9 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: colors.surfaceAlt,
   },
-  selectedCardTitle: { fontSize: 13, fontWeight: "700", color: colors.textPrimary },
-  selectedCardSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  changeLabel: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  selectedCardTitle: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  selectedCardSubtitle: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
+  changeLabel: { fontSize: 12.5, fontWeight: "600", color: colors.primary },
 
   emptyCard: {
     flexDirection: "row",
@@ -736,10 +920,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 14,
   },
-  emptyCardText: { flex: 1, fontSize: 13, fontWeight: "600", color: colors.primary },
+  emptyCardText: { flex: 1, fontSize: 14.5, fontWeight: "500", color: colors.primary },
 
   vehicleCardThumb: { width: 42, height: 42, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  vehicleCardThumbText: { color: colors.white, fontWeight: "800", fontSize: 13 },
+  vehicleCardThumbText: { color: colors.white, fontWeight: "700", fontSize: 13 },
   optionIconWrap: {
     width: 38,
     height: 38,
@@ -751,7 +935,7 @@ const styles = StyleSheet.create({
 
   textInput: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 12,
-    padding: 12, fontSize: 13, color: colors.textPrimary,
+    padding: 12, fontSize: 14, lineHeight: 20, color: colors.textPrimary,
   },
   notesInput: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 12,
@@ -772,8 +956,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: 10,
   },
-  useCurrentLocationText: { fontSize: 12, fontWeight: "700", color: colors.primary },
-  locationErrorText: { fontSize: 12, color: colors.rating, marginTop: 8 },
+  useCurrentLocationText: { fontSize: 12.5, fontWeight: "600", color: colors.primary },
+  locationErrorText: { fontSize: 12.5, lineHeight: 18, color: colors.rating, marginTop: 8 },
   addressCard: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -783,29 +967,20 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 10,
   },
-  addressLabel: { fontSize: 11, fontWeight: "700", color: colors.textMuted, marginBottom: 2 },
-  addressValue: { fontSize: 13, fontWeight: "600", color: colors.textPrimary },
+  addressLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: 2 },
+  addressValue: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
 
   // --- Destination autocomplete ---
-  autocompleteWrapper: { position: "relative", zIndex: 10 },
-  suggestionHint: { fontSize: 11, color: colors.textMuted, marginTop: 6 },
-  suggestionList: {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    right: 0,
-    marginTop: 4,
+  autocompleteWrapper: { position: "relative" },
+  suggestionHint: { fontSize: 12, lineHeight: 17, color: colors.textSecondary, marginTop: 6 },
+  inlineSuggestionList: {
+    marginTop: 6,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
     paddingVertical: 4,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    zIndex: 20,
+    overflow: "hidden",
   },
   suggestionItem: {
     flexDirection: "row",
@@ -814,11 +989,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
-  suggestionText: { flex: 1, fontSize: 12, color: colors.textPrimary },
+  suggestionText: { flex: 1, fontSize: 12.5, color: colors.textPrimary },
+  searchMessage: { fontSize: 12, lineHeight: 17, color: colors.textSecondary, marginTop: 7 },
+  selectedLocationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: colors.successLight,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginTop: 8,
+  },
+  selectedLocationText: { flex: 1, fontSize: 12.5, fontWeight: "500", color: colors.textPrimary },
 
   // --- Destination map ---
   destMapWrapper: {
-    height: 200,
+    height: 280,
     borderRadius: 14,
     overflow: "hidden",
     borderWidth: 1,
@@ -826,16 +1013,16 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   destMap: { ...StyleSheet.absoluteFillObject },
-  mapHintText: { fontSize: 11, color: colors.textMuted, marginTop: 6 },
+  mapHintText: { fontSize: 12, lineHeight: 17, color: colors.textSecondary, marginTop: 6 },
 
   footer: {
     borderTopWidth: 1, borderTopColor: colors.border,
     paddingHorizontal: 16, paddingTop: 12,
   },
   priceRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
-  priceLabel: { fontSize: 12, color: colors.textMuted },
-  priceValue: { fontSize: 14, fontWeight: "800", color: colors.textPrimary },
-  validationText: { fontSize: 12, color: colors.rating, marginBottom: 8, textAlign: "center" },
+  priceLabel: { fontSize: 12.5, color: colors.textSecondary },
+  priceValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+  validationText: { fontSize: 12.5, lineHeight: 18, color: colors.rating, marginBottom: 8, textAlign: "center" },
   confirmButton: {
     backgroundColor: colors.primary, borderRadius: 14,
     paddingVertical: 14, alignItems: "center", marginBottom: 8,
@@ -843,7 +1030,7 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     backgroundColor: colors.border,
   },
-  confirmButtonText: { fontSize: 14, fontWeight: "800", color: colors.white },
+  confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   confirmButtonTextDisabled: { color: colors.textMuted },
 
   // Shared bottom-sheet modal (Vehicle + Towing Type + Condition)
@@ -873,7 +1060,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 14,
   },
-  modalTitle: { fontSize: 16, fontWeight: "800", color: colors.textPrimary },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   modalList: { gap: 10, paddingBottom: 20 },
 
   modalOptionCard: {

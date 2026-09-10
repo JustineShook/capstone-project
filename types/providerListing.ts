@@ -27,8 +27,8 @@ export interface PublicProviderListingInput {
  */
 export interface ProviderListing {
   providerId: string;
-  role: "onsite-mechanic" | "towing-company";
-  category: "Onsite Mechanics" | "Towing";
+  role: "onsite-mechanic" | "towing-company" | "shop-owner";
+  category: "Onsite Mechanics" | "Towing" | "Auto Shops";
   businessName: string;
   location: {
     latitude: number;
@@ -46,4 +46,11 @@ export interface ProviderListing {
   operatingHours: string;
   emergencyServiceAvailable: boolean;
   visibility: "active";
+}
+
+/** Shop listings can only be published after admin approval (enforced by rules). */
+export function isBookableShopListing(listing: ProviderListing | null | undefined): listing is ProviderListing {
+  return Boolean(listing && listing.role === "shop-owner" && listing.category === "Auto Shops"
+    && listing.visibility === "active" && listing.availability === "available"
+    && listing.emergencyServiceAvailable === true);
 }

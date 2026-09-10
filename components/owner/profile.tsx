@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -90,6 +91,25 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const hasFocusedOnce = useRef(false);
+
+  const loadAccountData = useCallback(async (user: FirebaseUser) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [userProfile, ownerVerification] = await Promise.all([
+        getUserProfile(user.uid),
+        getOwnerVerificationProfile(user.uid),
+      ]);
+      setProfile(userProfile);
+      setVerificationProfile(ownerVerification);
+      if (!userProfile) setLoadError("We couldn't find your profile details.");
+    } catch (err) {
+      setLoadError((err as Error)?.message ?? "Failed to load your profile.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   // Live auth state — no separate global auth listener was found in the
   // files provided, so this component owns its own onAuthStateChanged.
@@ -107,27 +127,22 @@ export default function ProfileScreen() {
         return;
       }
 
-      setLoading(true);
-      setLoadError(null);
-      try {
-        const [userProfile, ownerVerification] = await Promise.all([
-          getUserProfile(user.uid),
-          getOwnerVerificationProfile(user.uid),
-        ]);
-        setProfile(userProfile);
-        setVerificationProfile(ownerVerification);
-        if (!userProfile) {
-          setLoadError("We couldn't find your profile details.");
-        }
-      } catch (err) {
-        setLoadError((err as Error)?.message ?? "Failed to load your profile.");
-      } finally {
-        setLoading(false);
-      }
+      await loadAccountData(user);
     });
 
     return unsubscribe;
-  }, [router]);
+  }, [loadAccountData, router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasFocusedOnce.current) {
+        hasFocusedOnce.current = true;
+        return;
+      }
+      const user = auth.currentUser;
+      if (user) void loadAccountData(user);
+    }, [loadAccountData])
+  );
 
   async function handleLogout() {
     if (signingOut) return;
@@ -145,10 +160,13 @@ export default function ProfileScreen() {
   // Sensible fallbacks — UserProfile has no phone field at all yet, and
   // displayName/email could theoretically be missing from the Firestore
   // doc even though Auth has them, so we fall back across both sources.
-  const displayName = profile?.displayName || firebaseUser?.displayName || "Unnamed User";
+  const displayName = verificationProfile?.personal.fullName || profile?.displayName || firebaseUser?.displayName || "Unnamed User";
   const email = profile?.email || firebaseUser?.email || "No email on file";
   const roleLabel = profile ? formatRole(profile.role) : "—";
-  const phone = verificationProfile?.personal.phone || "Not provided";
+  const phone = verificationProfile?.personal.phone || firebaseUser?.phoneNumber || "Not provided";
+  const address = verificationProfile?.personal.address || "Not provided";
+  const cityMunicipality = verificationProfile?.personal.cityMunicipality || "Not provided";
+  const profilePhotoUrl = verificationProfile?.identification.profilePhotoUrl || firebaseUser?.photoURL;
 
   const verificationStatus = verificationProfile?.verificationStatus ?? "INCOMPLETE";
   const verificationLabel = verificationStatus === "VERIFIED" ? "Verified" : verificationStatus === "PENDING" ? "Verification Pending" : verificationStatus === "REJECTED" ? "Verification Rejected" : "Complete Verification";
@@ -173,7 +191,11 @@ export default function ProfileScreen() {
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarWrap}>
-            <Ionicons name="person" size={40} color={COLORS.white} />
+            {profilePhotoUrl ? (
+              <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
+            ) : (
+              <Ionicons name="person" size={40} color={COLORS.white} />
+            )}
           </View>
           <Text style={styles.profileName}>{displayName}</Text>
           <Text style={styles.profileEmail}>{email}</Text>
@@ -191,12 +213,23 @@ export default function ProfileScreen() {
           <ProfileRow
             icon="person-outline"
             label="Personal Information"
+            value={displayName}
             onPress={() => router.push("/(v_owner)/personal-information")}
           />
           <ProfileRow
             icon="call-outline"
             label="Phone Number"
             value={phone}
+          />
+          <ProfileRow
+            icon="location-outline"
+            label="Address"
+            value={address}
+          />
+          <ProfileRow
+            icon="business-outline"
+            label="City / Municipality"
+            value={cityMunicipality}
           />
           <ProfileRow
             icon="shield-checkmark-outline"
@@ -321,7 +354,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
+    overflow: "hidden",
   },
+  avatarImage: { width: "100%", height: "100%" },
   profileName: {
     fontSize: 18,
     fontWeight: "700",

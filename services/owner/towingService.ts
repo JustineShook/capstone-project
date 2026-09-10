@@ -3,7 +3,7 @@ import { TowingBookingRequest, TowingStatus } from "../../types/owner/towing";
 import { auth, db } from "../firebase";
 
 const BOOKINGS_COLLECTION = "bookings";
-export interface CreateTowingBookingInput { providerId: string; providerName: string; vehicleId: string; vehicle: string; vehicleYear: number; vehiclePlate: string; latitude: number; longitude: number; pickupLocation: string; destination: string; towingType: string; vehicleCondition: string; notes: string; startingPrice: string; }
+export interface CreateTowingBookingInput { providerId: string; providerName: string; vehicleId: string; vehicle: string; vehicleYear: number; vehiclePlate: string; latitude: number; longitude: number; providerLatitude: number; providerLongitude: number; destinationLatitude: number; destinationLongitude: number; providerToPickupDistanceKm: number; pickupToDestinationDistanceKm: number; totalDistanceKm: number; basePrice: number; pricePerKm: number; distanceCharge: number; estimatedTotalPrice: number; pickupLocation: string; destination: string; towingType: string; vehicleCondition: string; notes: string; startingPrice: string; }
 function requireUser() { const user = auth.currentUser; if (!user) throw new Error("You must be signed in to use bookings."); return user; }
 function asIso(value: unknown) { return value instanceof Timestamp ? value.toDate().toISOString() : new Date().toISOString(); }
 function fromDocument(id: string, data: Record<string, unknown>): TowingBookingRequest { return { ...(data as Omit<TowingBookingRequest, "id" | "createdAt" | "updatedAt">), id, createdAt: asIso(data.createdAt), updatedAt: asIso(data.updatedAt) }; }

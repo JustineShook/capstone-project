@@ -1,15 +1,25 @@
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 
 import {
   MOCK_PROVIDERS,
   type MockProvider,
   type ProviderCategory,
 } from "../../data/owner/mockProviders";
-import type { ProviderListing } from "../../types/providerListing";
+import { isBookableShopListing, type ProviderListing } from "../../types/providerListing";
 import { db } from "../firebase";
 import { getProviderReviewSummary, type ProviderReviewSummary } from "./ratingService";
 
 const LISTINGS_COLLECTION = "providerListings";
+
+/** Live shop availability; existing mechanic/towing loading remains unchanged. */
+export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) => void, onError: (error: Error) => void) {
+  return onSnapshot(query(collection(db, LISTINGS_COLLECTION), where("visibility", "==", "active"),
+    where("role", "==", "shop-owner"), where("availability", "==", "available")), (snapshot) => {
+    const shops = snapshot.docs.map((item) => item.data()).filter(isActiveListing)
+      .map((listing) => toMapProvider(listing, { average: listing.ratingSummary.average, count: listing.ratingSummary.count, reviews: [] }));
+    callback(shops);
+  }, onError);
+}
 
 function buildInitials(name: string) {
   return name
@@ -36,8 +46,9 @@ function isActiveListing(value: unknown): value is ProviderListing {
 
   const listing = value as Partial<ProviderListing>;
   return listing.visibility === "active"
-    && (listing.role === "onsite-mechanic" || listing.role === "towing-company")
-    && (listing.category === "Onsite Mechanics" || listing.category === "Towing")
+    && ((listing.role === "onsite-mechanic" && listing.category === "Onsite Mechanics")
+      || (listing.role === "towing-company" && listing.category === "Towing")
+      || isBookableShopListing(listing as ProviderListing))
     && typeof listing.providerId === "string"
     && typeof listing.businessName === "string"
     && typeof listing.location?.latitude === "number"
@@ -103,7 +114,7 @@ export async function loadCustomerMapProviders(): Promise<MockProvider[]> {
       .map((document) => document.data())
       .filter(isActiveListing);
 
-    if (listings.length === 0) return MOCK_PROVIDERS;
+    if (listings.length === 0) return MOCK_PROVIDERS.filter((provider) => provider.category !== "Auto Shops");
 
     const providers = await Promise.all(listings.map(async (listing) => {
       let reviewSummary: ProviderReviewSummary = { average: 0, count: 0, reviews: [] };
@@ -118,6 +129,6 @@ export async function loadCustomerMapProviders(): Promise<MockProvider[]> {
     return providers;
   } catch (error) {
     console.error("Failed to load public provider listings", error);
-    return MOCK_PROVIDERS;
+    return MOCK_PROVIDERS.filter((provider) => provider.category !== "Auto Shops");
   }
 }

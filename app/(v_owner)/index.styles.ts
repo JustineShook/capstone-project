@@ -24,14 +24,14 @@ export const styles = StyleSheet.create({
     marginBottom: 12,
   },
   greetingSmall: {
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
     textShadowColor: "rgba(255,255,255,0.9)",
     textShadowRadius: 3,
   },
   greetingName: {
-    fontSize: 20,
-    fontWeight: "800",
+    fontSize: 24,
+    fontWeight: "700",
     color: colors.textPrimary,
     textShadowColor: "rgba(255,255,255,0.9)",
     textShadowRadius: 3,
@@ -101,16 +101,16 @@ export const styles = StyleSheet.create({
   },
   locationBannerText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 12.5,
     color: colors.textPrimary,
     lineHeight: 16,
   },
   locationBannerRetry: {
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 12.5,
+    fontWeight: "600",
     color: colors.busy,
   },
-  searchPlaceholder: { color: colors.textMuted, fontSize: 14 },
+  searchPlaceholder: { color: colors.textMuted, fontSize: 13 },
 
   locationRow: {
     flexDirection: "row",
@@ -122,7 +122,7 @@ export const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 999,
   },
-  locationText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+  locationText: { fontSize: 12.5, color: colors.textSecondary, fontWeight: "500" },
 
   recenterButtonWrap: {
     position: "absolute",
@@ -194,17 +194,17 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
   },
   towingTextWrap: { flex: 1 },
-  towingTitle: { color: colors.white, fontSize: 16, fontWeight: "800" },
-  towingSubtitle: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
+  towingTitle: { color: colors.white, fontSize: 15, fontWeight: "700" },
+  towingSubtitle: { color: "rgba(255,255,255,0.85)", fontSize: 12.5, marginTop: 2 },
 
-  sectionTitle: { fontSize: 17, fontWeight: "800", color: colors.textPrimary, marginBottom: 10 },
+  sectionTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 },
   listingHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 4,
   },
-  listingCount: { fontSize: 12, color: colors.textMuted },
+  listingCount: { fontSize: 12.5, color: colors.textSecondary },
 
   categoryRow: { gap: 10, paddingBottom: 20, paddingRight: 8 },
   categoryChip: {
@@ -219,7 +219,7 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.white,
   },
   categoryChipActive: { backgroundColor: colors.primary },
-  categoryChipText: { fontSize: 13, fontWeight: "600", color: colors.primary },
+  categoryChipText: { fontSize: 12.5, fontWeight: "600", color: colors.primary },
   categoryChipTextActive: { color: colors.white },
 
   // ---- Nearby Providers: horizontal marketplace-style cards ----
@@ -247,7 +247,7 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     alignSelf: "stretch",
   },
-  listingThumbText: { color: colors.white, fontSize: 20, fontWeight: "800" },
+  listingThumbText: { color: colors.white, fontSize: 18, fontWeight: "700" },
   listingBody: { flex: 1, justifyContent: "space-between" },
   listingTopRow: {
     flexDirection: "row",
@@ -255,20 +255,20 @@ export const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
-  listingName: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  listingName: { flex: 1, fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
   listingServiceRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
-  listingServiceText: { fontSize: 12, fontWeight: "600", color: colors.primary },
+  listingServiceText: { fontSize: 12.5, fontWeight: "600", color: colors.primary },
   listingMetaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5 },
-  listingMetaText: { fontSize: 11, color: colors.textSecondary },
-  listingMetaTextMuted: { fontSize: 11, color: colors.textMuted },
-  listingMetaDot: { fontSize: 11, color: colors.textMuted, marginHorizontal: 1 },
+  listingMetaText: { fontSize: 12, color: colors.textSecondary },
+  listingMetaTextMuted: { fontSize: 12, color: colors.textMuted },
+  listingMetaDot: { fontSize: 12, color: colors.textMuted, marginHorizontal: 1 },
   listingBottomRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 6,
   },
-  listingPrice: { fontSize: 12, fontWeight: "700", color: colors.textPrimary },
+  listingPrice: { fontSize: 12.5, fontWeight: "500", color: colors.textPrimary },
   onsiteBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -278,5 +278,5 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
-  onsiteBadgeText: { fontSize: 10, fontWeight: "700", color: colors.primary },
+  onsiteBadgeText: { fontSize: 11, fontWeight: "600", color: colors.primary },
 });

@@ -61,9 +61,9 @@ export function getServicesSectionLabel(category: Exclude<ProviderCategory, "All
   return category === "Towing" ? "Towing Services" : "Services";
 }
 
-// Whether this category shows the "Book Service" action (Auto Shops do not)
+// Whether this category supports a service request.
 export function supportsBooking(category: Exclude<ProviderCategory, "All">) {
-  return category !== "Auto Shops";
+  return category === "Auto Shops" || category === "Towing" || category === "Onsite Mechanics";
 }
 
 // ---------------------------------------------------------------------------

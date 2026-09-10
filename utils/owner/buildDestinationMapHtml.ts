@@ -26,12 +26,19 @@ export function buildDestinationMapHtml(
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-      html, body, #map { height: 100%; margin: 0; padding: 0; }
+      html, body, #map { height: 100%; margin: 0; padding: 0; touch-action: none; }
       .dest-pin {
         display: block;
         transform: translate(-50%, -100%);
       }
       .leaflet-control-attribution { font-size: 9px; }
+      .leaflet-control-zoom a {
+        width: 40px;
+        height: 40px;
+        line-height: 40px;
+        font-size: 22px;
+      }
+      .leaflet-control-zoom { margin-top: 14px !important; margin-left: 14px !important; }
     </style>
   </head>
   <body>

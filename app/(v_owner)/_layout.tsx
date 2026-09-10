@@ -38,6 +38,7 @@ export default function VOwnerLayout() {
       <Tabs.Screen name="mechanic-booking/book-mechanic" options={{ href: null }} />
       <Tabs.Screen name="mechanic-booking/booking-confirmation" options={{ href: null }} />
       <Tabs.Screen name="mechanic-booking/booking-detail" options={{ href: null }} />
+      <Tabs.Screen name="shop-booking" options={{ href: null }} />
       <Tabs.Screen name="personal-information" options={{ href: null }} />
       <Tabs.Screen name="verification" options={{ href: null }} />
       <Tabs.Screen name="provider-details" options={{ href: null }} />

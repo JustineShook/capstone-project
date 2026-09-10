@@ -45,5 +45,5 @@ const styles = StyleSheet.create({
   },
   statusPillCompact: { marginTop: 0 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusPillText: { fontSize: 10, fontWeight: "700" },
+  statusPillText: { fontSize: 11, fontWeight: "600" },
 });

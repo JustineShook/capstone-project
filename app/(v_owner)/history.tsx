@@ -6,6 +6,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { MOCK_HISTORY, MockHistory } from "@/constants/mockHistory";
+import { CustomerShopHistory } from "../../components/owner/CustomerShopHistory";
 
 // ---------------------------------------------------------------------------
 // THEME (matches the rest of VeResc — move to a shared theme file when ready)
@@ -28,9 +29,9 @@ const colors = {
   white: "#FFFFFF",
 };
 
-type FilterOption = "All" | "Towing" | "Onsite Mechanic";
+type FilterOption = "All" | "Towing" | "Onsite Mechanic" | "Auto Shop";
 
-const FILTERS: FilterOption[] = ["All", "Towing", "Onsite Mechanic"];
+const FILTERS: FilterOption[] = ["All", "Towing", "Onsite Mechanic", "Auto Shop"];
 
 function getServiceIcon(type: MockHistory["serviceType"]): keyof typeof Ionicons.glyphMap {
   return type === "Towing" ? "car-outline" : "construct-outline";
@@ -52,6 +53,7 @@ export default function HistoryScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterOption>("All");
 
   const filteredHistory = useMemo(() => {
+    if (activeFilter === "Auto Shop") return [];
     if (activeFilter === "All") return MOCK_HISTORY;
     return MOCK_HISTORY.filter((record) => record.serviceType === activeFilter);
   }, [activeFilter]);
@@ -59,7 +61,7 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header}>
-        <Text style={styles.headerSubtitle}>Your towing and onsite mechanic bookings</Text>
+        <Text style={styles.headerSubtitle}>Your vehicle assistance requests</Text>
       </View>
 
       {/* Filter chips */}
@@ -85,7 +87,9 @@ export default function HistoryScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={activeFilter === "All" || activeFilter === "Auto Shop" ? <CustomerShopHistory /> : null}
         ListEmptyComponent={
+          activeFilter === "Auto Shop" ? null :
           <View style={styles.emptyWrap}>
             <Ionicons name="time-outline" size={36} color={colors.textMuted} />
             <Text style={styles.emptyText}>No {activeFilter.toLowerCase()} history yet</Text>
@@ -193,6 +197,7 @@ const styles = StyleSheet.create({
 
   filterRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     paddingHorizontal: 20,
     paddingVertical: 14,
