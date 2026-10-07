@@ -2,7 +2,7 @@
 
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { router } from "expo-router";
 import { colors } from "../../constants/owner/theme";
@@ -16,6 +16,7 @@ import {
   supportsBooking,
 } from "../../data/owner/mockProviders";
 import { getTowingPricing } from "../../services/towingPricingService";
+import { getActiveParkingBookingForCustomer, subscribeToParkingListing } from "../../services/parkingBookingService";
 import { StatusPill } from "./StatusPill";
 
 function renderStars(rating: number) {
@@ -37,6 +38,25 @@ export function ProviderDetailCard({
     && (provider.category !== "Auto Shops" || (provider.isPositiveStatus && provider.emergencyServiceAvailable === true));
   const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
   const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
+  const [parkingCapacity, setParkingCapacity] = useState<{ totalSlots: number; availableSlots: number } | null>(null);
+  const contactProvider = async (kind: "call" | "message") => {
+    if (!provider.phone) {
+      Alert.alert("Contact unavailable", "This provider has not published a contact number.");
+      return;
+    }
+    const url = `${kind === "call" ? "tel" : "sms"}:${provider.phone.replace(/[^+\d]/g, "")}`;
+    try {
+      await Linking.openURL(url);
+    } catch { Alert.alert("Contact unavailable", `Unable to open your ${kind === "call" ? "phone" : "messages"} app.`); }
+  };
+  const openBooking = async () => {
+    if (provider.category === "Parking Lots") {
+      const existing = await getActiveParkingBookingForCustomer(provider.id);
+      router.push({ pathname: existing ? "/(v_owner)/parking-booking/parking-detail" : "/(v_owner)/parking-booking/book-parking", params: existing ? { bookingId: existing.id } : { providerId: provider.id } });
+      return;
+    }
+    router.push({ pathname: provider.category === "Auto Shops" ? "/(v_owner)/shop-booking/book-shop" : provider.category === "Towing" ? "../towing-booking/book-towing" : "../mechanic-booking/book-mechanic", params: { providerId: provider.id } });
+  };
 
   useEffect(() => {
     let active = true;
@@ -61,6 +81,11 @@ export function ProviderDetailCard({
       });
 
     return () => { active = false; };
+  }, [provider.category, provider.id]);
+
+  useEffect(() => {
+    if (provider.category !== "Parking Lots") { setParkingCapacity(null); return; }
+    return subscribeToParkingListing(provider.id, setParkingCapacity);
   }, [provider.category, provider.id]);
 
   return (
@@ -112,6 +137,13 @@ export function ProviderDetailCard({
         <Text style={styles.sectionLabel}>About</Text>
         <Text style={styles.description}>{provider.description}</Text>
 
+        {(provider.category === "Auto Shops" || provider.category === "Parking Lots") && provider.photoUrls && provider.photoUrls.length > 0 && <>
+          <Text style={styles.sectionLabel}>{provider.category === "Parking Lots" ? "Parking Lot Photos" : "Shop Photos"}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
+            {provider.photoUrls.map((url) => <Image key={url} source={{ uri: url }} style={styles.shopPhoto} />)}
+          </ScrollView>
+        </>}
+
         {/* Services (label adapts for Towing) */}
         <Text style={styles.sectionLabel}>{getServicesSectionLabel(provider.category)}</Text>
         <View style={styles.servicesList}>
@@ -144,10 +176,10 @@ export function ProviderDetailCard({
 
         {/* Hours */}
         <Text style={styles.sectionLabel}>Hours</Text>
-        <View style={styles.hoursRow}>
+        {provider.category !== "Parking Lots" && <View style={styles.hoursRow}>
           <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
           <Text style={styles.hoursText}>{provider.hours}</Text>
-        </View>
+        </View>}
 
         <View style={styles.hoursRow}>
           <Ionicons name="flash-outline" size={14} color={colors.textSecondary} />
@@ -174,6 +206,17 @@ export function ProviderDetailCard({
           </Text>
         </View>
 
+        {provider.category === "Parking Lots" && (
+          <View style={styles.parkingCapacity}>
+            <Ionicons name="car-outline" size={18} color={colors.primary} />
+            <Text style={styles.parkingCapacityText}>
+              {parkingCapacity
+                ? `${parkingCapacity.availableSlots} / ${parkingCapacity.totalSlots} slots available`
+                : "Parking capacity not configured"}
+            </Text>
+          </View>
+        )}
+
         {/* Reviews */}
         <Text style={styles.sectionLabel}>Reviews</Text>
         <View style={styles.reviewsSummaryRow}>
@@ -197,31 +240,19 @@ export function ProviderDetailCard({
 
         {/* Actions */}
         <View style={styles.actionsRow}>
-          <Pressable style={styles.callButton}>
+          <Pressable style={styles.callButton} onPress={() => void contactProvider("call")}>
             <Ionicons name="call-outline" size={18} color={colors.primary} />
           </Pressable>
-          <Pressable style={[styles.messageButton, !showBookButton && styles.messageButtonWide]}>
+          <Pressable style={[styles.messageButton, !showBookButton && styles.messageButtonWide]} onPress={() => void contactProvider("message")}>
             <Ionicons name="chatbubble-outline" size={16} color={colors.primary} />
             <Text style={styles.messageButtonText}>Message</Text>
           </Pressable>
           {showBookButton && (
             <Pressable
               style={styles.bookButton}
-              onPress={() =>
-                router.push({
-                  pathname:
-                    provider.category === "Auto Shops"
-                      ? "/(v_owner)/shop-booking/book-shop"
-                      : provider.category === "Towing"
-                      ? "../towing-booking/book-towing"
-                      : "../mechanic-booking/book-mechanic",
-                  params: {
-                    providerId: provider.id,
-                  },
-                })
-              }
+              onPress={() => void openBooking()}
             >
-              <Text style={styles.bookButtonText}>{provider.category === "Auto Shops" ? "Request Emergency Repair" : "Book Service"}</Text>
+              <Text style={styles.bookButtonText}>{provider.category === "Parking Lots" ? "Reserve Parking" : provider.category === "Auto Shops" ? "Request Emergency Repair" : "Book Service"}</Text>
             </Pressable>
           )}
         </View>
@@ -293,6 +324,8 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: 16,
   },
+  photoRow: { gap: 10, marginBottom: 16 },
+  shopPhoto: { width: 210, height: 140, borderRadius: 12, backgroundColor: colors.surfaceAlt },
 
   servicesList: { marginBottom: 16, gap: 6 },
   serviceRow: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -341,6 +374,8 @@ const styles = StyleSheet.create({
   },
   priceLabel: { fontSize: 12.5, color: colors.textSecondary },
   priceValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
+  parkingCapacity: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 13, marginTop: -8, marginBottom: 16 },
+  parkingCapacityText: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
 
   reviewsSummaryRow: {
     flexDirection: "row",

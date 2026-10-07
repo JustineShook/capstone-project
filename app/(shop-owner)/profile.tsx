@@ -1,86 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
-import { Text, TextInput, View } from "react-native";
-import { Button, C, Info, LoadState, s, ShopScreen } from "../../components/shop-owner/ShopUI";
+import { ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { logout } from "../../services/auth";
 import { saveShopProfile } from "../../services/shopOwnerService";
-
-export default function ShopProfileScreen() {
-  const router = useRouter();
-  const { account, profile, profileLoading, profileError, retry } = useShopDashboard();
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ businessName: "", phone: "", address: "", latitude: "", longitude: "" });
-  const [saving, setSaving] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const locked = useRef(false);
-
-  function edit() {
-    if (!profile) return;
-    setForm({ businessName: profile.businessName, phone: profile.phone, address: profile.address,
-      latitude: String(profile.latitude), longitude: String(profile.longitude) });
-    setError(null); setSaved(false); setEditing(true);
-  }
-  async function save() {
-    if (locked.current) return;
-    locked.current = true;
-    setSaving(true); setError(null);
-    try {
-      if (!form.latitude.trim() || !form.longitude.trim()) throw new Error("Enter both shop coordinates.");
-      await saveShopProfile({ ...form, latitude: Number(form.latitude), longitude: Number(form.longitude) });
-      setEditing(false); setSaved(true);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save your shop profile."); }
-    finally { locked.current = false; setSaving(false); }
-  }
-  async function signOut() {
-    if (locked.current) return;
-    locked.current = true;
-    setSigningOut(true); setError(null);
-    try { await logout(); router.replace("/(auth)/login"); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to log out. Try again."); }
-    finally { locked.current = false; setSigningOut(false); }
-  }
-
-  return <ShopScreen title="Profile">
-    <LoadState loading={profileLoading} error={profileError} retry={retry} />
-    {!profileLoading && !profileError && profile && <>
-      <View style={s.identity}><Feather name="home" size={36} color={C.white} />
-        <Text style={s.identityName}>{profile.businessName}</Text><Text style={s.identityText}>{account.displayName} · Shop Owner</Text>
-        <Text style={s.identityText}>{profile.status === "open" ? "Open" : "Closed"}</Text>
-      </View>
-      <Text style={s.heading}>ACCOUNT INFORMATION</Text>
-      <View style={s.card}><Info label="Name" value={account.displayName} /><Info label="Email" value={account.email} /></View>
-      <Text style={s.heading}>SHOP INFORMATION</Text>
-      <View style={s.card}>{editing ? <>
-        {([
-          ["businessName", "Shop name", 120], ["phone", "Contact number", 30], ["address", "Shop address", 300],
-          ["latitude", "Shop latitude", 24], ["longitude", "Shop longitude", 24],
-        ] as const).map(([key, label, limit]) => <View key={key} style={s.info}>
-          <Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} style={s.input} value={form[key]}
-            maxLength={limit} editable={!saving} multiline={key === "address"} keyboardType={key === "phone" ? "phone-pad" : "default"}
-            onChangeText={(value) => setForm((current) => ({ ...current, [key]: value }))} />
-        </View>)}
-        <Text style={s.muted}>Use the coordinates of your shop entrance, where customers will bring their vehicles.</Text>
-        <Button title={saving ? "Saving…" : "Save Shop Profile"} disabled={saving} onPress={() => void save()} />
-        <Button title="Cancel" secondary disabled={saving} onPress={() => { setEditing(false); setError(null); }} />
-      </> : <>
-        <Info label="Shop name" value={profile.businessName} /><Info label="Contact number" value={profile.phone} />
-        <Info label="Address" value={profile.address} /><Info label="Shop coordinates" value={`${profile.latitude}, ${profile.longitude}`} />
-        <Button title="Edit Shop Profile" onPress={edit} />
-      </>}</View>
-      {saved && <Text accessibilityLiveRegion="polite" style={s.text}>Shop profile saved.</Text>}
-      <Text style={s.heading}>PUBLIC LISTING</Text>
-      <View style={s.card}>
-        <Text style={s.text}>{profile.verified ? "Approved shop" : "Awaiting administrator approval"}</Text>
-        <Text style={s.muted}>Approved shops can publish their services. Customers see your listing when the shop is Open.</Text>
-        {profile.verified && <Button title="Manage Public Listing" onPress={() => router.push("/(shop-owner)/public-listing")} />}
-      </View>
-    </>}
-    {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
-    <Text style={s.heading}>ACCOUNT</Text>
-    <Button title={signingOut ? "Logging Out…" : "Log Out"} secondary disabled={saving || signingOut} onPress={() => void signOut()} />
-  </ShopScreen>;
-}
+const C={bg:"#0B1115",card:"#151E25",text:"#F7F9FA",muted:"#A1ABB2",line:"#354249",red:"#F51F3B",green:"#1C8D5B"};
+export default function ShopProfile(){const router=useRouter(),insets=useSafeAreaInsets();const{account,profile,profileLoading,profileError,retry}=useShopDashboard();const[editing,setEditing]=useState(false),[saving,setSaving]=useState(false),[out,setOut]=useState(false),[error,setError]=useState<string|null>(null),[form,setForm]=useState({businessName:"",phone:"",address:"",latitude:"",longitude:""});const busy=useRef(false);const edit=()=>{if(!profile)return;setForm({businessName:profile.businessName,phone:profile.phone,address:profile.address,latitude:String(profile.latitude),longitude:String(profile.longitude)});setEditing(true)};const save=async()=>{if(busy.current)return;busy.current=true;setSaving(true);try{await saveShopProfile({...form,latitude:Number(form.latitude),longitude:Number(form.longitude)});setEditing(false)}catch(e){setError(e instanceof Error?e.message:"Unable to save profile.")}finally{busy.current=false;setSaving(false)}};const signOut=()=>Alert.alert("Log Out","Are you sure you want to log out?",[{text:"Cancel",style:"cancel"},{text:"Log Out",style:"destructive",onPress:()=>void (async()=>{setOut(true);try{await logout();router.replace("/(auth)/login")}finally{setOut(false)}})()}]);if(profileLoading)return <State loading text="Loading profile..."/>;if(profileError||!profile)return <State text={profileError||"Profile unavailable."} retry={retry}/>;return <SafeAreaView style={s.safe} edges={["top","left","right"]}><StatusBar barStyle="light-content" backgroundColor={C.bg}/><ScrollView contentContainerStyle={[s.content,{paddingBottom:insets.bottom+18}]}><Text style={s.title}>Profile</Text><View style={s.identity}><View style={s.avatar}><Feather name="home" size={30} color={C.muted}/></View><View style={s.identityInfo}><Text style={s.name}>{profile.businessName}</Text><Text style={s.role}>Auto Shop</Text><TouchableOpacity style={[s.badge,profile.verified&&s.verified]} onPress={()=>router.push("/(shop-owner)/verification")}><Feather name={profile.verified?"check-circle":"clock"} size={12} color="#fff"/><Text style={s.badgeText}>{profile.verified?"Verified":"Verification Pending"}</Text></TouchableOpacity></View></View>{editing?<View style={s.editCard}><Text style={s.editTitle}>Edit Shop Profile</Text><Input label="Shop name" value={form.businessName} onChange={v=>setForm(x=>({...x,businessName:v}))}/><Input label="Contact number" value={form.phone} phone onChange={v=>setForm(x=>({...x,phone:v}))}/><Input label="Shop address" value={form.address} onChange={v=>setForm(x=>({...x,address:v}))}/><Input label="Shop latitude" value={form.latitude} onChange={v=>setForm(x=>({...x,latitude:v}))}/><Input label="Shop longitude" value={form.longitude} onChange={v=>setForm(x=>({...x,longitude:v}))}/>{error&&<Text style={s.error}>{error}</Text>}<TouchableOpacity style={s.primary} disabled={saving} onPress={()=>void save()}>{saving?<ActivityIndicator color="#fff"/>:<Text style={s.primaryText}>Save Shop Profile</Text>}</TouchableOpacity><TouchableOpacity style={s.cancel} onPress={()=>setEditing(false)}><Text style={s.cancelText}>Cancel</Text></TouchableOpacity></View>:<><View style={s.menu}><Row icon="user" title="Account Information" value={account.email}/><Row icon="phone" title="Contact Number" value={profile.phone||"Not provided"} press={edit}/><Row icon="map-pin" title="Shop Address" value={profile.address||"Not provided"} press={edit}/><Row icon="map" title="Shop Location" value={`${profile.latitude}, ${profile.longitude}`} press={edit}/><Row icon="shield" title="Verification" value={profile.verified?"Auto shop verified":"View approval status"} press={()=>router.push("/(shop-owner)/verification")}/><Row icon="edit-2" title="Edit Shop Profile" value="Update business information" press={edit}/><Row icon="map" title="Public Listing" value={profile.verified?"Manage your public listing":"Publish after verification approval"} press={()=>router.push("/(shop-owner)/public-listing")}/></View><TouchableOpacity style={s.logout} disabled={out} onPress={signOut}>{out?<ActivityIndicator color={C.red}/>:<><Feather name="log-out" size={17} color={C.red}/><Text style={s.logoutText}>Log Out</Text></>}</TouchableOpacity></>}</ScrollView></SafeAreaView>}
+function State({loading,text,retry}:{loading?:boolean;text:string;retry?:()=>void}){return <SafeAreaView style={s.safe}><View style={s.state}>{loading?<ActivityIndicator size="large" color={C.red}/>:<Feather name="alert-circle" size={32} color={C.red}/>}<Text style={s.stateText}>{text}</Text>{retry&&<TouchableOpacity style={s.primary} onPress={retry}><Text style={s.primaryText}>Try Again</Text></TouchableOpacity>}</View></SafeAreaView>};function Row({icon,title,value,press}:{icon:keyof typeof Feather.glyphMap;title:string;value:string;press?:()=>void}){return <TouchableOpacity style={s.row} onPress={press}><Feather name={icon} size={18} color={C.muted}/><View style={{flex:1}}><Text style={s.rowTitle}>{title}</Text><Text style={s.rowValue} numberOfLines={1}>{value}</Text></View><Feather name="chevron-right" size={20} color={C.muted}/></TouchableOpacity>};function Input({label,value,onChange,phone}:{label:string;value:string;onChange:(v:string)=>void;phone?:boolean}){return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput style={s.input} value={value} onChangeText={onChange} keyboardType={phone?"phone-pad":"default"}/></View>};const s=StyleSheet.create({safe:{flex:1,backgroundColor:C.bg},content:{padding:16},title:{color:C.text,fontSize:24,fontWeight:"700"},state:{flex:1,alignItems:"center",justifyContent:"center",gap:14,padding:30},stateText:{color:C.muted,fontSize:16,textAlign:"center"},identity:{flexDirection:"row",alignItems:"center",marginTop:20},avatar:{width:76,height:76,borderRadius:38,backgroundColor:"#303C44",alignItems:"center",justifyContent:"center"},identityInfo:{marginLeft:14,flex:1},name:{color:C.text,fontSize:19,fontWeight:"700"},role:{color:C.muted,fontSize:14,marginTop:3},badge:{alignSelf:"flex-start",backgroundColor:"#374147",borderRadius:7,paddingHorizontal:8,paddingVertical:4,flexDirection:"row",gap:4,alignItems:"center",marginTop:8},verified:{backgroundColor:C.green},badgeText:{color:"#fff",fontSize:11,fontWeight:"700"},menu:{backgroundColor:C.card,borderRadius:10,marginTop:22,paddingHorizontal:13},row:{minHeight:64,flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderBottomColor:C.line,gap:12},rowTitle:{color:C.text,fontSize:16,fontWeight:"600"},rowValue:{color:C.muted,fontSize:12,marginTop:3},editCard:{backgroundColor:C.card,borderRadius:10,padding:16,marginTop:22},editTitle:{color:C.text,fontSize:19,fontWeight:"700"},field:{marginTop:15},label:{color:C.text,fontSize:14,fontWeight:"600",marginBottom:7},input:{color:C.text,backgroundColor:"#0E151A",borderWidth:1,borderColor:C.line,borderRadius:8,minHeight:46,paddingHorizontal:12,fontSize:16},primary:{backgroundColor:C.red,minHeight:50,alignItems:"center",justifyContent:"center",borderRadius:8,marginTop:18},primaryText:{color:"#fff",fontSize:16,fontWeight:"700"},cancel:{minHeight:46,alignItems:"center",justifyContent:"center"},cancelText:{color:C.text,fontSize:15,fontWeight:"700"},error:{color:"#FF9AA8",fontSize:14,marginTop:12},logout:{height:48,alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8,marginTop:10},logoutText:{color:C.red,fontSize:15,fontWeight:"700"}});

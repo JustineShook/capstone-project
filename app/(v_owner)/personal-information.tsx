@@ -43,6 +43,8 @@ function formatRole(role: UserRole): string {
       return "Shop Owner";
     case "towing-company":
       return "Towing Company";
+    case "homegarage":
+      return "Parking Space";
     default:
       return role;
   }

@@ -30,12 +30,20 @@ service cloud.firestore {
         && get(profilePath).data.verificationStatus == "VERIFIED";
     }
 
+    function verifiedHomeGarage(uid) {
+      let profilePath = /databases/$(database)/documents/users/$(uid)/homeGarageVerification/profile;
+      return exists(profilePath)
+        && get(profilePath).data.uid == request.auth.uid
+        && get(profilePath).data.role == "homegarage"
+        && get(profilePath).data.verificationStatus == "VERIFIED";
+    }
+
     function hasExactPublicListingShape() {
       return request.resource.data.keys().hasOnly([
           "providerId", "role", "category", "businessName", "location",
           "availability", "visibility", "ratingSummary", "services",
-          "vehicleTypes", "serviceAreaLabel", "startingPrice", "operatingHours",
-          "emergencyServiceAvailable"
+          "vehicleTypes", "serviceAreaLabel", "description", "contactPhone", "startingPrice", "operatingHours",
+          "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
         ])
         && request.resource.data.location.keys().hasOnly(["latitude", "longitude"])
         && request.resource.data.ratingSummary.keys().hasOnly(["average", "count"]);
@@ -58,12 +66,21 @@ service cloud.firestore {
         && request.resource.data.serviceAreaLabel is string
         && request.resource.data.serviceAreaLabel.size() >= 2
         && request.resource.data.serviceAreaLabel.size() <= 120
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 600
+        && (!request.resource.data.keys().hasAny(["contactPhone"])
+          || (request.resource.data.contactPhone is string
+            && request.resource.data.contactPhone.size() >= 7
+            && request.resource.data.contactPhone.size() <= 30))
         && request.resource.data.operatingHours is string
         && request.resource.data.operatingHours.size() >= 2
-        && request.resource.data.operatingHours.size() <= 120
+        && request.resource.data.operatingHours.size() <= 200
         && request.resource.data.services is list
         && request.resource.data.services.size() >= 1
-        && request.resource.data.services.size() <= 6
+        && ((request.resource.data.role == "shop-owner"
+              && request.resource.data.services.size() <= 7)
+          || (request.resource.data.role != "shop-owner"
+              && request.resource.data.services.size() <= 6))
         && request.resource.data.vehicleTypes is list
         && request.resource.data.vehicleTypes.size() >= 1
         && request.resource.data.vehicleTypes.size() <= 6
@@ -75,7 +92,17 @@ service cloud.firestore {
           || (request.resource.data.startingPrice is number
             && request.resource.data.startingPrice >= 0
             && request.resource.data.startingPrice <= 1000000))
-        && request.resource.data.emergencyServiceAvailable is bool;
+        && request.resource.data.emergencyServiceAvailable is bool
+        && (!request.resource.data.keys().hasAny(["photoUrls"])
+          || (request.resource.data.photoUrls is list
+            && request.resource.data.photoUrls.size() <= 3))
+        && (request.resource.data.role != "homegarage"
+          || (request.resource.data.totalSlots is int
+            && request.resource.data.totalSlots >= 1
+            && request.resource.data.totalSlots <= 500
+            && request.resource.data.availableSlots is int
+            && request.resource.data.availableSlots >= 0
+            && request.resource.data.availableSlots <= request.resource.data.totalSlots));
     }
 
     function hasFixedMapCompatibilityFields(uid) {
@@ -87,15 +114,24 @@ service cloud.firestore {
     }
 
     function hasValidRoleSpecificServices() {
-      return (request.resource.data.role in ["onsite-mechanic", "shop-owner"]
+      return (request.resource.data.role == "onsite-mechanic"
           && request.resource.data.services.hasOnly([
             "Engine Diagnostics", "Battery Replacement", "Brake Repair",
             "Tire Replacement", "Electrical Repair", "Air Conditioning"
+          ]))
+        || (request.resource.data.role == "shop-owner"
+          && request.resource.data.services.hasOnly([
+            "Oil change", "Brake service", "Engine repair", "Battery service",
+            "Tire service", "Air-conditioning service", "Preventive maintenance"
           ]))
         || (request.resource.data.role == "towing-company"
           && request.resource.data.services.hasOnly([
             "Flatbed Towing", "Wheel-Lift Towing", "Emergency Roadside Assistance",
             "Accident Recovery", "Motorcycle Towing"
+          ]))
+        || (request.resource.data.role == "homegarage"
+          && request.resource.data.services.hasOnly([
+            "Parking"
           ]));
     }
 
@@ -109,7 +145,12 @@ service cloud.firestore {
         || (request.resource.data.role == "shop-owner"
           && request.resource.data.category == "Auto Shops"
           && verifiedShop(uid)
-          && validShopListingProfile(uid));
+          && validShopListingProfile(uid))
+        || (request.resource.data.role == "homegarage"
+          && request.resource.data.category == "Parking Lots"
+          && get(/databases/$(database)/documents/users/$(uid)).data.role == "homegarage"
+          && verifiedHomeGarage(uid)
+          && validHomeGarageListingProfile(uid));
     }
 
     function validPublicListingWrite(uid) {
@@ -133,6 +174,12 @@ service cloud.firestore {
         && request.resource.data.customerName.size() <= 120
         && request.resource.data.customerEmail is string
         && request.resource.data.customerEmail.size() <= 254
+        && (!request.resource.data.keys().hasAny(["customerPhone"])
+          || (request.resource.data.customerPhone is string
+            && request.resource.data.customerPhone.size() <= 30))
+        && (!request.resource.data.keys().hasAny(["customerAddress"])
+          || (request.resource.data.customerAddress is string
+            && request.resource.data.customerAddress.size() <= 300))
         && request.resource.data.providerName is string
         && request.resource.data.providerName.size() > 0
         && request.resource.data.providerName.size() <= 120
@@ -172,7 +219,7 @@ service cloud.firestore {
 
     function validMechanicBooking() {
       return request.resource.data.keys().hasOnly([
-          "bookingType", "customerId", "customerName", "customerEmail",
+          "bookingType", "customerId", "customerName", "customerEmail", "customerPhone", "customerAddress",
           "providerId", "providerName", "vehicleId", "vehicle", "vehicleYear",
           "vehiclePlate", "latitude", "longitude", "problem", "notes", "startingPrice", "status",
           "createdAt", "updatedAt"
@@ -193,6 +240,31 @@ service cloud.firestore {
       return isShopOwner(uid) && shop.uid == uid && shop.role == "shop-owner" && shop.verified == true;
     }
 
+    // The administrator's approval remains on the private verification
+    // document. This narrowly permits its owner to copy the exact approved
+    // business fields to the pre-existing providers/{uid} dashboard profile.
+    function approvedShopVerification(uid) {
+      let verificationPath = /databases/$(database)/documents/users/$(uid)/shopVerification/profile;
+      return exists(verificationPath)
+        && get(verificationPath).data.uid == uid
+        && get(verificationPath).data.role == "shop-owner"
+        && get(verificationPath).data.verificationStatus == "VERIFIED";
+    }
+
+    function validApprovedShopProfileSync(uid) {
+      let verification = get(/databases/$(database)/documents/users/$(uid)/shopVerification/profile).data;
+      return approvedShopVerification(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "businessName", "phone", "address", "latitude", "longitude", "verified"
+        ])
+        && request.resource.data.verified == true
+        && request.resource.data.businessName == verification.business.name
+        && request.resource.data.phone == verification.business.phone
+        && request.resource.data.address == verification.business.address
+        && request.resource.data.latitude == verification.business.latitude
+        && request.resource.data.longitude == verification.business.longitude;
+    }
+
     function validShopListingProfile(uid) {
       let shop = getAfter(/databases/$(database)/documents/providers/$(uid)).data;
       return request.resource.data.businessName == shop.businessName
@@ -201,6 +273,11 @@ service cloud.firestore {
         && request.resource.data.emergencyServiceAvailable == true
         && ((shop.status == "open" && request.resource.data.availability == "available")
           || (shop.status == "closed" && request.resource.data.availability == "offline"));
+    }
+
+    function validHomeGarageListingProfile(uid) {
+      let verification = get(/databases/$(database)/documents/users/$(uid)/homeGarageVerification/profile).data;
+      return request.resource.data.businessName == verification.business.name;
     }
 
     function validShopVehicle() {
@@ -274,7 +351,7 @@ service cloud.firestore {
           "vehiclePlate", "latitude", "longitude", "providerLatitude", "providerLongitude",
           "destinationLatitude", "destinationLongitude", "providerToPickupDistanceKm",
           "pickupToDestinationDistanceKm", "totalDistanceKm", "basePrice",
-          "pricePerKm", "distanceCharge", "estimatedTotalPrice",
+          "pricePerKm", "distanceCharge", "estimatedTotalPrice", "pricingMode", "dispatcherPhone",
           "pickupLocation", "destination", "towingType",
           "vehicleCondition", "notes", "startingPrice", "status", "createdAt",
           "updatedAt"
@@ -298,16 +375,31 @@ service cloud.firestore {
         && request.resource.data.totalDistanceKm <= 2000
         && request.resource.data.totalDistanceKm >= request.resource.data.providerToPickupDistanceKm + request.resource.data.pickupToDestinationDistanceKm - 0.02
         && request.resource.data.totalDistanceKm <= request.resource.data.providerToPickupDistanceKm + request.resource.data.pickupToDestinationDistanceKm + 0.02
-        && request.resource.data.basePrice is number
-        && request.resource.data.basePrice == pricing.basePrice
-        && request.resource.data.pricePerKm is number
-        && request.resource.data.pricePerKm == pricing.pricePerKm
-        && request.resource.data.distanceCharge is number
-        && request.resource.data.distanceCharge >= request.resource.data.totalDistanceKm * request.resource.data.pricePerKm - 0.01
-        && request.resource.data.distanceCharge <= request.resource.data.totalDistanceKm * request.resource.data.pricePerKm + 0.01
-        && request.resource.data.estimatedTotalPrice is number
-        && request.resource.data.estimatedTotalPrice >= request.resource.data.basePrice + request.resource.data.distanceCharge - 0.01
-        && request.resource.data.estimatedTotalPrice <= request.resource.data.basePrice + request.resource.data.distanceCharge + 0.01
+        && request.resource.data.pricingMode in ["fixed", "dispatcher"]
+        && request.resource.data.dispatcherPhone is string
+        && (
+          ((pricing.pricingMode == null || pricing.pricingMode == "fixed")
+            && request.resource.data.pricingMode == "fixed"
+            && request.resource.data.dispatcherPhone == ""
+            && request.resource.data.basePrice is number
+            && request.resource.data.basePrice == pricing.basePrice
+            && request.resource.data.pricePerKm is number
+            && request.resource.data.pricePerKm == pricing.pricePerKm
+            && request.resource.data.distanceCharge is number
+            && request.resource.data.distanceCharge >= request.resource.data.totalDistanceKm * request.resource.data.pricePerKm - 0.01
+            && request.resource.data.distanceCharge <= request.resource.data.totalDistanceKm * request.resource.data.pricePerKm + 0.01
+            && request.resource.data.estimatedTotalPrice is number
+            && request.resource.data.estimatedTotalPrice >= request.resource.data.basePrice + request.resource.data.distanceCharge - 0.01
+            && request.resource.data.estimatedTotalPrice <= request.resource.data.basePrice + request.resource.data.distanceCharge + 0.01)
+          || (pricing.pricingMode == "dispatcher"
+            && request.resource.data.pricingMode == "dispatcher"
+            && request.resource.data.dispatcherPhone == pricing.dispatcherPhone
+            && request.resource.data.dispatcherPhone.size() > 0
+            && request.resource.data.basePrice == 0
+            && request.resource.data.pricePerKm == 0
+            && request.resource.data.distanceCharge == 0
+            && request.resource.data.estimatedTotalPrice == 0)
+        )
         && request.resource.data.pickupLocation is string
         && request.resource.data.pickupLocation.size() > 0
         && request.resource.data.pickupLocation.size() <= 300
@@ -320,14 +412,18 @@ service cloud.firestore {
 
     function validTowingPricingShape() {
       return request.resource.data.keys().hasOnly([
-          "basePrice", "pricePerKm", "createdAt", "updatedAt"
+          "basePrice", "pricePerKm", "pricingMode", "dispatcherPhone", "createdAt", "updatedAt"
         ])
         && request.resource.data.basePrice is number
         && request.resource.data.basePrice >= 0
         && request.resource.data.basePrice <= 1000000
         && request.resource.data.pricePerKm is number
         && request.resource.data.pricePerKm >= 0
-        && request.resource.data.pricePerKm <= 100000;
+        && request.resource.data.pricePerKm <= 100000
+        && request.resource.data.pricingMode in ["fixed", "dispatcher"]
+        && request.resource.data.dispatcherPhone is string
+        && request.resource.data.dispatcherPhone.size() <= 50
+        && (request.resource.data.pricingMode == "fixed" || request.resource.data.dispatcherPhone.size() > 0);
     }
 
     function validVehicleShape(vehicleId) {
@@ -362,6 +458,18 @@ service cloud.firestore {
         || (before == "en_route" && after in ["arrived", "cancelled"])
         || (before == "arrived" && after == "in_progress")
         || (before == "in_progress" && after == "completed");
+    }
+
+    function validMechanicLocationUpdate() {
+      return resource.data.bookingType == "onsite-mechanic"
+        && resource.data.status in ["accepted", "en_route", "arrived", "in_progress"]
+        && request.resource.data.mechanicLatitude is number
+        && request.resource.data.mechanicLatitude >= -90
+        && request.resource.data.mechanicLatitude <= 90
+        && request.resource.data.mechanicLongitude is number
+        && request.resource.data.mechanicLongitude >= -180
+        && request.resource.data.mechanicLongitude <= 180
+        && request.resource.data.mechanicLocationUpdatedAt == request.time;
     }
 
     function validProviderReview(reviewId) {
@@ -442,6 +550,28 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // Auto shops submit private verification documents here. Client writes
+      // are limited to a pending submission; approval remains administrator-controlled.
+      match /shopVerification/profile {
+        allow get: if isDocumentOwner(uid);
+        allow create, update: if isDocumentOwner(uid)
+          && request.resource.data.uid == uid
+          && request.resource.data.role == "shop-owner"
+          && request.resource.data.verificationStatus == "PENDING";
+        allow delete: if false;
+      }
+
+      // HomeGarage parking providers submit private business documents here.
+      // Approval is performed by administration, never by the client.
+      match /homeGarageVerification/profile {
+        allow get: if isDocumentOwner(uid);
+        allow create, update: if isDocumentOwner(uid)
+          && request.resource.data.uid == uid
+          && request.resource.data.role == "homegarage"
+          && request.resource.data.verificationStatus == "PENDING";
+        allow delete: if false;
+      }
+
       match /towingPricing/{pricingId} {
         allow get: if pricingId == "config" && (isDocumentOwner(uid)
           || (signedIn()
@@ -462,7 +592,7 @@ service cloud.firestore {
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.updatedAt == request.time
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "basePrice", "pricePerKm", "updatedAt"
+            "basePrice", "pricePerKm", "pricingMode", "dispatcherPhone", "updatedAt"
           ]);
         allow delete: if false;
       }
@@ -486,6 +616,8 @@ service cloud.firestore {
               "businessName", "phone", "address", "latitude", "longitude", "status"
             ])
             && request.resource.data.status in ["open", "closed"])
+          || (isShopOwner(uid) && resource.data.role == "shop-owner"
+            && validApprovedShopProfileSync(uid))
           || (!isShopOwner(uid) && resource.data.role != "shop-owner" && request.resource.data.role != "shop-owner"));
       allow delete: if isDocumentOwner(uid) && !isShopOwner(uid) && resource.data.role != "shop-owner";
     }
@@ -499,10 +631,69 @@ service cloud.firestore {
       allow create: if validPublicListingWrite(providerId);
       allow update: if validPublicListingWrite(providerId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "businessName", "location", "availability", "serviceAreaLabel",
+          "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
           "services", "vehicleTypes", "operatingHours", "startingPrice",
-          "emergencyServiceAvailable"
+          "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
         ]);
+      allow delete: if false;
+    }
+
+    // Parking bookings are customer-controlled sessions. Capacity changes are
+    // only accepted alongside the app's Firestore transactions; providers
+    // never need to start or end a customer's parking session.
+    match /parkingBookings/{bookingId} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(["providerId", "providerName", "customerId", "customerName", "vehicleId", "vehicle", "vehiclePlate", "vehicleType", "slotId", "slotNumber", "notes", "status", "bookedAt", "updatedAt"])
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.providerId is string
+        && request.resource.data.providerId != request.auth.uid
+        && request.resource.data.providerName is string
+        && request.resource.data.customerName is string
+        && request.resource.data.vehicleId is string
+        && request.resource.data.vehicle is string
+        && request.resource.data.vehiclePlate is string
+        && request.resource.data.vehicleType is string
+        && request.resource.data.slotId is string
+        && request.resource.data.slotNumber is int && request.resource.data.slotNumber >= 1
+        && request.resource.data.notes is string && request.resource.data.notes.size() <= 500
+        && request.resource.data.status == "reserved"
+        && request.resource.data.bookedAt == request.time && request.resource.data.updatedAt == request.time
+        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.role == "homegarage"
+        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.visibility == "active"
+        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.availability == "available"
+        && getAfter(/databases/$(database)/documents/parkingSlots/$(request.resource.data.slotId)).data.status == "reserved"
+        && getAfter(/databases/$(database)/documents/parkingSlots/$(request.resource.data.slotId)).data.customerId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/parkingSlots/$(request.resource.data.slotId)).data.bookingId == bookingId;
+      allow get, list: if signedIn() && (resource.data.customerId == request.auth.uid || resource.data.providerId == request.auth.uid);
+      allow update: if signedIn() && resource.data.customerId == request.auth.uid
+        && ((resource.data.status == "reserved" && request.resource.data.status == "active"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "parkingStartedAt", "updatedAt"])
+          && request.resource.data.parkingStartedAt == request.time && request.resource.data.updatedAt == request.time)
+          || (resource.data.status == "active" && request.resource.data.status == "completed"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "parkingEndedAt", "updatedAt"])
+          && request.resource.data.parkingEndedAt == request.time && request.resource.data.updatedAt == request.time
+          && getAfter(/databases/$(database)/documents/parkingSlots/$(resource.data.slotId)).data.status == "available"));
+      allow delete: if false;
+    }
+
+    // A slot is the atomic capacity lock. Its state carries no public vehicle
+    // data, and only its reserving customer can release it.
+    match /parkingSlots/{slotId} {
+      allow get, list: if signedIn();
+      allow create: if isDocumentOwner(request.resource.data.providerId)
+        && request.resource.data.keys().hasOnly(["providerId", "slotNumber", "status", "customerId", "bookingId"])
+        && request.resource.data.slotNumber is int && request.resource.data.slotNumber >= 1 && request.resource.data.slotNumber <= 500
+        && request.resource.data.status == "available" && request.resource.data.customerId == null && request.resource.data.bookingId == null
+        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.role == "homegarage";
+      allow update: if signedIn()
+        && ((resource.data.status == "available" && request.resource.data.status == "reserved"
+          && request.resource.data.customerId == request.auth.uid && request.resource.data.bookingId is string
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "customerId", "bookingId", "updatedAt"])
+          && request.resource.data.updatedAt == request.time)
+          || (resource.data.status == "reserved" && resource.data.customerId == request.auth.uid
+          && request.resource.data.status == "available" && request.resource.data.customerId == null && request.resource.data.bookingId == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "customerId", "bookingId", "updatedAt"])
+          && request.resource.data.updatedAt == request.time));
       allow delete: if false;
     }
 
@@ -515,11 +706,19 @@ service cloud.firestore {
           || resource.data.providerId == request.auth.uid);
       allow update: if signedIn()
         && resource.data.providerId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
-        && request.resource.data.updatedAt == request.time
-        && ((resource.data.bookingType == "shop-owner" && validShopBookingTransition())
-          || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
-            && validProviderBookingTransition()));
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["mechanicLatitude", "mechanicLongitude", "mechanicLocationUpdatedAt"])
+            && validMechanicLocationUpdate())
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
+            && request.resource.data.updatedAt == request.time
+            && (
+              (resource.data.bookingType == "shop-owner" && validShopBookingTransition())
+              || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
+                && validProviderBookingTransition())
+            )
+          )
+        );
       allow delete: if false;
     }
 

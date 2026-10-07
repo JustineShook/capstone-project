@@ -1,5 +1,5 @@
 import {
-  collection, doc, onSnapshot, query, runTransaction,
+  collection, doc, getDocs, onSnapshot, query, runTransaction,
   serverTimestamp, Timestamp, where,
 } from "firebase/firestore";
 import { SHOP_TRANSITIONS, type ShopBookingRequest, type ShopBookingStatus } from "../types/shopBooking";
@@ -31,6 +31,7 @@ function fromDocument(id: string, data: Record<string, unknown>): ShopBookingReq
 /** Same collection and customer/vehicle snapshot as mechanic and towing bookings. */
 export async function createShopBooking(input: CreateBookingInput): Promise<string> {
   const user = requireUser();
+  const active=await getActiveShopBooking(input.providerId,user.uid); if(active)return active.id;
   const problem = input.problem.trim();
   const notes = input.notes.trim();
   if (!problem || problem.length > 300) throw new Error("Describe the problem in 1–300 characters.");
@@ -63,6 +64,7 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
   });
   return reference.id;
 }
+export async function getActiveShopBooking(providerId:string,customerId=requireUser().uid):Promise<ShopBookingRequest|null>{const snap=await getDocs(query(collection(db,"bookings"),where("customerId","==",customerId)));return snap.docs.map(item=>fromDocument(item.id,item.data())).filter(item=>item.bookingType==="shop-owner"&&item.providerId===providerId&&!['completed','cancelled','rejected'].includes(item.status)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]??null;}
 
 export function subscribeToMyShopBookings(callback: (bookings: ShopBookingRequest[]) => void, onError: (error: Error) => void) {
   const user = requireUser();

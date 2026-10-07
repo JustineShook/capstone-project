@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from "react-native";
 import { useEffect, useState } from "react";
 
 import { PublicListingForm } from "../../components/provider/PublicListingForm";
@@ -25,6 +25,7 @@ export default function MechanicPublicListingScreen() {
 
       setInitialListing({
         businessName: existing?.businessName ?? "",
+        contactPhone: profile.personal.phone,
         location: existing?.location,
         availability: existing?.availability ?? "offline",
         services: existing?.services.length ? existing.services : profile.professional.specializations,
@@ -37,8 +38,8 @@ export default function MechanicPublicListingScreen() {
     }).catch(() => setInitialListing(null));
   }, []);
 
-  if (initialListing === undefined) return <View style={styles.state}><ActivityIndicator color="#D32F2F" /></View>;
-  if (initialListing === null) return <View style={styles.state}><Text style={styles.error}>A verified onsite mechanic profile is required.</Text></View>;
+  if (initialListing === undefined) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115"/><ActivityIndicator color="#F51F3B" /></View>;
+  if (initialListing === null) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115"/><Text style={styles.error}>A verified onsite mechanic profile is required.</Text></View>;
 
   return (
     <PublicListingForm
@@ -49,4 +50,4 @@ export default function MechanicPublicListingScreen() {
   );
 }
 
-const styles = StyleSheet.create({ state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }, error: { color: "#6B7280", textAlign: "center" } });
+const styles = StyleSheet.create({ state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "#0B1115" }, error: { color: "#A1ABB2", textAlign: "center", fontSize: 16 } });

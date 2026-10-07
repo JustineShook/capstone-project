@@ -72,7 +72,7 @@ export default function TowingBookingDetailScreen() {
     void getProviderReviewSummary(booking.providerId).then(({ average, count }) => setProviderRating({ average, count }));
   }, [booking?.providerId]);
 
-  const provider = booking ? { name: booking.providerName, initials: booking.providerName.slice(0, 2).toUpperCase(), color: colors.primary, phone: "", rating: providerRating.average, reviewCount: providerRating.count, distanceKm: 0, category: "Towing" as const } : undefined;
+  const provider = booking ? { name: booking.providerName, initials: booking.providerName.slice(0, 2).toUpperCase(), color: colors.primary, phone: booking.pricingMode === "dispatcher" ? booking.dispatcherPhone : "", rating: providerRating.average, reviewCount: providerRating.count, distanceKm: 0, category: "Towing" as const } : undefined;
   const vehicle = booking ? { year: booking.vehicleYear, make: booking.vehicle, model: "", vehicleType: "" } : undefined;
   const currentStepIndex = booking ? TOWING_STATUS_FLOW.indexOf(booking.status) : -1;
   const isTerminalStatus = booking?.status === "cancelled" || booking?.status === "rejected";

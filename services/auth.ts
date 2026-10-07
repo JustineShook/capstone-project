@@ -20,7 +20,7 @@ import type {
 } from "../types/user";
 import { auth, db } from "./firebase";
 
-type LegacyProviderRole = Exclude<ProviderRole, "onsite-mechanic">;
+type BusinessProviderRole = Exclude<ProviderRole, "onsite-mechanic">;
 
 /**
  * Friendly messages for the Firebase Auth error codes you'll actually hit
@@ -72,17 +72,19 @@ export interface RegisterParams {
  * only collects the role — everything else here is a placeholder meant
  * to be filled in later via a Provider Setup screen.
  */
-function buildDefaultProviderProfile(uid: string, role: LegacyProviderRole): ProviderProfile {
-  const businessNameByRole: Record<LegacyProviderRole, string> = {
+function buildDefaultProviderProfile(uid: string, role: BusinessProviderRole): ProviderProfile {
+  const businessNameByRole: Record<BusinessProviderRole, string> = {
     "shop-owner": "Unnamed Auto Shop",
     "towing-company": "Unnamed Towing Service",
+    homegarage: "Unnamed Parking Space",
   };
 
   // Matches each dashboard's own vocabulary: mechanic/towing show an
   // online/offline toggle, shop-owner shows open/closed.
-  const defaultStatusByRole: Record<LegacyProviderRole, string> = {
+  const defaultStatusByRole: Record<BusinessProviderRole, string> = {
     "shop-owner": "closed",
     "towing-company": "offline",
+    homegarage: "offline",
   };
 
   return {
@@ -130,7 +132,7 @@ export async function register({
       createdAt: serverTimestamp(),
     });
 
-    if (role === "shop-owner" || role === "towing-company") {
+    if (role === "shop-owner" || role === "towing-company" || role === "homegarage") {
       const providerProfile = buildDefaultProviderProfile(credential.user.uid, role);
       await setDoc(doc(db, "providers", credential.user.uid), providerProfile);
     }
@@ -193,7 +195,7 @@ export async function ensureProviderProfile(uid: string): Promise<ProviderProfil
   const userProfile = await getUserProfile(uid);
   if (
     !userProfile ||
-    (userProfile.role !== "shop-owner" && userProfile.role !== "towing-company")
+    (userProfile.role !== "shop-owner" && userProfile.role !== "towing-company" && userProfile.role !== "homegarage")
   ) {
     return null;
   }
@@ -221,6 +223,8 @@ export function getDashboardRoute(role: UserRole | undefined | null): string | n
       return "/(shop-owner)";
     case "towing-company":
       return "/(towing-company)";
+    case "homegarage":
+      return "/(homegarage)";
     case "admin":
       return "/(admin)";
     default:

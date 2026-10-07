@@ -8,13 +8,14 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 //  - Auto Shops: physical repair shops the customer brings the vehicle to
 //  - Onsite Mechanics: independent mechanics who travel to the customer
 // ---------------------------------------------------------------------------
-export type ProviderCategory = "All" | "Towing" | "Auto Shops" | "Onsite Mechanics";
+export type ProviderCategory = "All" | "Towing" | "Auto Shops" | "Onsite Mechanics" | "Parking Lots";
 
 export const CATEGORIES: { label: ProviderCategory; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: "All", icon: "grid-outline" },
   { label: "Towing", icon: "car-outline" },
   { label: "Auto Shops", icon: "storefront-outline" },
   { label: "Onsite Mechanics", icon: "construct-outline" },
+  { label: "Parking Lots", icon: "car-outline" },
 ];
 
 export function getCategoryIcon(
@@ -32,6 +33,8 @@ export function getServiceLabel(category: Exclude<ProviderCategory, "All">) {
       return "Auto Shop";
     case "Onsite Mechanics":
       return "Onsite Mechanic";
+    case "Parking Lots":
+      return "Parking Space";
   }
 }
 
@@ -47,6 +50,8 @@ export function getCategoryBadge(category: Exclude<ProviderCategory, "All">): {
       return { icon: "storefront-outline", text: "Visit Shop" };
     case "Onsite Mechanics":
       return { icon: "location-outline", text: "Onsite Service" };
+    case "Parking Lots":
+      return { icon: "car-outline", text: "Park Here" };
   }
 }
 
@@ -58,12 +63,12 @@ export function getStatusLabel(category: Exclude<ProviderCategory, "All">, isPos
 
 // Label for the services section — towing providers phrase it differently
 export function getServicesSectionLabel(category: Exclude<ProviderCategory, "All">) {
-  return category === "Towing" ? "Towing Services" : "Services";
+  return category === "Towing" ? "Towing Services" : category === "Parking Lots" ? "Parking Features" : "Services";
 }
 
 // Whether this category supports a service request.
 export function supportsBooking(category: Exclude<ProviderCategory, "All">) {
-  return category === "Auto Shops" || category === "Towing" || category === "Onsite Mechanics";
+  return category === "Auto Shops" || category === "Towing" || category === "Onsite Mechanics" || category === "Parking Lots";
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +136,7 @@ export interface MockProvider {
   phone: string;
   vehicleTypes: VehicleType[];
   reviews: ProviderReview[];
+  photoUrls?: string[];
 }
 
 export const MOCK_CENTER = { lat: 10.3181, lng: 123.9057 };

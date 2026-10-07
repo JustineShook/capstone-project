@@ -169,6 +169,19 @@ export default function BookingDetailScreen() {
                 </View>
               </View>
             )}
+            {booking.mechanicLatitude != null && booking.mechanicLongitude != null && !isTerminalStatus && (
+              <Pressable
+                style={styles.liveTrackingCard}
+                onPress={() => void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${booking.mechanicLatitude},${booking.mechanicLongitude}`)}
+              >
+                <Ionicons name="navigate-circle" size={24} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.liveTrackingTitle}>Live mechanic location</Text>
+                  <Text style={styles.liveTrackingText}>Updated in real time · Tap to view on map</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+              </Pressable>
+            )}
 
             <Text style={styles.sectionLabel}>Status</Text>
             <View style={styles.statusBlock}>
@@ -469,6 +482,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  liveTrackingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    backgroundColor: "#F5F7F8",
+    padding: 12,
+    marginTop: 10,
+  },
+  liveTrackingTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: "700" },
+  liveTrackingText: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   actionButton: {
     width: 34,
     height: 34,

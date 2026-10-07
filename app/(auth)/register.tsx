@@ -19,6 +19,7 @@ const SELECTABLE_ROLES: { label: string; value: UserRole }[] = [
   { label: "Onsite Mechanic", value: "onsite-mechanic" },
   { label: "Auto Shop", value: "shop-owner" },
   { label: "Towing Company", value: "towing-company" },
+  { label: "Parking Space", value: "homegarage" },
 ];
 
 export default function RegisterScreen() {

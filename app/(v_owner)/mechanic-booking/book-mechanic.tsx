@@ -86,6 +86,7 @@ export default function BookMechanicScreen() {
   const [isProblemModalVisible, setProblemModalVisible] = useState(false);
 
   const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const selectedVehicle = vehicles.find((vehicle) => vehicle.vehicleId === selectedVehicleId) ?? null;
   const isSelectedVehicleCompatible = selectedVehicle
@@ -105,7 +106,8 @@ export default function BookMechanicScreen() {
   };
 
   const handleConfirm = async () => {
-  if (!canConfirm || !selectedVehicle || !provider) return;
+  if (!canConfirm || !selectedVehicle || !provider || submitting) return;
+  setSubmitting(true);
 
   const permission = await Location.requestForegroundPermissionsAsync();
   if (permission.status !== "granted") throw new Error("Location permission is required to send an onsite request.");
@@ -258,10 +260,10 @@ export default function BookMechanicScreen() {
         <Pressable
           style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
           onPress={handleConfirm}
-          disabled={!canConfirm}
+          disabled={!canConfirm || submitting}
         >
           <Text style={[styles.confirmButtonText, !canConfirm && styles.confirmButtonTextDisabled]}>
-            Confirm Booking
+            {submitting ? "Sending..." : "Confirm Booking"}
           </Text>
         </Pressable>
       </SafeAreaView>

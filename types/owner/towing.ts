@@ -118,6 +118,8 @@ export interface TowingBookingRequest {
   pricePerKm: number;
   distanceCharge: number;
   estimatedTotalPrice: number;
+  pricingMode: "fixed" | "dispatcher";
+  dispatcherPhone: string;
   /** Legacy bracket-pricing fields retained when reading historical bookings. */
   pricingBracketId?: string;
   estimatedPrice?: number;

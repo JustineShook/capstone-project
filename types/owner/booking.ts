@@ -79,6 +79,8 @@ export interface BookingRequest {
   customerId: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
+  customerAddress?: string;
   providerId: string;
   providerName: string;
   vehicleId: string;
@@ -87,6 +89,9 @@ export interface BookingRequest {
   vehiclePlate: string;
   latitude: number;
   longitude: number;
+  mechanicLatitude?: number;
+  mechanicLongitude?: number;
+  mechanicLocationUpdatedAt?: string;
   problem: string;
   notes: string;
   startingPrice: string;

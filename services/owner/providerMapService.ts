@@ -38,6 +38,8 @@ function categoryColor(category: Exclude<ProviderCategory, "All">) {
       return "#6A1B9A";
     case "Auto Shops":
       return "#1E88E5";
+    case "Parking Lots":
+      return "#00897B";
   }
 }
 
@@ -48,6 +50,7 @@ function isActiveListing(value: unknown): value is ProviderListing {
   return listing.visibility === "active"
     && ((listing.role === "onsite-mechanic" && listing.category === "Onsite Mechanics")
       || (listing.role === "towing-company" && listing.category === "Towing")
+      || (listing.role === "homegarage" && listing.category === "Parking Lots")
       || isBookableShopListing(listing as ProviderListing))
     && typeof listing.providerId === "string"
     && typeof listing.businessName === "string"
@@ -85,16 +88,16 @@ function toMapProvider(listing: ProviderListing, reviewSummary: ProviderReviewSu
     color: categoryColor(category),
     lat: listing.location.latitude,
     lng: listing.location.longitude,
-    description: services.length
+    description: listing.description?.trim() || (services.length
       ? `${listing.businessName} offers ${services.slice(0, 2).join(" and ")} in ${serviceArea || "its service area"}.`
-      : `${listing.businessName} serves ${serviceArea || "its service area"}.`,
+      : `${listing.businessName} serves ${serviceArea || "its service area"}.`),
     services,
     hours: listing.operatingHours ?? "Hours not provided",
     emergencyServiceAvailable: listing.emergencyServiceAvailable,
-    // ProviderListing deliberately contains no contact number; reviews come
-    // from the public, rule-validated providerReviews collection.
-    phone: "",
+    // Only HomeGarage opts into a rule-validated public phone number.
+    phone: listing.contactPhone ?? "",
     vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"],
+    photoUrls: listing.photoUrls ?? [],
     reviews: reviewSummary.reviews,
   };
 }

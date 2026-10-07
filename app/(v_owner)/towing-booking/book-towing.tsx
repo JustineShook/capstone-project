@@ -105,6 +105,7 @@ export default function BookTowingScreen() {
   const [isConditionModalVisible, setConditionModalVisible] = useState(false);
 
   const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // --- Pickup GPS state --------------------------------------------------
   const [isLocating, setIsLocating] = useState(false);
@@ -159,12 +160,13 @@ export default function BookTowingScreen() {
       estimatedTotalPrice: Number((pricingConfig.basePrice + distanceCharge).toFixed(2)),
     };
   }, [distanceEstimate, pricingConfig]);
+  const usesDispatcherPricing = pricingConfig?.pricingMode === "dispatcher";
 
   const canConfirm =
     !!selectedVehicle &&
     !!pickupCoordinates &&
     !!destinationCoordinates &&
-    !!pricingEstimate &&
+    (usesDispatcherPricing || !!pricingEstimate) &&
     pickupLocation.trim().length > 0 &&
     destination.trim().length > 0 &&
     !!selectedTowingType &&
@@ -423,7 +425,8 @@ export default function BookTowingScreen() {
   }, []);
 
   const handleConfirm = async () => {
-    if (!canConfirm || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates || !destinationCoordinates || !distanceEstimate || !pricingEstimate) return;
+    if (!canConfirm || submitting || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates || !destinationCoordinates || !distanceEstimate || (!pricingEstimate && !usesDispatcherPricing) || !pricingConfig) return;
+    setSubmitting(true);
 
     const booking = await createTowingBooking({
       providerId: provider.id,
@@ -440,11 +443,13 @@ export default function BookTowingScreen() {
       destinationLongitude: destinationCoordinates.longitude,
       providerToPickupDistanceKm: Number(distanceEstimate.providerToPickupDistanceKm.toFixed(2)),
       pickupToDestinationDistanceKm: Number(distanceEstimate.pickupToDestinationDistanceKm.toFixed(2)),
-      totalDistanceKm: pricingEstimate.totalDistanceKm,
-      basePrice: pricingEstimate.basePrice,
-      pricePerKm: pricingEstimate.pricePerKm,
-      distanceCharge: pricingEstimate.distanceCharge,
-      estimatedTotalPrice: pricingEstimate.estimatedTotalPrice,
+      totalDistanceKm: usesDispatcherPricing ? Number(distanceEstimate.totalDistanceKm.toFixed(2)) : pricingEstimate!.totalDistanceKm,
+      basePrice: usesDispatcherPricing ? 0 : pricingEstimate!.basePrice,
+      pricePerKm: usesDispatcherPricing ? 0 : pricingEstimate!.pricePerKm,
+      distanceCharge: usesDispatcherPricing ? 0 : pricingEstimate!.distanceCharge,
+      estimatedTotalPrice: usesDispatcherPricing ? 0 : pricingEstimate!.estimatedTotalPrice,
+      pricingMode: pricingConfig.pricingMode,
+      dispatcherPhone: pricingConfig.dispatcherPhone,
       pickupLocation,
       destination,
       towingType: selectedTowingType,
@@ -713,11 +718,11 @@ export default function BookTowingScreen() {
 
       {/* Confirm bar */}
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
-        <View style={styles.priceRow}>
+        {usesDispatcherPricing ? <View style={styles.priceRow}><Text style={styles.priceLabel}>Pricing</Text><Text style={styles.priceValue}>{pricingConfig?.dispatcherPhone || "Contact dispatcher"}</Text></View> : <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Base towing fee</Text>
           <Text style={styles.priceValue}>{pricingConfig ? `₱${pricingConfig.basePrice.toLocaleString("en-PH")}` : "Not configured"}</Text>
-        </View>
-        {pricingEstimate && <>
+        </View>}
+        {!usesDispatcherPricing && pricingEstimate && <>
           <View style={styles.priceRow}><Text style={styles.priceLabel}>Estimated distance</Text><Text style={styles.priceValue}>{pricingEstimate.totalDistanceKm.toFixed(2)} km</Text></View>
           <View style={styles.priceRow}><Text style={styles.priceLabel}>Rate</Text><Text style={styles.priceValue}>₱{pricingEstimate.pricePerKm.toLocaleString("en-PH")}/km</Text></View>
           <View style={styles.priceRow}><Text style={styles.priceLabel}>Distance charge</Text><Text style={styles.priceValue}>₱{pricingEstimate.distanceCharge.toLocaleString("en-PH")}</Text></View>
@@ -729,10 +734,10 @@ export default function BookTowingScreen() {
         <Pressable
           style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
           onPress={handleConfirm}
-          disabled={!canConfirm}
+          disabled={!canConfirm || submitting}
         >
           <Text style={[styles.confirmButtonText, !canConfirm && styles.confirmButtonTextDisabled]}>
-            Confirm Towing
+            {submitting ? "Sending..." : "Confirm Towing"}
           </Text>
         </Pressable>
       </SafeAreaView>

@@ -1,25 +1,20 @@
-import { useState } from "react";
-import { TextInput, View } from "react-native";
-import { RequestList } from "../../components/shop-owner/ShopRequests";
-import { Button, LoadState, s, ShopScreen } from "../../components/shop-owner/ShopUI";
+import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useMemo, useState } from "react";
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
-import { isActiveShopService } from "../../types/shopBooking";
+import { isActiveShopService, SHOP_STATUS_LABELS, type ShopBookingRequest } from "../../types/shopBooking";
 
-const FILTERS = ["Incoming", "Active", "Completed", "Rejected", "Cancelled"] as const;
+const C = { canvas: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", status: "#2A363E", red: "#F51F3B" };
+type Filter = "ALL" | "NEW" | "ONGOING" | "COMPLETED" | "CANCELLED";
+const FILTERS: [Filter, string][] = [["ALL", "All"], ["NEW", "New"], ["ONGOING", "Ongoing"], ["COMPLETED", "Completed"], ["CANCELLED", "Cancelled"]];
+function group(status: ShopBookingRequest["status"]): Filter { if (status === "pending") return "NEW"; if (status === "completed") return "COMPLETED"; if (status === "rejected" || status === "cancelled") return "CANCELLED"; return "ONGOING"; }
+
 export default function ShopRequestsScreen() {
-  const { requests, requestsLoading, requestsError, retry } = useShopDashboard();
-  const [filter, setFilter] = useState<typeof FILTERS[number]>("Incoming");
-  const [search, setSearch] = useState("");
-  const needle = search.trim().toLowerCase();
-  const filtered = requests.filter((request) => {
-    const matches = filter === "Incoming" ? request.status === "pending" : filter === "Active" ? isActiveShopService(request.status)
-      : filter === "Completed" ? request.status === "completed" : filter === "Rejected" ? request.status === "rejected" : request.status === "cancelled";
-    return matches && `${request.customerName} ${request.vehicle} ${request.vehiclePlate} ${request.problem}`.toLowerCase().includes(needle);
-  });
-  return <ShopScreen title="Service Requests">
-    <TextInput accessibilityLabel="Search service requests" style={s.input} value={search} onChangeText={setSearch} placeholder="Search customer, vehicle or problem" />
-    <View style={s.row}>{FILTERS.map((item) => <Button key={item} title={item} secondary={filter !== item} onPress={() => setFilter(item)} />)}</View>
-    <LoadState loading={requestsLoading} error={requestsError} retry={retry} />
-    {!requestsLoading && !requestsError && <RequestList requests={filtered} empty={needle ? "No requests match your search." : `No ${filter.toLowerCase()} requests.`} actions={filter === "Incoming"} />}
-  </ShopScreen>;
+  const router = useRouter(); const insets = useSafeAreaInsets(); const { requests, requestsLoading, requestsError, retry } = useShopDashboard(); const [filter, setFilter] = useState<Filter>("ALL");
+  const visible = useMemo(() => filter === "ALL" ? requests : requests.filter((item) => group(item.status) === filter), [requests, filter]);
+  const open = (item: ShopBookingRequest) => router.push({ pathname: isActiveShopService(item.status) ? "/(shop-owner)/active-service" : "/(shop-owner)/request-details", params: { id: item.id } });
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}><StatusBar barStyle="light-content" backgroundColor={C.canvas} /><ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}><Text style={s.title}>My Bookings</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>{FILTERS.map(([key, text]) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.active]} onPress={() => setFilter(key)}><Text style={[s.filterText, filter === key && s.activeText]}>{text}</Text></TouchableOpacity>)}</ScrollView>{requestsLoading ? <View style={s.empty}><Text style={s.emptyText}>Loading bookings...</Text></View> : requestsError ? <View style={s.empty}><Text style={s.emptyText}>{requestsError}</Text><TouchableOpacity style={s.retry} onPress={retry}><Text style={s.retryText}>Try Again</Text></TouchableOpacity></View> : visible.length === 0 ? <View style={s.empty}><Feather name="clipboard" size={28} color={C.muted} /><Text style={s.emptyText}>No {filter === "ALL" ? "" : "matching "}bookings.</Text></View> : visible.map((item) => <TouchableOpacity key={item.id} style={s.card} onPress={() => open(item)} activeOpacity={0.75}><View style={s.cardTop}><View style={s.status}><Text style={s.statusText}>{SHOP_STATUS_LABELS[item.status]}</Text></View><Text style={s.time}>{new Date(item.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</Text></View><View style={s.vehicleRow}><Text style={s.vehicle}>{item.vehicle}</Text><Feather name="chevron-right" size={24} color={C.muted} /></View><View style={s.row}><View style={s.pin}><Feather name="user" size={17} color={C.text} /></View><View style={s.info}><Text style={s.customer}>{item.customerName}</Text><Text style={s.problem} numberOfLines={2}>{item.problem}</Text></View></View><View style={s.locationRow}><Feather name="map-pin" size={15} color={C.muted} /><Text style={s.location} numberOfLines={1}>{item.shopAreaLabel || "Auto shop service"}</Text></View></TouchableOpacity>)}</ScrollView></SafeAreaView>;
 }
+const s = StyleSheet.create({ safe: { flex: 1, backgroundColor: C.canvas }, content: { paddingHorizontal: 16, paddingTop: 14 }, title: { color: C.text, fontSize: 24, fontWeight: "700" }, filters: { gap: 9, paddingTop: 18, paddingBottom: 16 }, filter: { minHeight: 42, justifyContent: "center", paddingHorizontal: 16, borderRadius: 7, backgroundColor: C.card }, active: { backgroundColor: C.red }, filterText: { color: C.text, fontSize: 14, fontWeight: "600" }, activeText: { color: "#fff" }, card: { borderRadius: 10, backgroundColor: C.card, padding: 16, marginBottom: 12 }, cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, status: { borderRadius: 6, backgroundColor: C.status, paddingHorizontal: 9, paddingVertical: 5 }, statusText: { color: C.text, fontSize: 13, fontWeight: "600" }, time: { color: C.muted, fontSize: 14 }, vehicleRow: { marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, vehicle: { color: C.text, fontSize: 19, fontWeight: "700" }, row: { marginTop: 11, flexDirection: "row", alignItems: "center", gap: 9 }, pin: { height: 32, width: 32, borderRadius: 16, backgroundColor: "#39444C", justifyContent: "center", alignItems: "center" }, info: { flex: 1 }, customer: { color: C.text, fontSize: 15, fontWeight: "700" }, problem: { color: C.muted, fontSize: 14, marginTop: 2 }, locationRow: { flexDirection: "row", gap: 7, alignItems: "center", marginTop: 10, marginLeft: 7 }, location: { flex: 1, color: C.muted, fontSize: 14 }, empty: { alignItems: "center", gap: 12, paddingTop: 72 }, emptyText: { color: C.muted, fontSize: 16, textAlign: "center" }, retry: { backgroundColor: C.red, paddingHorizontal: 15, paddingVertical: 10, borderRadius: 7 }, retryText: { color: "#fff", fontWeight: "700" } });

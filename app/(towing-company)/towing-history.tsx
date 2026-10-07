@@ -1,508 +1,62 @@
-// app/(towing-company)/towing-history.tsx
-//
-// Towing History screen for the (towing-company) provider dashboard.
-// Mirrors the visual architecture of requests.tsx (header, search, filter
-// chips, card list) so it reads as part of the same screen family.
-//
-// Mock data only — no Firebase/database changes. The TowingHistoryRecord
-// shape below is intentionally flat and serializable so it can later be
-// swapped for a Firestore query (e.g. towingRequests where providerId ==
-// currentProvider and status in [COMPLETED, CANCELLED, DECLINED], ordered
-// by completedAt desc) without touching the render logic.
-//
-// Navigation: tapping "View Details" (or the card itself) pushes to the
-// EXISTING /(towing-company)/request-details screen with { id }, exactly
-// like requests.tsx does — no separate history-details screen was created.
-// Records tow-004 / tow-005 / tow-006 reuse the same ids already present
-// in request-details.tsx's MOCK_REQUEST_DETAILS, so those three open with
-// full details. The remaining mock entries (tow-008+) are history-only for
-// now; tapping them falls back to request-details.tsx's existing
-// "Request not found" state (already built into that screen) until
-// matching records are added there or this is wired to real data — that
-// fallback is why routing here is safe without modifying request-details.
-
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import {
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { subscribeToTowingRequests } from "../../services/owner/towingService";
+import type { TowingBookingRequest } from "../../types/owner/towing";
 
-const COLORS = {
-  primary: "#D32F2F",
-  primaryMuted: "#FCE8E8",
-  background: "#FFFFFF",
-  sectionBackground: "#F7F7F8",
-  text: "#1A1A1A",
-  textMuted: "#6B7280",
-  border: "#E5E7EB",
-};
+const COLORS = { canvas: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", red: "#F51F3B", bar: "#D9233C" };
+type Period = "WEEK" | "MONTH" | "ALL";
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function amount(value: string) { return Number(value.replace(/[^\d.]/g, "")) || 0; }
+function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value); }
 
-export type HistoryStatus = "COMPLETED" | "CANCELLED" | "DECLINED";
-
-// Deliberately flat/serializable — maps 1:1 onto a future Firestore document.
-// No plate number field by design.
-export interface TowingHistoryRecord {
-  id: string;
-  customerName: string;
-  vehicleType: string; // "Motorcycle" | "Car" | "SUV" | "Pickup Truck" | "Van" | ...
-  vehicleMake: string;
-  vehicleModel: string;
-  requestType: string;
-  pickupLocation: string;
-  destination: string;
-  dateTime: string; // display string for now; swap for a Firestore Timestamp later
-  distanceKm: number;
-  finalFee: string;
-  status: HistoryStatus;
-}
-
-// Mock towing history. Ids tow-004/005/006 intentionally match the records
-// already defined in request-details.tsx.
-const TOWING_HISTORY: TowingHistoryRecord[] = [
-  {
-    id: "tow-004",
-    customerName: "Jerome Bautista",
-    vehicleType: "Pickup Truck",
-    vehicleMake: "Ford",
-    vehicleModel: "Ranger",
-    requestType: "Accident Recovery",
-    pickupLocation: "Katipunan Avenue",
-    destination: "Ford Service Center",
-    dateTime: "Aug 23, 2026 \u00B7 1:15 PM",
-    distanceKm: 6.1,
-    finalFee: "\u20B12,400",
-    status: "COMPLETED",
-  },
-  {
-    id: "tow-005",
-    customerName: "Patricia Lim",
-    vehicleType: "Van",
-    vehicleMake: "Suzuki",
-    vehicleModel: "Ertiga",
-    requestType: "Battery / Won't Start",
-    pickupLocation: "Fairview",
-    destination: "Suzuki Auto Service",
-    dateTime: "Aug 23, 2026 \u00B7 12:30 PM",
-    distanceKm: 2.9,
-    finalFee: "\u20B11,000",
-    status: "DECLINED",
-  },
-  {
-    id: "tow-006",
-    customerName: "Michael Tan",
-    vehicleType: "SUV",
-    vehicleMake: "Nissan",
-    vehicleModel: "Navara",
-    requestType: "Vehicle Breakdown",
-    pickupLocation: "Novaliches",
-    destination: "Nissan Service Center",
-    dateTime: "Aug 23, 2026 \u00B7 11:05 AM",
-    distanceKm: 7.3,
-    finalFee: "\u20B12,000",
-    status: "CANCELLED",
-  },
-  {
-    id: "tow-008",
-    customerName: "Ella Ramirez",
-    vehicleType: "Motorcycle",
-    vehicleMake: "Yamaha",
-    vehicleModel: "Mio",
-    requestType: "Motorcycle Breakdown Tow",
-    pickupLocation: "Banawe",
-    destination: "Yamaha Service Center, Banawe",
-    dateTime: "Aug 20, 2026 \u00B7 9:12 AM",
-    distanceKm: 4.0,
-    finalFee: "\u20B1700",
-    status: "COMPLETED",
-  },
-  {
-    id: "tow-009",
-    customerName: "Noel Villanueva",
-    vehicleType: "Car",
-    vehicleMake: "Toyota",
-    vehicleModel: "Wigo",
-    requestType: "Emergency Towing",
-    pickupLocation: "Elliptical Road",
-    destination: "Preferred Auto Shop, Quezon City",
-    dateTime: "Aug 18, 2026 \u00B7 6:40 PM",
-    distanceKm: 5.2,
-    finalFee: "\u20B11,300",
-    status: "CANCELLED",
-  },
-  {
-    id: "tow-010",
-    customerName: "Grace Manalo",
-    vehicleType: "Pickup Truck",
-    vehicleMake: "Isuzu",
-    vehicleModel: "D-Max",
-    requestType: "Flat Tire / Roadside Assistance",
-    pickupLocation: "Congressional Avenue",
-    destination: "Isuzu Service Center",
-    dateTime: "Aug 17, 2026 \u00B7 2:05 PM",
-    distanceKm: 3.5,
-    finalFee: "\u20B1900",
-    status: "DECLINED",
-  },
-  {
-    id: "tow-011",
-    customerName: "Ramon Dizon",
-    vehicleType: "Car",
-    vehicleMake: "Hyundai",
-    vehicleModel: "Accent",
-    requestType: "Vehicle Breakdown",
-    pickupLocation: "Visayas Avenue",
-    destination: "Hyundai Service Center",
-    dateTime: "Aug 16, 2026 \u00B7 4:50 PM",
-    distanceKm: 6.8,
-    finalFee: "\u20B12,100",
-    status: "COMPLETED",
-  },
-  {
-    id: "tow-012",
-    customerName: "Cristina Padilla",
-    vehicleType: "Van",
-    vehicleMake: "Toyota",
-    vehicleModel: "Hiace",
-    requestType: "Accident Recovery",
-    pickupLocation: "EDSA cor. Quezon Avenue",
-    destination: "Toyota Service Center",
-    dateTime: "Aug 14, 2026 \u00B7 8:30 AM",
-    distanceKm: 9.4,
-    finalFee: "\u20B13,200",
-    status: "COMPLETED",
-  },
-  {
-    id: "tow-013",
-    customerName: "Victor Enriquez",
-    vehicleType: "SUV",
-    vehicleMake: "Chevrolet",
-    vehicleModel: "Trailblazer",
-    requestType: "Emergency Towing",
-    pickupLocation: "Mindanao Avenue",
-    destination: "Chevrolet Service Center",
-    dateTime: "Aug 12, 2026 \u00B7 7:15 PM",
-    distanceKm: 4.6,
-    finalFee: "\u20B11,600",
-    status: "DECLINED",
-  },
-];
-
-type FilterKey = "ALL" | "COMPLETED" | "CANCELLED" | "DECLINED";
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "ALL", label: "All" },
-  { key: "COMPLETED", label: "Completed" },
-  { key: "CANCELLED", label: "Cancelled" },
-  { key: "DECLINED", label: "Declined" },
-];
-
-// Same palette used for these three statuses in requests.tsx, kept identical
-// for visual consistency between the live list and the history list.
-const STATUS_STYLES: Record<
-  HistoryStatus,
-  { label: string; background: string; color: string }
-> = {
-  COMPLETED: { label: "Completed", background: "#D1FAE5", color: "#065F46" },
-  DECLINED: { label: "Declined", background: "#F3F4F6", color: "#4B5563" },
-  CANCELLED: { label: "Cancelled", background: "#FEE2E2", color: "#991B1B" },
-};
-
-function matchesFilter(status: HistoryStatus, filter: FilterKey): boolean {
-  if (filter === "ALL") return true;
-  return status === filter;
-}
-
-export default function TowingHistoryScreen() {
+export default function TowingEarningsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [activeFilter, setActiveFilter] = useState<FilterKey>("ALL");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [period, setPeriod] = useState<Period>("WEEK");
+  const [bookings, setBookings] = useState<TowingBookingRequest[]>([]);
+  useEffect(() => subscribeToTowingRequests(setBookings), []);
 
-  const filteredHistory = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return TOWING_HISTORY.filter((record) => {
-      if (!matchesFilter(record.status, activeFilter)) return false;
-      if (!query) return true;
-      const haystack =
-        `${record.customerName} ${record.vehicleType} ${record.vehicleMake} ${record.vehicleModel} ${record.requestType}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [activeFilter, searchQuery]);
+  const completed = useMemo(() => bookings.filter((item) => item.status === "completed"), [bookings]);
+  const transactions = useMemo(() => {
+    if (period === "ALL") return completed;
+    const start = new Date();
+    start.setDate(start.getDate() - (period === "WEEK" ? 6 : 29));
+    start.setHours(0, 0, 0, 0);
+    return completed.filter((item) => new Date(item.updatedAt) >= start);
+  }, [completed, period]);
+  const total = transactions.reduce((sum, item) => sum + amount(item.startingPrice), 0);
+  const average = transactions.length ? total / transactions.length : 0;
+  const weeklyBars = useMemo(() => DAYS.map((_, day) => {
+    const target = new Date();
+    target.setDate(target.getDate() - ((target.getDay() + 6) % 7) + day);
+    return completed.filter((item) => new Date(item.updatedAt).toDateString() === target.toDateString()).reduce((sum, item) => sum + amount(item.startingPrice), 0);
+  }), [completed]);
+  const maximum = Math.max(...weeklyBars, 1);
 
-  return (
-    <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
-        <Text style={styles.headerTitle}>Towing History</Text>
-        <Text style={styles.headerSubtitle}>
-          {filteredHistory.length} {filteredHistory.length === 1 ? "record" : "records"}
-        </Text>
-      </View>
-
-      <View style={styles.searchWrapper}>
-        <Feather name="search" size={16} color={COLORS.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search customer or vehicle"
-          placeholderTextColor={COLORS.textMuted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
-      <View style={styles.filterRow}>
-        {FILTERS.map((filter) => (
-          <TouchableOpacity
-            key={filter.key}
-            style={[
-              styles.filterChip,
-              activeFilter === filter.key && styles.filterChipActive,
-            ]}
-            onPress={() => setActiveFilter(filter.key)}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                activeFilter === filter.key && styles.filterChipTextActive,
-              ]}
-            >
-              {filter.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {filteredHistory.length === 0 && (
-          <View style={styles.emptyState}>
-            <Feather name="archive" size={28} color={COLORS.textMuted} />
-            <Text style={styles.emptyStateText}>No history matches your search.</Text>
-          </View>
-        )}
-
-        {filteredHistory.map((record) => {
-          const statusStyle = STATUS_STYLES[record.status];
-
-          return (
-            <TouchableOpacity
-              key={record.id}
-              style={styles.historyCard}
-              activeOpacity={0.7}
-              onPress={() =>
-                router.push({
-                  pathname: "/(towing-company)/request-details",
-                  params: { id: record.id },
-                })
-              }
-            >
-              <View style={styles.historyHeaderRow}>
-                <Text style={styles.customerName}>{record.customerName}</Text>
-                <View
-                  style={[
-                    styles.badge,
-                    { backgroundColor: statusStyle.background },
-                  ]}
-                >
-                  <Text style={[styles.badgeText, { color: statusStyle.color }]}>
-                    {statusStyle.label}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.metaRow}>
-                <Text style={styles.vehicle}>
-                  {record.vehicleType} · {record.vehicleMake} {record.vehicleModel}
-                </Text>
-              </View>
-
-              <View style={styles.historyDivider} />
-
-              <View style={styles.historyDetailRow}>
-                <Feather name="truck" size={14} color={COLORS.textMuted} />
-                <Text style={styles.historyDetailText}>{record.requestType}</Text>
-              </View>
-
-              <View style={styles.historyDetailRow}>
-                <Feather name="calendar" size={14} color={COLORS.textMuted} />
-                <Text style={styles.historyDetailText}>{record.dateTime}</Text>
-              </View>
-
-              <View style={styles.routeRow}>
-                <View style={styles.routeColumn}>
-                  <Feather name="map-pin" size={14} color={COLORS.textMuted} />
-                  <Text style={styles.routeText} numberOfLines={1}>
-                    {record.pickupLocation}
-                  </Text>
-                </View>
-                <Feather name="arrow-right" size={14} color={COLORS.textMuted} />
-                <View style={styles.routeColumn}>
-                  <Feather name="flag" size={14} color={COLORS.textMuted} />
-                  <Text style={styles.routeText} numberOfLines={1}>
-                    {record.destination}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.footerRow}>
-                <Text style={styles.distance}>{record.distanceKm} km</Text>
-                <Text style={styles.finalFee}>{record.finalFee}</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.viewDetailsButton}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(towing-company)/request-details",
-                    params: { id: record.id },
-                  })
-                }
-              >
-                <Text style={styles.viewDetailsButtonText}>View Details</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </SafeAreaView>
-  );
+  return <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+    <StatusBar barStyle="light-content" backgroundColor={COLORS.canvas} />
+    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
+      <Text style={styles.title}>Earnings</Text>
+      <View style={styles.filters}>{([["WEEK", "This Week"], ["MONTH", "This Month"], ["ALL", "All Time"]] as [Period, string][]).map(([key, label]) => <TouchableOpacity key={key} onPress={() => setPeriod(key)} style={[styles.filter, period === key && styles.filterActive]}><Text style={[styles.filterText, period === key && styles.filterTextActive]}>{label}</Text></TouchableOpacity>)}</View>
+      <View style={styles.totalCard}><Text style={styles.total}>{peso(total)}</Text><Text style={styles.totalLabel}>Total Earnings</Text><View style={styles.totalIcon}><Feather name="trending-up" size={20} color="#fff" /></View></View>
+      <View style={styles.summaryRow}><Metric icon="truck" value={String(transactions.length)} label="Completed Tows" /><Metric icon="dollar-sign" value={peso(average)} label="Average per Tow" /></View>
+      <View style={styles.chartCard}><View style={styles.chartHeader}><Text style={styles.chartTitle}>Earnings Overview</Text><Text style={styles.chartNote}>This week</Text></View><View style={styles.chart}>{weeklyBars.map((value, index) => <View key={DAYS[index]} style={styles.barItem}><View style={styles.barTrack}><View style={[styles.bar, { height: `${Math.max(value ? 16 : 4, (value / maximum) * 100)}%` }]} /></View><Text style={styles.day}>{DAYS[index]}</Text></View>)}</View></View>
+      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Transactions</Text><Text style={styles.sectionNote}>{transactions.length} completed</Text></View>
+      {transactions.length === 0 ? <View style={styles.empty}><Feather name="credit-card" size={30} color={COLORS.muted} /><Text style={styles.emptyText}>Completed towing jobs will appear here.</Text></View> : transactions.slice(0, 12).map((item) => <TouchableOpacity key={item.id} style={styles.transaction} activeOpacity={0.75} onPress={() => router.push({ pathname: "/(towing-company)/request-details", params: { id: item.id } })}><View style={styles.transactionTop}><View style={styles.vehicleIcon}><Feather name="truck" size={18} color={COLORS.text} /></View><View style={styles.transactionInfo}><Text style={styles.transactionTitle}>{item.vehicle}</Text><Text style={styles.transactionDate}>{new Date(item.updatedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</Text></View><Feather name="chevron-right" size={21} color={COLORS.muted} /></View><View style={styles.transactionBottom}><Text style={styles.transactionLabel}>Service amount</Text><Text style={styles.transactionAmount}>{item.startingPrice}</Text></View></TouchableOpacity>)}
+    </ScrollView>
+  </SafeAreaView>;
 }
 
+function Metric({ icon, value, label }: { icon: keyof typeof Feather.glyphMap; value: string; label: string }) { return <View style={styles.metric}><Feather name={icon} size={17} color={COLORS.muted} /><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>; }
+
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  scroll: { flex: 1, backgroundColor: COLORS.background },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
-
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    backgroundColor: COLORS.primary,
-  },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: "#FFFFFF", letterSpacing: 0.2 },
-  headerSubtitle: { fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 2 },
-
-  searchWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: COLORS.sectionBackground,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-  },
-  searchInput: { flex: 1, fontSize: 13, color: COLORS.text, padding: 0 },
-
-  filterRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 12,
-  },
-  filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.background,
-  },
-  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  filterChipText: { fontSize: 12, fontWeight: "600", color: COLORS.textMuted },
-  filterChipTextActive: { color: "#FFFFFF" },
-
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 48,
-    gap: 10,
-  },
-  emptyStateText: { fontSize: 13, color: COLORS.textMuted },
-
-  historyCard: {
-    backgroundColor: COLORS.background,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  historyHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  customerName: { fontSize: 15, fontWeight: "700", color: COLORS.text },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeText: { fontSize: 11, fontWeight: "700" },
-
-  metaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  vehicle: { fontSize: 12, color: COLORS.textMuted },
-
-  historyDivider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: 12,
-  },
-  historyDetailRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  historyDetailText: { fontSize: 13, color: COLORS.text },
-
-  routeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  routeColumn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  routeText: { fontSize: 12, color: COLORS.text, flexShrink: 1 },
-
-  footerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  distance: { fontSize: 12, color: COLORS.textMuted },
-  finalFee: { fontSize: 14, fontWeight: "700", color: COLORS.primary },
-
-  viewDetailsButton: {
-    marginTop: 12,
-    backgroundColor: COLORS.primary,
-    borderRadius: 8,
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  viewDetailsButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
-}); 
+  safeArea: { flex: 1, backgroundColor: COLORS.canvas }, content: { padding: 16 }, title: { color: COLORS.text, fontSize: 24, fontWeight: "700" },
+  filters: { flexDirection: "row", gap: 8, marginTop: 18 }, filter: { flex: 1, minHeight: 42, justifyContent: "center", alignItems: "center", borderRadius: 7, backgroundColor: COLORS.card }, filterActive: { backgroundColor: COLORS.red }, filterText: { color: COLORS.muted, fontSize: 13, fontWeight: "700" }, filterTextActive: { color: "#fff" },
+  totalCard: { height: 122, marginTop: 14, borderRadius: 11, backgroundColor: COLORS.card, justifyContent: "center", paddingHorizontal: 16, position: "relative" }, total: { color: COLORS.text, fontSize: 30, fontWeight: "700" }, totalLabel: { color: COLORS.muted, fontSize: 14, marginTop: 4 }, totalIcon: { position: "absolute", right: 18, top: 22, height: 43, width: 43, borderRadius: 22, backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center" },
+  summaryRow: { flexDirection: "row", gap: 10, marginTop: 10 }, metric: { flex: 1, minHeight: 94, backgroundColor: COLORS.card, borderRadius: 10, padding: 13 }, metricValue: { color: COLORS.text, fontSize: 20, fontWeight: "700", marginTop: 8 }, metricLabel: { color: COLORS.muted, fontSize: 13, marginTop: 3 },
+  chartCard: { marginTop: 18, backgroundColor: COLORS.card, borderRadius: 10, padding: 15 }, chartHeader: { flexDirection: "row", justifyContent: "space-between" }, chartTitle: { color: COLORS.text, fontSize: 17, fontWeight: "700" }, chartNote: { color: COLORS.muted, fontSize: 13 }, chart: { height: 150, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 12 }, barItem: { width: "12%", height: "100%", alignItems: "center", justifyContent: "flex-end" }, barTrack: { height: 120, width: 18, backgroundColor: "#202B32", borderRadius: 4, justifyContent: "flex-end", overflow: "hidden" }, bar: { width: "100%", backgroundColor: COLORS.bar, borderRadius: 4 }, day: { color: COLORS.muted, fontSize: 10, marginTop: 6 },
+  sectionHeader: { marginTop: 24, marginBottom: 11, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, sectionTitle: { color: COLORS.text, fontSize: 19, fontWeight: "700" }, sectionNote: { color: COLORS.muted, fontSize: 13 }, transaction: { backgroundColor: COLORS.card, borderRadius: 10, padding: 15, marginBottom: 11 }, transactionTop: { flexDirection: "row", alignItems: "center" }, vehicleIcon: { height: 44, width: 44, borderRadius: 22, backgroundColor: "#303C44", justifyContent: "center", alignItems: "center" }, transactionInfo: { marginLeft: 12, flex: 1 }, transactionTitle: { color: COLORS.text, fontSize: 17, fontWeight: "700" }, transactionDate: { color: COLORS.muted, fontSize: 13, marginTop: 4 }, transactionBottom: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#354249", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, transactionLabel: { color: COLORS.muted, fontSize: 13 }, transactionAmount: { color: COLORS.text, fontSize: 17, fontWeight: "700", textAlign: "right", flexShrink: 1, marginLeft: 12 }, empty: { alignItems: "center", paddingVertical: 40, gap: 10 }, emptyText: { color: COLORS.muted, fontSize: 15, textAlign: "center" },
+});

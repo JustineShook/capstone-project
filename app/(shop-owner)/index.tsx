@@ -1,65 +1,36 @@
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
-import { Switch, Text, View } from "react-native";
-import { RequestList } from "../../components/shop-owner/ShopRequests";
-import { Button, C, LoadState, s, ShopScreen } from "../../components/shop-owner/ShopUI";
+import { useMemo, useRef, useState } from "react";
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { setShopAvailability } from "../../services/shopOwnerService";
-import { isActiveShopService } from "../../types/shopBooking";
+import { isActiveShopService, SHOP_STATUS_LABELS, type ShopBookingRequest } from "../../types/shopBooking";
+
+const C = { canvas: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", status: "#2A363E", red: "#F51F3B", line: "#53616A" };
+function label(status: ShopBookingRequest["status"]) { return SHOP_STATUS_LABELS[status]; }
 
 export default function ShopOwnerDashboard() {
-  const router = useRouter();
+  const router = useRouter(); const insets = useSafeAreaInsets();
   const { account, profile, requests, profileLoading, requestsLoading, profileError, requestsError, retry } = useShopDashboard();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const locked = useRef(false);
-  const incoming = requests.filter((request) => request.status === "pending");
-  const active = requests.filter((request) => isActiveShopService(request.status));
-  const completed = requests.filter((request) => request.status === "completed").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-
-  async function toggle(open: boolean) {
-    if (locked.current) return;
-    locked.current = true;
-    setSaving(true);
-    setError(null);
-    try { await setShopAvailability(open ? "open" : "closed"); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save availability."); }
-    finally { locked.current = false; setSaving(false); }
-  }
-
-  return <ShopScreen title="Home">
-    <LoadState loading={profileLoading} error={profileError} retry={retry} />
-    {!profileLoading && !profileError && profile && <>
-      <View style={s.card}>
-        <Text style={s.title}>{profile.businessName}</Text>
-        <Text style={s.muted}>Welcome, {account.displayName}</Text>
-        <Text style={s.text}>{profile.address || "Add your shop address in Profile."}</Text>
-        <Button title="View Shop Profile" secondary onPress={() => router.navigate("/(shop-owner)/profile")} />
-      </View>
-      <View style={s.card}>
-        <View style={s.between}><View style={s.flex}><Text style={s.title}>{profile.status === "open" ? "Open" : "Closed"}</Text>
-          <Text style={s.muted}>{saving ? "Saving availability…" : "Shop availability"}</Text></View>
-          <Switch accessibilityLabel="Shop open for emergency requests" value={profile.status === "open"} disabled={saving}
-            trackColor={{ false: C.border, true: C.primary }} onValueChange={(value) => void toggle(value)} />
-        </View>
-        <Text style={s.muted}>{profile.status === "open" ? "Accepting emergency repairs. Customers bring their vehicles to the shop."
-          : "New requests and acceptance are paused. You can still finish active services or reject pending requests."}</Text>
-        {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
-      </View>
-    </>}
-    <LoadState loading={requestsLoading} error={requestsError} retry={retry} />
-    {!requestsLoading && !requestsError && <>
-      <View style={s.row}>{[{ label: "Incoming", count: incoming.length }, { label: "Active", count: active.length }, { label: "Completed", count: completed.length }].map((stat) =>
-        <View key={stat.label} style={s.stat}><Text style={s.statValue}>{stat.count}</Text><Text style={s.statLabel}>{stat.label}</Text></View>)}</View>
-      <Text style={s.heading}>INCOMING SERVICE REQUESTS</Text>
-      <RequestList requests={incoming.slice(0, 3)} empty="No incoming requests. New customer requests will appear here." actions />
-      <Button title="View All Requests" secondary onPress={() => router.navigate("/(shop-owner)/requests")} />
-      <Text style={s.heading}>ACTIVE SERVICES</Text>
-      <RequestList requests={active.slice(0, 3)} empty="No active services. Accepted requests will appear here." />
-      <Button title="View All Active Services" secondary onPress={() => router.push({ pathname: "/(shop-owner)/active-service", params: { id: "" } })} />
-      <Text style={s.heading}>RECENTLY COMPLETED</Text>
-      <RequestList requests={completed.slice(0, 2)} empty="Completed services will appear here." />
-      <Button title="View Service History" secondary onPress={() => router.navigate("/(shop-owner)/service-history")} />
-    </>}
-  </ShopScreen>;
+  const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null); const locked = useRef(false);
+  const pending = requests.filter((item) => item.status === "pending");
+  const active = useMemo(() => requests.filter((item) => isActiveShopService(item.status)), [requests]);
+  const completed = requests.filter((item) => item.status === "completed");
+  const jobs = useMemo(() => requests.filter((item) => item.status !== "completed" && item.status !== "rejected" && item.status !== "cancelled").slice(0, 3), [requests]);
+  const toggle = async (open: boolean) => { if (locked.current) return; locked.current = true; setSaving(true); setError(null); try { await setShopAvailability(open ? "open" : "closed"); } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save availability."); } finally { locked.current = false; setSaving(false); } };
+  const open = (id: string) => router.push({ pathname: "/(shop-owner)/request-details", params: { id } });
+  if (profileLoading || requestsLoading) return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas} /><View style={s.state}><ActivityIndicator size="large" color={C.red} /><Text style={s.stateText}>Loading dashboard...</Text></View></SafeAreaView>;
+  if (profileError || requestsError || !profile) return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas} /><View style={s.state}><Feather name="alert-circle" size={32} color={C.red} /><Text style={s.stateText}>{profileError || requestsError || "Your shop profile is unavailable."}</Text><TouchableOpacity style={s.retry} onPress={retry}><Text style={s.primaryText}>Try Again</Text></TouchableOpacity></View></SafeAreaView>;
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}><StatusBar barStyle="light-content" backgroundColor={C.canvas} /><ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
+    <View style={s.top}><Text style={s.title}>Dashboard</Text><TouchableOpacity style={s.bell}><Feather name="bell" size={27} color={C.text} /><View style={s.dot} /></TouchableOpacity></View>
+    <Text style={s.greeting}>Good day,</Text><Text style={s.name}>{profile.businessName || account.displayName || "Auto Shop"}</Text>
+    <View style={s.availability}><View><View style={s.onlineRow}><Text style={s.onlineText}>{profile.status === "open" ? "Shop is open" : "Shop is closed"}</Text><View style={[s.onlineDot, profile.status !== "open" && s.offlineDot]} /></View><Text style={s.hint}>{saving ? "Saving availability..." : profile.status === "open" ? "Accepting customer service requests" : "New requests are paused"}</Text></View><Switch value={profile.status === "open"} onValueChange={(value) => void toggle(value)} disabled={saving} trackColor={{ false: "#3A474F", true: "#65737B" }} thumbColor="#fff" style={s.switch} /></View>
+    {error && <Text style={s.error}>{error}</Text>}
+    <View style={s.stats}><Stat value={String(pending.length)} label="New Requests" /><Stat value={String(active.length)} label="Active Services" /><Stat value={String(completed.length)} label="Completed Jobs" /></View>
+    <View style={s.section}><Text style={s.sectionTitle}>Today&apos;s Services</Text><TouchableOpacity onPress={() => router.push("/(shop-owner)/requests")}><Text style={s.viewAll}>View All</Text></TouchableOpacity></View>
+    {jobs.length === 0 ? <View style={s.empty}><Feather name="tool" size={28} color={C.muted} /><Text style={s.emptyText}>No active service requests today.</Text></View> : jobs.map((job) => <View style={s.job} key={job.id}><View style={s.jobTop}><View style={s.status}><Text style={s.statusText}>{label(job.status)}</Text></View><Text style={s.time}>{new Date(job.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</Text></View><Text style={s.vehicle}>{job.vehicle}</Text><View style={s.detailRow}><Feather name="map-pin" size={15} color={C.muted} /><Text style={s.detail}>{job.shopAreaLabel || profile.address || "Shop location"}</Text></View><Text style={s.concern}>{job.problem}</Text><View style={s.actions}><TouchableOpacity style={s.secondary} onPress={() => open(job.id)}><Text style={s.secondaryText}>View Details</Text></TouchableOpacity><TouchableOpacity style={s.primary} onPress={() => open(job.id)}><Text style={s.primaryText}>{job.status === "pending" ? "Review" : "Update"}</Text></TouchableOpacity></View></View>)}
+  </ScrollView></SafeAreaView>;
 }
+function Stat({ value, label }: { value: string; label: string }) { return <View style={s.stat}><Text style={s.statValue}>{value}</Text><Text style={s.statLabel}>{label}</Text></View>; }
+const s = StyleSheet.create({ safe: { flex: 1, backgroundColor: C.canvas }, content: { paddingHorizontal: 16, paddingTop: 14 }, state: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 30 }, stateText: { color: C.muted, fontSize: 16, textAlign: "center" }, retry: { backgroundColor: C.red, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 11 }, top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, title: { color: C.text, fontSize: 24, fontWeight: "700" }, bell: { padding: 10, position: "relative" }, dot: { position: "absolute", top: 7, right: 8, height: 8, width: 8, borderRadius: 4, backgroundColor: C.red }, greeting: { marginTop: 18, color: C.muted, fontSize: 16 }, name: { marginTop: 2, color: C.text, fontSize: 22, fontWeight: "700" }, availability: { marginTop: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, onlineRow: { flexDirection: "row", alignItems: "center", gap: 6 }, onlineText: { color: C.text, fontSize: 16, fontWeight: "700" }, onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.text }, offlineDot: { backgroundColor: C.muted }, hint: { marginTop: 5, color: C.muted, fontSize: 14 }, switch: { transform: [{ scaleX: 1.1 }, { scaleY: 1.1 }] }, error: { color: "#FF9AA8", fontSize: 14, marginTop: 10 }, stats: { flexDirection: "row", gap: 8, marginTop: 20 }, stat: { flex: 1, minHeight: 88, justifyContent: "center", alignItems: "center", borderRadius: 10, backgroundColor: C.card }, statValue: { color: C.text, fontSize: 20, fontWeight: "700" }, statLabel: { marginTop: 7, color: C.muted, fontSize: 12, textAlign: "center" }, section: { marginTop: 26, marginBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, sectionTitle: { color: C.text, fontSize: 19, fontWeight: "700" }, viewAll: { color: C.red, fontSize: 15, fontWeight: "700" }, empty: { backgroundColor: C.card, borderRadius: 10, alignItems: "center", gap: 10, paddingVertical: 30 }, emptyText: { color: C.muted, fontSize: 15 }, job: { marginBottom: 12, borderRadius: 10, backgroundColor: C.card, padding: 16 }, jobTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, status: { alignItems: "center", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.status }, statusText: { color: C.text, fontSize: 11, fontWeight: "600" }, time: { color: C.muted, fontSize: 13 }, vehicle: { marginTop: 10, color: C.text, fontSize: 19, fontWeight: "700" }, detailRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }, detail: { color: C.muted, fontSize: 15, flex: 1 }, concern: { marginTop: 6, marginLeft: 21, color: C.muted, fontSize: 15 }, actions: { flexDirection: "row", gap: 10, marginTop: 16 }, secondary: { flex: 1, height: 46, borderColor: C.line, borderWidth: 1, borderRadius: 7, alignItems: "center", justifyContent: "center" }, secondaryText: { color: C.text, fontSize: 15, fontWeight: "700" }, primary: { flex: 0.92, height: 46, borderRadius: 7, alignItems: "center", justifyContent: "center", backgroundColor: C.red }, primaryText: { color: "#fff", fontSize: 15, fontWeight: "700" } });

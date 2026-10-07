@@ -6,6 +6,7 @@
  *   onsite-mechanic  -> app/(onsite-mechanic)
  *   shop-owner       -> app/(shop-owner)
  *   towing-company   -> app/(towing-company)
+ *   homegarage       -> app/(homegarage)
  *   admin            -> app/(admin)
  *
  * "admin" is not offered at registration — assign it manually in Firestore
@@ -16,6 +17,7 @@ export type UserRole =
   | "onsite-mechanic"
   | "shop-owner"
   | "towing-company"
+  | "homegarage"
   | "admin";
 
 /** Roles a user can pick for themselves during signup. */
@@ -24,13 +26,14 @@ export const REGISTERABLE_ROLES: UserRole[] = [
   "onsite-mechanic",
   "shop-owner",
   "towing-company",
+  "homegarage",
 ];
 
 /** The three roles that also get a providers/{uid} business-profile doc. */
-export type ProviderRole = "onsite-mechanic" | "shop-owner" | "towing-company";
+export type ProviderRole = "onsite-mechanic" | "shop-owner" | "towing-company" | "homegarage";
 
 export function isProviderRole(role: UserRole): role is ProviderRole {
-  return role === "onsite-mechanic" || role === "shop-owner" || role === "towing-company";
+  return role === "onsite-mechanic" || role === "shop-owner" || role === "towing-company" || role === "homegarage";
 }
 
 /**

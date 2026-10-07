@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -12,6 +13,7 @@ const COLORS = { primary:"#D32F2F",white:"#FFFFFF",background:"#F7F7F7",textPrim
 const EMPTY_FORM = { type: "Car" as SavedVehicleType, make: "", model: "", year: "", color: "", plateNumber: "" };
 
 export default function VehicleScreen() {
+  const router = useRouter();
   const [vehicles, setVehicles] = useState<SavedVehicle[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,7 +60,7 @@ export default function VehicleScreen() {
       {loading ? <ActivityIndicator color={COLORS.primary} style={styles.loading}/> : vehicles.length === 0 ? <View style={styles.empty}><View style={styles.emptyIcon}><Ionicons name="car-outline" size={30} color={COLORS.primary}/></View><Text style={styles.emptyTitle}>No vehicles yet</Text><Text style={styles.emptyText}>Add your first vehicle to keep its details in VeResc.</Text><Pressable style={styles.emptyButton} onPress={openAdd}><Text style={styles.emptyButtonText}>Add Vehicle</Text></Pressable></View> : <>
         <Text style={styles.sectionLabel}>Select Vehicle</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.switcherRow}>{vehicles.map((vehicle) => <Pressable key={vehicle.vehicleId} style={[styles.switcherCard,vehicle.vehicleId===selectedVehicleId&&styles.switcherCardSelected]} onPress={()=>setSelectedVehicleId(vehicle.vehicleId)}><View style={styles.switcherIconWrap}><Ionicons name={vehicle.type==="Motorcycle"?"bicycle-outline":"car-outline"} size={18} color={COLORS.primary}/></View><View style={styles.switcherBody}><Text style={styles.switcherName} numberOfLines={1}>{vehicle.make} {vehicle.model}</Text><Text style={styles.switcherPlate}>{vehicle.plateNumber}</Text></View></Pressable>)}</ScrollView>
         <Text style={styles.sectionLabel}>Vehicle Details</Text>
-        {selectedVehicle && <VehicleDetailCard vehicle={selectedVehicle} onEdit={() => openEdit(selectedVehicle)} onDelete={() => confirmDelete(selectedVehicle)} />}
+        {selectedVehicle && <VehicleDetailCard vehicle={selectedVehicle} onHistory={() => router.push({ pathname: "/(v_owner)/vehicle-history", params: { vehicleId: selectedVehicle.vehicleId } })} onEdit={() => openEdit(selectedVehicle)} onDelete={() => confirmDelete(selectedVehicle)} />}
       </>}
     </ScrollView>
     <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={()=>setModalVisible(false)}><View style={styles.modalBackdrop}><View style={styles.modalCard}><View style={styles.modalHeader}><Text style={styles.modalTitle}>{editingId?"Edit Vehicle":"Add Vehicle"}</Text><Pressable onPress={()=>setModalVisible(false)}><Ionicons name="close" size={24} color={COLORS.textPrimary}/></Pressable></View><ScrollView showsVerticalScrollIndicator={false}>

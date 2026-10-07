@@ -22,6 +22,8 @@ function validateInput(input: TowingPricingConfigInput) {
   if (input.basePrice < 0 || input.basePrice > 1_000_000 || input.pricePerKm < 0 || input.pricePerKm > 100_000) {
     throw new Error("Base price or price per kilometer is outside the allowed range.");
   }
+  if (input.pricingMode !== "fixed" && input.pricingMode !== "dispatcher") throw new Error("Choose a valid pricing method.");
+  if (input.pricingMode === "dispatcher" && !input.dispatcherPhone.trim()) throw new Error("Enter the dispatcher contact number.");
 }
 
 export async function getTowingPricing(providerId: string): Promise<TowingPricingConfig | null> {
@@ -29,7 +31,7 @@ export async function getTowingPricing(providerId: string): Promise<TowingPricin
   const snapshot = await getDoc(pricingDocument(providerId));
   if (!snapshot.exists()) return null;
   const data = snapshot.data();
-  return { basePrice: data.basePrice, pricePerKm: data.pricePerKm, createdAt: iso(data.createdAt), updatedAt: iso(data.updatedAt) };
+  return { basePrice: data.basePrice, pricePerKm: data.pricePerKm, pricingMode: data.pricingMode === "dispatcher" ? "dispatcher" : "fixed", dispatcherPhone: typeof data.dispatcherPhone === "string" ? data.dispatcherPhone : "", createdAt: iso(data.createdAt), updatedAt: iso(data.updatedAt) };
 }
 
 export async function saveTowingPricing(input: TowingPricingConfigInput) {

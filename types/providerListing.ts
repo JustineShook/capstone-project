@@ -11,11 +11,20 @@ export interface PublicProviderListingInput {
   };
   availability: "available" | "busy" | "offline";
   serviceAreaLabel: string;
+  description: string;
+  contactPhone?: string;
   services: string[];
   vehicleTypes: string[];
   operatingHours: string;
   startingPrice: number | null;
   emergencyServiceAvailable: boolean;
+  photoUrls?: string[];
+  hoursType?: "24_7" | "same_daily" | "weekly";
+  is24Hours?: boolean;
+  weeklyHours?: { day: string; open: boolean; openingTime: string | null; closingTime: string | null }[];
+  /** Parking-only capacity. Kept independent of provider availability. */
+  totalSlots?: number;
+  availableSlots?: number;
 }
 
 /**
@@ -27,14 +36,16 @@ export interface PublicProviderListingInput {
  */
 export interface ProviderListing {
   providerId: string;
-  role: "onsite-mechanic" | "towing-company" | "shop-owner";
-  category: "Onsite Mechanics" | "Towing" | "Auto Shops";
+  role: "onsite-mechanic" | "towing-company" | "shop-owner" | "homegarage";
+  category: "Onsite Mechanics" | "Towing" | "Auto Shops" | "Parking Lots";
   businessName: string;
   location: {
     latitude: number;
     longitude: number;
   };
   serviceAreaLabel: string;
+  description: string;
+  contactPhone?: string;
   availability: "available" | "busy" | "offline";
   ratingSummary: {
     average: number;
@@ -45,6 +56,12 @@ export interface ProviderListing {
   startingPrice: number | null;
   operatingHours: string;
   emergencyServiceAvailable: boolean;
+  photoUrls?: string[];
+  hoursType?: "24_7" | "same_daily" | "weekly";
+  is24Hours?: boolean;
+  weeklyHours?: { day: string; open: boolean; openingTime: string | null; closingTime: string | null }[];
+  totalSlots?: number;
+  availableSlots?: number;
   visibility: "active";
 }
 

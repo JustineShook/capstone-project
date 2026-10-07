@@ -25,6 +25,7 @@ export default function TowingPublicListingScreen() {
 
       setInitialListing({
         businessName: existing?.businessName || profile.company.companyName,
+        contactPhone: profile.company.phone,
         location: existing?.location,
         availability: existing?.availability ?? "offline",
         services: existing?.services.length ? existing.services : profile.services.towingServices,

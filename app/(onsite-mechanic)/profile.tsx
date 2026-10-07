@@ -1,149 +1,40 @@
-// app/(onsite-mechanic)/profile.tsx
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { logout } from "../../services/auth";
 import { auth } from "../../services/firebase";
 import { getProviderProfile } from "../../services/providerProfileService";
 import type { OnsiteMechanicProviderProfile, VerificationStatus } from "../../types/onsiteMechanicProfile";
 
-const COLORS = {
-  primary: "#D32F2F", primaryMuted: "#FCE8E8", background: "#FFFFFF",
-  sectionBackground: "#F7F7F8", text: "#1A1A1A", textMuted: "#6B7280",
-  border: "#E5E7EB", success: "#2E7D32", successMuted: "#E8F5E9",
-};
-
-export default function ProfileScreen() {
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const [profile, setProfile] = useState<OnsiteMechanicProviderProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [signingOut, setSigningOut] = useState(false);
-
-  const loadProfile = useCallback(async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      setProfile(null);
-      setError("You need to sign in to view your mechanic profile.");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      setProfile(await getProviderProfile(user.uid));
-    } catch {
-      setError("We couldn't load your profile. Check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(useCallback(() => { void loadProfile(); }, [loadProfile]));
-
-  const status: VerificationStatus = profile?.verificationStatus ?? "INCOMPLETE";
-  const name = profile?.personal.fullName || auth.currentUser?.displayName || "Onsite Mechanic";
-  const email = auth.currentUser?.email || "Email not available";
-  const canVerify = status === "INCOMPLETE" || status === "REJECTED";
-
-  const handleLogout = () => {
-    Alert.alert("Log Out", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Log Out", style: "destructive", onPress: () => void performLogout() },
-    ]);
-  };
-
-  const performLogout = async () => {
-    if (signingOut) return;
-    setSigningOut(true);
-    try {
-      await logout();
-      setProfile(null);
-      setError(null);
-      router.replace("/(auth)/login");
-    } catch (cause) {
-      Alert.alert("Log Out Failed", (cause as Error)?.message ?? "Please try again.");
-    } finally {
-      setSigningOut(false);
-    }
-  };
-
-  const openVerification = () => router.push("/(onsite-mechanic)/verification");
-
-  return (
-    <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
-      <View style={[styles.header, { paddingTop: insets.top + 14 }]}><Text style={styles.headerTitle}>Profile</Text></View>
-      {loading ? (
-        <View style={styles.stateWrap}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.stateText}>Loading profile…</Text></View>
-      ) : error ? (
-        <View style={styles.stateWrap}><Feather name="alert-circle" size={30} color={COLORS.primary} /><Text style={styles.stateText}>{error}</Text><TouchableOpacity style={styles.retryButton} onPress={() => void loadProfile()}><Text style={styles.retryText}>Try Again</Text></TouchableOpacity></View>
-      ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.identityCard}>
-            <View style={styles.avatar}><Feather name="user" size={26} color={COLORS.primary} /></View>
-            <Text style={styles.name}>{name}</Text><Text style={styles.role}>Onsite Mechanic</Text>
-            {status === "VERIFIED" ? (
-              <View style={styles.verifiedBadge}><Feather name="check-circle" size={12} color={COLORS.success} /><Text style={styles.verifiedBadgeText}>Verified</Text></View>
-            ) : status === "PENDING" ? (
-              <View style={styles.unverifiedBadge}><Feather name="clock" size={12} color={COLORS.primary} /><Text style={styles.unverifiedBadgeText}>Verification Pending</Text></View>
-            ) : (
-              <TouchableOpacity style={styles.unverifiedBadge} onPress={openVerification} activeOpacity={0.7}><Feather name="alert-circle" size={12} color={COLORS.primary} /><Text style={styles.unverifiedBadgeText}>{status === "REJECTED" ? "Verification Rejected" : "Complete Verification"}</Text></TouchableOpacity>
-            )}
-            {canVerify && <TouchableOpacity style={styles.editButton} onPress={openVerification}><Feather name="shield" size={14} color="#FFFFFF" /><Text style={styles.editButtonText}>{status === "REJECTED" ? "Correct & Resubmit" : "Verify Account"}</Text></TouchableOpacity>}
-          </View>
-
-          {!profile && <View style={styles.notice}><Text style={styles.noticeText}>Your mechanic profile has not been submitted yet.</Text><TouchableOpacity onPress={openVerification}><Text style={styles.noticeLink}>Complete Verification</Text></TouchableOpacity></View>}
-
-          <Section heading="PERSONAL INFORMATION"><Info icon="mail" value={email} /><Info icon="phone" value={profile?.personal.phone || "Not provided"} /></Section>
-          <Section heading="PROFESSIONAL INFORMATION"><Info icon="award" value={profile ? `${profile.professional.yearsOfExperience} years of experience` : "Not provided"} /><Text style={styles.specializationLabel}>Specializations</Text><Tags values={profile?.professional.specializations ?? []} /></Section>
-          <Section heading="VEHICLE TYPES SERVED"><Tags values={profile?.professional.vehicleTypesServed ?? []} /></Section>
-          <Section heading="SERVICE AREA"><Info icon="map-pin" value={profile?.professional.serviceArea || "Not provided"} /></Section>
-          {status === "VERIFIED" && (
-            <Section heading="PUBLIC PROVIDER LISTING">
-              <Info icon="briefcase" value={profile?.publicListing?.businessName || "Not set up"} />
-              <Info icon="activity" value={profile?.publicListing?.availability || "No availability selected"} />
-              <TouchableOpacity style={styles.publicListingButton} onPress={() => router.push("/(onsite-mechanic)/public-listing")}>
-                <Feather name="map-pin" size={16} color="#FFFFFF" />
-                <Text style={styles.publicListingButtonText}>{profile?.publicListing ? "Update Public Listing" : "Set Up Public Listing"}</Text>
-              </TouchableOpacity>
-            </Section>
-          )}
-          <Section heading="ACCOUNT"><TouchableOpacity style={styles.logoutRow} onPress={handleLogout} disabled={signingOut}>{signingOut ? <ActivityIndicator color={COLORS.primary} /> : <><Feather name="log-out" size={16} color={COLORS.primary} /><Text style={styles.logoutText}>Logout</Text></>}</TouchableOpacity></Section>
-        </ScrollView>
-      )}
-    </SafeAreaView>
-  );
+const C={canvas:"#0B1115",card:"#151E25",text:"#F7F9FA",muted:"#A1ABB2",line:"#354249",red:"#F51F3B",status:"#2A363E"};
+export default function ProfileScreen(){
+  const router=useRouter(),insets=useSafeAreaInsets();const[profile,setProfile]=useState<OnsiteMechanicProviderProfile|null>(null);const[loading,setLoading]=useState(true);const[error,setError]=useState<string|null>(null);const[signingOut,setSigningOut]=useState(false);
+  const load=useCallback(async()=>{const user=auth.currentUser;if(!user){setError("You need to sign in to view your profile.");setLoading(false);return;}setLoading(true);setError(null);try{setProfile(await getProviderProfile(user.uid));}catch{setError("We couldn't load your profile. Check your connection and try again.");}finally{setLoading(false);}},[]);
+  useFocusEffect(useCallback(()=>{void load();},[load]));
+  const status:VerificationStatus=profile?.verificationStatus??"INCOMPLETE";const name=profile?.personal.fullName||auth.currentUser?.displayName||"Onsite Mechanic";const canVerify=status==="INCOMPLETE"||status==="REJECTED";const photo=profile?.identification.profilePhotoUrl;
+  const signOut=()=>Alert.alert("Log Out","Are you sure you want to log out?",[{text:"Cancel",style:"cancel"},{text:"Log Out",style:"destructive",onPress:()=>void performLogout()}]);
+  const performLogout=async()=>{if(signingOut)return;setSigningOut(true);try{await logout();router.replace("/(auth)/login");}catch(error){Alert.alert("Log Out Failed",(error as Error).message||"Please try again.");}finally{setSigningOut(false);}};
+  if(loading)return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas}/><View style={s.state}><ActivityIndicator size="large" color={C.red}/><Text style={s.stateText}>Loading profile…</Text></View></SafeAreaView>;
+  if(error)return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas}/><View style={s.state}><Feather name="alert-circle" size={32} color={C.red}/><Text style={s.stateText}>{error}</Text><TouchableOpacity style={s.retry} onPress={()=>void load()}><Text style={s.buttonText}>Try Again</Text></TouchableOpacity></View></SafeAreaView>;
+  return <SafeAreaView style={s.safe} edges={["top","left","right"]}><StatusBar barStyle="light-content" backgroundColor={C.canvas}/><ScrollView contentContainerStyle={[s.content,{paddingBottom:insets.bottom+18}]} showsVerticalScrollIndicator={false}>
+    <Text style={s.title}>Profile</Text><View style={s.identity}><View style={s.avatar}>{photo?<Image source={{uri:photo}} style={s.avatarImage}/>:<Feather name="user" size={30} color={C.muted}/>}</View><View style={s.identityInfo}><Text style={s.name}>{name}</Text><Text style={s.role}>Onsite Mechanic</Text>{status==="VERIFIED"?<View style={s.verified}><Feather name="check-circle" size={12} color="#fff"/><Text style={s.verifiedText}>Verified</Text></View>:<TouchableOpacity style={s.pending} onPress={()=>router.push("/(onsite-mechanic)/verification")}><Text style={s.pendingText}>{status==="PENDING"?"Verification Pending":status==="REJECTED"?"Verification Rejected":"Complete Verification"}</Text></TouchableOpacity>}</View></View>
+    <View style={s.stats}><Stat value="4.8" label="Rating"/><Stat value="27" label="Jobs Completed"/><Stat value={String(profile?.professional.yearsOfExperience??0)} label="Years Experience"/></View>
+    <View style={s.menu}>
+      <Menu icon="user" title="Personal Information" subtitle={profile?.personal.phone||"Not provided"} onPress={()=>canVerify&&router.push("/(onsite-mechanic)/verification")}/>
+      <Menu icon="map-pin" title="Service Areas" subtitle={profile?.professional.serviceArea||"Not provided"} onPress={()=>canVerify&&router.push("/(onsite-mechanic)/verification")}/>
+      <Menu icon="tool" title="Services Offered" subtitle={(profile?.professional.specializations??[]).join(", ")||"Not provided"} onPress={()=>canVerify&&router.push("/(onsite-mechanic)/verification")}/>
+      <Menu icon="file-text" title="Documents" subtitle={profile?.identification.idType||"Not provided"} onPress={()=>router.push("/(onsite-mechanic)/verification")}/>
+      {status==="VERIFIED"&&<Menu icon="map" title="Public Listing" subtitle={profile?.publicListing?"Manage your listing":"Set up your listing"} onPress={()=>router.push("/(onsite-mechanic)/public-listing")}/>}
+      <Menu icon="settings" title="Settings" subtitle="Account settings" onPress={signOut}/>
+    </View>
+    {canVerify&&<TouchableOpacity style={s.verify} onPress={()=>router.push("/(onsite-mechanic)/verification")}><Feather name="shield" size={18} color="#fff"/><Text style={s.buttonText}>{status==="REJECTED"?"Correct & Resubmit":"Complete Verification"}</Text></TouchableOpacity>}
+    <TouchableOpacity disabled={signingOut} style={s.logout} onPress={signOut}>{signingOut?<ActivityIndicator color={C.red}/>:<><Feather name="log-out" size={17} color={C.red}/><Text style={s.logoutText}>Log Out</Text></>}</TouchableOpacity>
+  </ScrollView></SafeAreaView>;
 }
-
-function Section({ heading, children }: { heading: string; children: React.ReactNode }) {
-  return <><View style={styles.sectionHeaderRow}><Text style={styles.sectionHeading}>{heading}</Text></View><View style={styles.card}>{children}</View></>;
-}
-function Info({ icon, value }: { icon: keyof typeof Feather.glyphMap; value: string }) {
-  return <View style={styles.infoRow}><Feather name={icon} size={14} color={COLORS.textMuted} /><Text style={styles.infoText}>{value}</Text></View>;
-}
-function Tags({ values }: { values: string[] }) {
-  if (!values.length) return <Text style={styles.emptyText}>Not provided</Text>;
-  return <View style={styles.tagRow}>{values.map((item) => <View key={item} style={styles.tag}><Text style={styles.tagText}>{item}</Text></View>)}</View>;
-}
-
-const styles = StyleSheet.create({
-  safeArea:{flex:1,backgroundColor:COLORS.background}, scroll:{flex:1,backgroundColor:COLORS.background}, scrollContent:{paddingHorizontal:16,paddingTop:16,paddingBottom:32}, header:{paddingHorizontal:16,paddingBottom:14,backgroundColor:COLORS.primary}, headerTitle:{fontSize:18,fontWeight:"700",color:"#FFFFFF"},
-  stateWrap:{flex:1,alignItems:"center",justifyContent:"center",gap:14,padding:28}, stateText:{fontSize:14,color:COLORS.textMuted,textAlign:"center",lineHeight:20}, retryButton:{backgroundColor:COLORS.primary,borderRadius:8,paddingHorizontal:18,paddingVertical:10}, retryText:{fontSize:13,fontWeight:"700",color:"#FFFFFF"},
-  identityCard:{backgroundColor:COLORS.primary,borderWidth:1,borderColor:COLORS.primary,borderRadius:12,paddingVertical:20,paddingHorizontal:16,alignItems:"center"}, avatar:{width:56,height:56,borderRadius:28,backgroundColor:"#FFFFFF",alignItems:"center",justifyContent:"center",marginBottom:10}, name:{fontSize:17,fontWeight:"700",color:"#FFFFFF"}, role:{fontSize:12,color:"rgba(255,255,255,0.85)",marginTop:2},
-  verifiedBadge:{flexDirection:"row",alignItems:"center",gap:4,backgroundColor:"#FFFFFF",borderRadius:999,paddingHorizontal:9,paddingVertical:3,marginTop:8}, verifiedBadgeText:{fontSize:11,fontWeight:"700",color:COLORS.success}, unverifiedBadge:{flexDirection:"row",alignItems:"center",gap:4,backgroundColor:"#FFFFFF",borderRadius:999,paddingHorizontal:9,paddingVertical:3,marginTop:8}, unverifiedBadgeText:{fontSize:11,fontWeight:"700",color:COLORS.primary},
-  editButton:{marginTop:18,flexDirection:"row",alignItems:"center",gap:6,borderWidth:1,borderColor:"#FFFFFF",borderRadius:8,paddingVertical:10,paddingHorizontal:20}, editButtonText:{fontSize:13,fontWeight:"600",color:"#FFFFFF"}, notice:{marginTop:16,backgroundColor:COLORS.primaryMuted,borderRadius:10,padding:14,gap:5}, noticeText:{fontSize:13,color:COLORS.text}, noticeLink:{fontSize:13,fontWeight:"700",color:COLORS.primary},
-  sectionHeaderRow:{marginTop:22,marginBottom:10}, sectionHeading:{fontSize:12,fontWeight:"700",color:COLORS.textMuted,letterSpacing:0.6}, card:{backgroundColor:COLORS.background,borderWidth:1,borderColor:COLORS.border,borderRadius:12,padding:16}, infoRow:{flexDirection:"row",alignItems:"center",gap:10,marginBottom:10}, infoText:{fontSize:13,color:COLORS.text}, specializationLabel:{fontSize:12,fontWeight:"600",color:COLORS.textMuted,marginTop:4,marginBottom:8}, tagRow:{flexDirection:"row",flexWrap:"wrap",gap:8}, tag:{backgroundColor:COLORS.sectionBackground,borderWidth:1,borderColor:COLORS.border,borderRadius:8,paddingHorizontal:10,paddingVertical:6}, tagText:{fontSize:12,color:COLORS.text,fontWeight:"500"}, emptyText:{fontSize:13,color:COLORS.textMuted}, publicListingButton:{marginTop:6,backgroundColor:COLORS.primary,borderRadius:8,paddingVertical:11,flexDirection:"row",alignItems:"center",justifyContent:"center",gap:7},publicListingButtonText:{color:"#FFFFFF",fontSize:13,fontWeight:"700"},logoutRow:{flexDirection:"row",alignItems:"center",gap:10}, logoutText:{fontSize:13,fontWeight:"600",color:COLORS.primary},
+function Stat({value,label}:{value:string;label:string}){return <View style={s.stat}><Text style={s.statValue}>{value}</Text><Text style={s.statLabel}>{label}</Text></View>}
+function Menu({icon,title,subtitle,onPress}:{icon:keyof typeof Feather.glyphMap;title:string;subtitle:string;onPress:()=>void}){return <TouchableOpacity style={s.menuRow} onPress={onPress} activeOpacity={.7}><Feather name={icon} size={18} color={C.muted}/><View style={s.menuText}><Text style={s.menuTitle}>{title}</Text><Text style={s.menuSubtitle} numberOfLines={1}>{subtitle}</Text></View><Feather name="chevron-right" size={20} color={C.muted}/></TouchableOpacity>}
+const s=StyleSheet.create({
+ safe:{flex:1,backgroundColor:C.canvas},content:{padding:16},title:{color:C.text,fontSize:24,fontWeight:"700"},state:{flex:1,alignItems:"center",justifyContent:"center",gap:14,padding:30},stateText:{color:C.muted,fontSize:16,textAlign:"center"},retry:{backgroundColor:C.red,borderRadius:8,paddingHorizontal:18,paddingVertical:11},buttonText:{color:"#fff",fontSize:15,fontWeight:"700"},identity:{flexDirection:"row",alignItems:"center",marginTop:20},avatar:{width:76,height:76,borderRadius:38,backgroundColor:"#303C44",alignItems:"center",justifyContent:"center",overflow:"hidden"},avatarImage:{width:"100%",height:"100%"},identityInfo:{marginLeft:14,flex:1},name:{color:C.text,fontSize:19,fontWeight:"700"},role:{color:C.muted,fontSize:14,marginTop:3},verified:{alignSelf:"flex-start",backgroundColor:"#1C8D5B",borderRadius:7,paddingHorizontal:8,paddingVertical:4,flexDirection:"row",gap:4,alignItems:"center",marginTop:8},verifiedText:{color:"#fff",fontSize:11,fontWeight:"700"},pending:{alignSelf:"flex-start",backgroundColor:C.status,borderRadius:7,paddingHorizontal:8,paddingVertical:5,marginTop:8},pendingText:{color:C.text,fontSize:11,fontWeight:"700"},stats:{flexDirection:"row",backgroundColor:C.card,borderRadius:10,marginTop:18},stat:{flex:1,alignItems:"center",paddingVertical:14},statValue:{color:C.text,fontSize:19,fontWeight:"700"},statLabel:{color:C.muted,fontSize:11,textAlign:"center",marginTop:4},menu:{backgroundColor:C.card,borderRadius:10,marginTop:14,paddingHorizontal:13},menuRow:{minHeight:64,flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderBottomColor:C.line,gap:12},menuText:{flex:1},menuTitle:{color:C.text,fontSize:16,fontWeight:"600"},menuSubtitle:{color:C.muted,fontSize:12,marginTop:3},verify:{height:50,backgroundColor:C.red,borderRadius:8,alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8,marginTop:16},logout:{height:48,alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8,marginTop:10},logoutText:{color:C.red,fontSize:15,fontWeight:"700"}
 });

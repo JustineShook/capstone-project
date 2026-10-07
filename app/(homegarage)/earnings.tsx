@@ -1,0 +1,5 @@
+import { Feather } from "@expo/vector-icons";
+import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+export default function HomeGarageEarnings() { return <SafeAreaView style={s.safe}><Text style={s.title}>Earnings</Text><View style={s.card}><Text style={s.label}>THIS WEEK</Text><Text style={s.amount}>₱0</Text></View><View style={s.empty}><Feather name="credit-card" size={30} color="#A1ABB2" /><Text style={s.text}>No earnings recorded yet.</Text></View></SafeAreaView>; }
+const s = StyleSheet.create({ safe: { flex: 1, backgroundColor: "#0B1115", padding: 16 }, title: { color: "#F7F9FA", fontSize: 24, fontWeight: "700", marginTop: 10 }, card: { marginTop: 22, backgroundColor: "#151E25", borderRadius: 10, padding: 20 }, label: { color: "#A1ABB2", fontSize: 12, fontWeight: "700" }, amount: { color: "#F7F9FA", fontSize: 32, fontWeight: "700", marginTop: 8 }, empty: { alignItems: "center", marginTop: 36, gap: 10 }, text: { color: "#F7F9FA", fontSize: 16, fontWeight: "700" } });

@@ -296,7 +296,7 @@ export default function OwnerDashboard() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.bottomPanelContent}
           >
-            {/* Request Towing button */}
+            {/* Quick actions */}
             <Pressable style={styles.towingButton}>
               <View style={styles.towingIconWrap}>
                 <Ionicons name="car-outline" size={22} color={colors.white} />

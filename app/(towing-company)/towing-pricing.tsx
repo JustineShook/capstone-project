@@ -1,68 +1,23 @@
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
+import { ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../services/firebase";
 import { getTowingPricing, saveTowingPricing } from "../../services/towingPricingService";
+import type { TowingPricingConfig } from "../../types/towingPricing";
 
-const C = { primary: "#D32F2F", background: "#FFFFFF", text: "#1A1A1A", muted: "#6B7280", border: "#E5E7EB", surface: "#F7F7F8" };
+const C = { canvas: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", line: "#354249", red: "#F51F3B" };
 
 export default function TowingPricingScreen() {
-  const router = useRouter();
-  const [basePrice, setBasePrice] = useState("");
-  const [pricePerKm, setPricePerKm] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const uid = auth.currentUser?.uid;
-      if (!uid) throw new Error("You must be signed in to manage towing pricing.");
-      const pricing = await getTowingPricing(uid);
-      setBasePrice(pricing ? String(pricing.basePrice) : "");
-      setPricePerKm(pricing ? String(pricing.pricePerKm) : "");
-    } catch (error) { Alert.alert("Pricing unavailable", (error as Error).message); }
-    finally { setLoading(false); }
-  }, []);
-
+  const router = useRouter(); const insets = useSafeAreaInsets();
+  const [mode, setMode] = useState<TowingPricingConfig["pricingMode"]>("fixed");
+  const [basePrice, setBasePrice] = useState(""); const [pricePerKm, setPricePerKm] = useState(""); const [dispatcherPhone, setDispatcherPhone] = useState("");
+  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false);
+  const load = useCallback(async () => { setLoading(true); try { const uid = auth.currentUser?.uid; if (!uid) throw new Error("You must be signed in to manage towing pricing."); const pricing = await getTowingPricing(uid); setMode(pricing?.pricingMode ?? "fixed"); setBasePrice(pricing ? String(pricing.basePrice) : ""); setPricePerKm(pricing ? String(pricing.pricePerKm) : ""); setDispatcherPhone(pricing?.dispatcherPhone ?? ""); } catch (error) { Alert.alert("Pricing unavailable", (error as Error).message); } finally { setLoading(false); } }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
-
-  const save = async () => {
-    if (!basePrice.trim() || !pricePerKm.trim()) {
-      Alert.alert("Missing information", "Enter a base price and price per kilometer.");
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveTowingPricing({ basePrice: Number(basePrice), pricePerKm: Number(pricePerKm) });
-      Alert.alert("Pricing saved", "Your towing rates are now available to customers.");
-      await load();
-    } catch (error) { Alert.alert("Could not save pricing", (error as Error).message); }
-    finally { setSaving(false); }
-  };
-
-  return <SafeAreaView style={s.safe}>
-    <View style={s.header}><TouchableOpacity onPress={() => router.back()}><Feather name="arrow-left" size={22} color="#FFFFFF" /></TouchableOpacity><Text style={s.title}>Towing Pricing</Text><View style={{ width: 22 }} /></View>
-    <ScrollView contentContainerStyle={s.content}>
-      <Text style={s.help}>Customers will see an estimate calculated from your base fee plus the total estimated towing distance multiplied by your per-kilometer rate.</Text>
-      <View style={s.form}>
-        <Text style={s.formTitle}>Your Towing Rates</Text>
-        {loading ? <ActivityIndicator color={C.primary} /> : <>
-          <Field label="Base price (₱)" value={basePrice} change={setBasePrice} />
-          <Field label="Price per kilometer (₱/km)" value={pricePerKm} change={setPricePerKm} />
-          <View style={s.example}><Text style={s.exampleText}>Estimate = base price + (total distance × price per km)</Text></View>
-          <TouchableOpacity style={s.primary} disabled={saving} onPress={() => void save()}>{saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.primaryText}>Save Pricing</Text>}</TouchableOpacity>
-        </>}
-      </View>
-    </ScrollView>
-  </SafeAreaView>;
+  const save = async () => { if (mode === "fixed" && (!basePrice.trim() || !pricePerKm.trim())) { Alert.alert("Missing information", "Enter a base price and price per kilometer."); return; } if (mode === "dispatcher" && !dispatcherPhone.trim()) { Alert.alert("Dispatcher number required", "Enter the number customers should call for pricing."); return; } setSaving(true); try { await saveTowingPricing({ pricingMode: mode, dispatcherPhone: dispatcherPhone.trim(), basePrice: mode === "fixed" ? Number(basePrice) : 0, pricePerKm: mode === "fixed" ? Number(pricePerKm) : 0 }); Alert.alert("Pricing saved", mode === "fixed" ? "Customers can now see your towing estimate." : "Customers will be asked to contact your dispatcher for pricing."); await load(); } catch (error) { Alert.alert("Could not save pricing", (error as Error).message); } finally { setSaving(false); } };
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}><StatusBar barStyle="light-content" backgroundColor={C.canvas} /><View style={s.header}><TouchableOpacity onPress={() => router.back()} style={s.back}><Feather name="arrow-left" size={23} color={C.text} /></TouchableOpacity><Text style={s.title}>Towing Pricing</Text><View style={s.back} /></View><ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 26 }]} showsVerticalScrollIndicator={false}><Text style={s.help}>Choose how customers receive the price for a towing request.</Text>{loading ? <View style={s.loading}><ActivityIndicator size="large" color={C.red} /></View> : <><TouchableOpacity style={[s.option, mode === "fixed" && s.optionActive]} onPress={() => setMode("fixed")}><View style={s.optionIcon}><Feather name="dollar-sign" size={21} color={C.text} /></View><View style={s.optionInfo}><Text style={s.optionTitle}>Show estimated price</Text><Text style={s.optionText}>Customers see a base fee and per-kilometer estimate before booking.</Text></View><Feather name={mode === "fixed" ? "check-circle" : "circle"} size={22} color={mode === "fixed" ? C.red : C.muted} /></TouchableOpacity><TouchableOpacity style={[s.option, mode === "dispatcher" && s.optionActive]} onPress={() => setMode("dispatcher")}><View style={s.optionIcon}><Feather name="phone-call" size={20} color={C.text} /></View><View style={s.optionInfo}><Text style={s.optionTitle}>Contact dispatcher for pricing</Text><Text style={s.optionText}>No price is shown. Customers call your dispatcher to agree on pricing.</Text></View><Feather name={mode === "dispatcher" ? "check-circle" : "circle"} size={22} color={mode === "dispatcher" ? C.red : C.muted} /></TouchableOpacity><View style={s.form}>{mode === "fixed" ? <><Text style={s.formTitle}>Your Towing Rates</Text><Field label="Base price (PHP)" value={basePrice} change={setBasePrice} decimal /><Field label="Price per kilometer (PHP/km)" value={pricePerKm} change={setPricePerKm} decimal /><View style={s.info}><Feather name="info" size={17} color={C.muted} /><Text style={s.infoText}>Estimate = base price + (total distance × price per km)</Text></View></> : <><Text style={s.formTitle}>Dispatcher Contact</Text><Text style={s.formHint}>Customers will see this number before they confirm a towing request.</Text><Field label="Dispatcher phone number" value={dispatcherPhone} change={setDispatcherPhone} /><View style={s.info}><Feather name="phone" size={17} color={C.muted} /><Text style={s.infoText}>The driver can focus on delivery while your dispatcher handles pricing.</Text></View></>}<TouchableOpacity style={s.primary} disabled={saving} onPress={() => void save()}>{saving ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>Save Pricing Method</Text>}</TouchableOpacity></View></>}</ScrollView></SafeAreaView>;
 }
-
-function Field({ label, value, change }: { label: string; value: string; change: (value: string) => void }) {
-  return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput style={s.input} value={value} onChangeText={change} keyboardType="decimal-pad" placeholder="0" /></View>;
-}
-
-const s = StyleSheet.create({ safe:{flex:1,backgroundColor:C.background},header:{backgroundColor:C.primary,padding:16,flexDirection:"row",alignItems:"center",justifyContent:"space-between"},title:{fontSize:18,fontWeight:"700",color:"#FFFFFF"},content:{padding:16,paddingBottom:32},help:{fontSize:13,color:C.muted,lineHeight:19,marginBottom:14},form:{borderWidth:1,borderColor:C.border,borderRadius:12,padding:16,gap:14},formTitle:{fontSize:15,fontWeight:"700",color:C.text},field:{gap:5},label:{fontSize:12,fontWeight:"600",color:C.muted},input:{borderWidth:1,borderColor:C.border,borderRadius:8,paddingHorizontal:12,paddingVertical:10,color:C.text},example:{backgroundColor:C.surface,padding:12,borderRadius:8},exampleText:{color:C.muted,fontSize:12,lineHeight:18},primary:{backgroundColor:C.primary,borderRadius:8,paddingHorizontal:16,paddingVertical:12,alignItems:"center"},primaryText:{color:"#FFFFFF",fontWeight:"700"} });
+function Field({ label, value, change, decimal }: { label: string; value: string; change: (value: string) => void; decimal?: boolean }) { return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput style={s.input} value={value} onChangeText={change} keyboardType={decimal ? "decimal-pad" : "phone-pad"} placeholder={decimal ? "0" : "09XX XXX XXXX"} placeholderTextColor={C.muted} /></View>; }
+const s = StyleSheet.create({ safe: { flex: 1, backgroundColor: C.canvas }, header: { height: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, back: { width: 36, height: 36, justifyContent: "center", alignItems: "center" }, title: { color: C.text, fontSize: 20, fontWeight: "700" }, content: { padding: 16 }, help: { color: C.muted, fontSize: 15, lineHeight: 22, marginBottom: 18 }, loading: { paddingTop: 50, alignItems: "center" }, option: { backgroundColor: C.card, borderRadius: 10, padding: 15, marginBottom: 11, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "transparent" }, optionActive: { borderColor: C.red }, optionIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#303C44", alignItems: "center", justifyContent: "center", marginRight: 12 }, optionInfo: { flex: 1, paddingRight: 8 }, optionTitle: { color: C.text, fontSize: 16, fontWeight: "700" }, optionText: { color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 4 }, form: { backgroundColor: C.card, borderRadius: 10, padding: 16, marginTop: 8 }, formTitle: { color: C.text, fontSize: 18, fontWeight: "700" }, formHint: { color: C.muted, fontSize: 14, lineHeight: 20, marginTop: 5 }, field: { marginTop: 17 }, label: { color: C.text, fontSize: 14, fontWeight: "600", marginBottom: 7 }, input: { color: C.text, backgroundColor: "#0E151A", borderWidth: 1, borderColor: C.line, borderRadius: 8, minHeight: 46, paddingHorizontal: 12, fontSize: 16 }, info: { flexDirection: "row", gap: 9, backgroundColor: "#202B32", borderRadius: 8, padding: 12, marginTop: 16 }, infoText: { flex: 1, color: C.muted, fontSize: 13, lineHeight: 18 }, primary: { backgroundColor: C.red, borderRadius: 8, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 18 }, primaryText: { color: "#fff", fontSize: 16, fontWeight: "700" } });
