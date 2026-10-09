@@ -42,7 +42,24 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
     || (input.latitude === 0 && input.longitude === 0)) throw new Error("A valid customer location is required.");
 
   const reference = doc(collection(db, "bookings"));
+  // A deterministic per-customer/per-shop lock serializes requests from
+  // multiple screens or devices. The lock and booking are committed together.
+  const lockReference = doc(db, "users", user.uid, "shopBookingLocks", input.providerId);
+  let bookingId = reference.id;
   await runTransaction(db, async (transaction) => {
+    const lockSnapshot = await transaction.get(lockReference);
+    const lockedBookingId = lockSnapshot.data()?.bookingId;
+    if (typeof lockedBookingId === "string") {
+      const lockedBooking = await transaction.get(doc(db, "bookings", lockedBookingId));
+      const data = lockedBooking.data();
+      if (lockedBooking.exists() && data?.bookingType === "shop-owner"
+        && data.customerId === user.uid && data.providerId === input.providerId
+        && !["completed", "cancelled", "rejected"].includes(data.status as string)) {
+        bookingId = lockedBookingId;
+        return;
+      }
+    }
+
     const listing = (await transaction.get(doc(db, "providerListings", input.providerId))).data() as ProviderListing | undefined;
     const vehicle = (await transaction.get(doc(db, "users", user.uid, "vehicles", input.vehicleId))).data() as SavedVehicle | undefined;
     const account = (await transaction.get(doc(db, "users", user.uid))).data();
@@ -61,8 +78,9 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
       startingPrice: listing.startingPrice == null ? "Price on assessment" : `₱${listing.startingPrice.toLocaleString("en-PH")}`,
       status: "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
+    transaction.set(lockReference, { customerId: user.uid, providerId: input.providerId, bookingId: reference.id });
   });
-  return reference.id;
+  return bookingId;
 }
 export async function getActiveShopBooking(providerId:string,customerId=requireUser().uid):Promise<ShopBookingRequest|null>{const snap=await getDocs(query(collection(db,"bookings"),where("customerId","==",customerId)));return snap.docs.map(item=>fromDocument(item.id,item.data())).filter(item=>item.bookingType==="shop-owner"&&item.providerId===providerId&&!['completed','cancelled','rejected'].includes(item.status)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]??null;}
 

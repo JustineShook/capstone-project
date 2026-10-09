@@ -3,7 +3,7 @@ import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
 const COLORS = {
-  background: "#10191F",
+  background: "#090A0C",
   active: "#F51F3B",
   inactive: "#9AA6AE",
 };
@@ -17,13 +17,14 @@ export default function TowingCompanyLayout() {
         tabBarInactiveTintColor: COLORS.inactive,
         tabBarStyle: {
           backgroundColor: COLORS.background,
-          borderTopWidth: 0,
-          paddingTop: 8,
-          paddingBottom: 9,
-          height: 64,
+          borderTopWidth: 1,
+          paddingTop: 5,
+          paddingBottom: 4,
+          height: 57,
+          borderTopColor: "#252629",
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 9,
           fontWeight: "600",
         },
       }}
@@ -40,7 +41,7 @@ export default function TowingCompanyLayout() {
       <Tabs.Screen
         name="requests"
         options={{
-          title: "Bookings",
+          title: "Requests",
           tabBarIcon: ({ color, size }) => (
             <Feather name="clipboard" size={size ?? 20} color={color} />
           ),
@@ -49,9 +50,9 @@ export default function TowingCompanyLayout() {
       <Tabs.Screen
         name="towing-history"
         options={{
-          title: "Earnings",
+          title: "History",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="dollar-sign" size={size ?? 20} color={color} />
+            <Feather name="clock" size={size ?? 20} color={color} />
           ),
         }}
       />
@@ -72,6 +73,7 @@ export default function TowingCompanyLayout() {
       />
       <Tabs.Screen name="public-listing" options={{ href: null }} />
       <Tabs.Screen name="towing-pricing" options={{ href: null }} />
+      <Tabs.Screen name="earnings" options={{ href: null }} />
       <Tabs.Screen
         name="request-details"
         options={{

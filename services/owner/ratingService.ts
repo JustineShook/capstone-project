@@ -3,8 +3,8 @@ import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Times
 import type { ProviderReview } from "../../data/owner/mockProviders";
 import { auth, db } from "../firebase";
 
-export type RatedBookingType = "towing" | "mechanic";
-export type RatedProviderRole = "towing-company" | "onsite-mechanic";
+export type RatedBookingType = "towing" | "mechanic" | "shop" | "parking";
+export type RatedProviderRole = "towing-company" | "onsite-mechanic" | "shop-owner" | "homegarage";
 
 export interface BookingRating {
   bookingId: string;
@@ -36,7 +36,10 @@ function toIso(value: unknown): string {
 }
 
 function bookingTypeForRole(role: RatedProviderRole): RatedBookingType {
-  return role === "onsite-mechanic" ? "mechanic" : "towing";
+  if (role === "onsite-mechanic") return "mechanic";
+  if (role === "shop-owner") return "shop";
+  if (role === "homegarage") return "parking";
+  return "towing";
 }
 
 export async function submitRating(
@@ -50,10 +53,11 @@ export async function submitRating(
   const trimmedComment = comment?.trim() ?? "";
   if (trimmedComment.length > 1000) throw new Error("Review comment cannot exceed 1000 characters.");
 
-  const bookingSnapshot = await getDoc(doc(db, "bookings", bookingId));
+  const isParking = bookingType === "parking";
+  const bookingSnapshot = await getDoc(doc(db, isParking ? "parkingBookings" : "bookings", bookingId));
   if (!bookingSnapshot.exists()) throw new Error("Booking not found.");
   const booking = bookingSnapshot.data();
-  const providerRole = booking.bookingType as RatedProviderRole;
+  const providerRole = (isParking ? "homegarage" : booking.bookingType) as RatedProviderRole;
   if (booking.customerId !== user.uid) throw new Error("Only the booking customer can submit this review.");
   if (booking.status !== "completed") throw new Error("Only completed bookings can be reviewed.");
   if (booking.providerId === user.uid) throw new Error("Providers cannot review themselves.");

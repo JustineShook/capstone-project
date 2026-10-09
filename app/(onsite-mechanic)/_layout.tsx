@@ -3,7 +3,7 @@ import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
 const COLORS = {
-  background: "#10191F",
+  background: "#090A0C",
   active: "#F51F3B",
   inactive: "#9AA6AE",
 };
@@ -55,17 +55,20 @@ export default function OnsiteMechanicLayout() {
           ),
         }}
       />
+      <Tabs.Screen name="service-history" options={{ href: null }} />
+      <Tabs.Screen name="earnings" options={{ href: null }} />
+      <Tabs.Screen name="profile" options={{ href: null }} />
       <Tabs.Screen
-        name="service-history"
+        name="history"
         options={{
-          title: "Earnings",
+          title: "History",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="dollar-sign" size={size ?? 20} color={color} />
+            <Feather name="clock" size={size ?? 20} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="my-profile"
         options={{
           title: "Profile",
           tabBarIcon: ({ color, size }) => (

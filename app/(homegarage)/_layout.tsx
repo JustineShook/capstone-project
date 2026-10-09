@@ -15,7 +15,8 @@ export default function HomeGarageLayout() {
     <Tabs.Screen name="parking-sessions" options={{ title: "Bookings", tabBarIcon: ({ color, size }) => <Feather name="clipboard" size={size ?? 20} color={color} /> }} />
     <Tabs.Screen name="requests" options={{ href: null }} />
     <Tabs.Screen name="parking-session-detail" options={{ href: null }} />
-    <Tabs.Screen name="earnings" options={{ title: "Earnings", tabBarIcon: ({ color, size }) => <Feather name="dollar-sign" size={size ?? 20} color={color} /> }} />
+    <Tabs.Screen name="earnings" options={{ href: null }} />
+    <Tabs.Screen name="history" options={{ title: "History", tabBarIcon: ({ color, size }) => <Feather name="clock" size={size ?? 20} color={color} /> }} />
     <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: ({ color, size }) => <Feather name="user" size={size ?? 20} color={color} /> }} />
     <Tabs.Screen name="public-listing" options={{ href: null }} />
     <Tabs.Screen name="verification" options={{ href: null }} />

@@ -8,33 +8,68 @@ import { auth } from "../../services/firebase";
 import { getProviderProfile } from "../../services/providerProfileService";
 import type { OnsiteMechanicProviderProfile, VerificationStatus } from "../../types/onsiteMechanicProfile";
 
-const C={canvas:"#0B1115",card:"#151E25",text:"#F7F9FA",muted:"#A1ABB2",line:"#354249",red:"#F51F3B",status:"#2A363E"};
-export default function ProfileScreen(){
-  const router=useRouter(),insets=useSafeAreaInsets();const[profile,setProfile]=useState<OnsiteMechanicProviderProfile|null>(null);const[loading,setLoading]=useState(true);const[error,setError]=useState<string|null>(null);const[signingOut,setSigningOut]=useState(false);
-  const load=useCallback(async()=>{const user=auth.currentUser;if(!user){setError("You need to sign in to view your profile.");setLoading(false);return;}setLoading(true);setError(null);try{setProfile(await getProviderProfile(user.uid));}catch{setError("We couldn't load your profile. Check your connection and try again.");}finally{setLoading(false);}},[]);
-  useFocusEffect(useCallback(()=>{void load();},[load]));
-  const status:VerificationStatus=profile?.verificationStatus??"INCOMPLETE";const name=profile?.personal.fullName||auth.currentUser?.displayName||"Onsite Mechanic";const canVerify=status==="INCOMPLETE"||status==="REJECTED";const photo=profile?.identification.profilePhotoUrl;
-  const signOut=()=>Alert.alert("Log Out","Are you sure you want to log out?",[{text:"Cancel",style:"cancel"},{text:"Log Out",style:"destructive",onPress:()=>void performLogout()}]);
-  const performLogout=async()=>{if(signingOut)return;setSigningOut(true);try{await logout();router.replace("/(auth)/login");}catch(error){Alert.alert("Log Out Failed",(error as Error).message||"Please try again.");}finally{setSigningOut(false);}};
-  if(loading)return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas}/><View style={s.state}><ActivityIndicator size="large" color={C.red}/><Text style={s.stateText}>Loading profile…</Text></View></SafeAreaView>;
-  if(error)return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas}/><View style={s.state}><Feather name="alert-circle" size={32} color={C.red}/><Text style={s.stateText}>{error}</Text><TouchableOpacity style={s.retry} onPress={()=>void load()}><Text style={s.buttonText}>Try Again</Text></TouchableOpacity></View></SafeAreaView>;
-  return <SafeAreaView style={s.safe} edges={["top","left","right"]}><StatusBar barStyle="light-content" backgroundColor={C.canvas}/><ScrollView contentContainerStyle={[s.content,{paddingBottom:insets.bottom+18}]} showsVerticalScrollIndicator={false}>
-    <Text style={s.title}>Profile</Text><View style={s.identity}><View style={s.avatar}>{photo?<Image source={{uri:photo}} style={s.avatarImage}/>:<Feather name="user" size={30} color={C.muted}/>}</View><View style={s.identityInfo}><Text style={s.name}>{name}</Text><Text style={s.role}>Onsite Mechanic</Text>{status==="VERIFIED"?<View style={s.verified}><Feather name="check-circle" size={12} color="#fff"/><Text style={s.verifiedText}>Verified</Text></View>:<TouchableOpacity style={s.pending} onPress={()=>router.push("/(onsite-mechanic)/verification")}><Text style={s.pendingText}>{status==="PENDING"?"Verification Pending":status==="REJECTED"?"Verification Rejected":"Complete Verification"}</Text></TouchableOpacity>}</View></View>
-    <View style={s.stats}><Stat value="4.8" label="Rating"/><Stat value="27" label="Jobs Completed"/><Stat value={String(profile?.professional.yearsOfExperience??0)} label="Years Experience"/></View>
-    <View style={s.menu}>
-      <Menu icon="user" title="Personal Information" subtitle={profile?.personal.phone||"Not provided"} onPress={()=>canVerify&&router.push("/(onsite-mechanic)/verification")}/>
-      <Menu icon="map-pin" title="Service Areas" subtitle={profile?.professional.serviceArea||"Not provided"} onPress={()=>canVerify&&router.push("/(onsite-mechanic)/verification")}/>
-      <Menu icon="tool" title="Services Offered" subtitle={(profile?.professional.specializations??[]).join(", ")||"Not provided"} onPress={()=>canVerify&&router.push("/(onsite-mechanic)/verification")}/>
-      <Menu icon="file-text" title="Documents" subtitle={profile?.identification.idType||"Not provided"} onPress={()=>router.push("/(onsite-mechanic)/verification")}/>
-      {status==="VERIFIED"&&<Menu icon="map" title="Public Listing" subtitle={profile?.publicListing?"Manage your listing":"Set up your listing"} onPress={()=>router.push("/(onsite-mechanic)/public-listing")}/>}
-      <Menu icon="settings" title="Settings" subtitle="Account settings" onPress={signOut}/>
-    </View>
-    {canVerify&&<TouchableOpacity style={s.verify} onPress={()=>router.push("/(onsite-mechanic)/verification")}><Feather name="shield" size={18} color="#fff"/><Text style={s.buttonText}>{status==="REJECTED"?"Correct & Resubmit":"Complete Verification"}</Text></TouchableOpacity>}
-    <TouchableOpacity disabled={signingOut} style={s.logout} onPress={signOut}>{signingOut?<ActivityIndicator color={C.red}/>:<><Feather name="log-out" size={17} color={C.red}/><Text style={s.logoutText}>Log Out</Text></>}</TouchableOpacity>
-  </ScrollView></SafeAreaView>;
+const C = { canvas: "#090A0C", card: "#191A1D", text: "#ECE8E6", muted: "#B7B2B0", line: "#303135", red: "#F52239", status: "#2A2B2E" };
+
+export default function ProfileScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [profile, setProfile] = useState<OnsiteMechanicProviderProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const load = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user) { setError("You need to sign in to view your profile."); setLoading(false); return; }
+    setLoading(true); setError(null);
+    try { setProfile(await getProviderProfile(user.uid)); }
+    catch { setError("We couldn't load your profile. Check your connection and try again."); }
+    finally { setLoading(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+
+  const status: VerificationStatus = profile?.verificationStatus ?? "INCOMPLETE";
+  const name = profile?.personal.fullName || auth.currentUser?.displayName || "Onsite Mechanic";
+  const canVerify = status === "INCOMPLETE" || status === "REJECTED";
+  const photo = profile?.identification.profilePhotoUrl;
+  const openVerification = () => router.push("/(onsite-mechanic)/verification");
+  const confirmLogout = () => Alert.alert("Log Out", "Are you sure you want to log out?", [{ text: "Cancel", style: "cancel" }, { text: "Log Out", style: "destructive", onPress: () => void performLogout() }]);
+  const performLogout = async () => { if (signingOut) return; setSigningOut(true); try { await logout(); router.replace("/(auth)/login"); } catch (cause) { Alert.alert("Log Out Failed", (cause as Error)?.message || "Please try again."); } finally { setSigningOut(false); } };
+
+  if (loading) return <ScreenState loading text="Loading profile..." />;
+  if (error) return <ScreenState text={error} action={() => void load()} />;
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+    <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
+    <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
+      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><TouchableOpacity style={s.bell} accessibilityLabel="Notifications" onPress={() => router.push("/(onsite-mechanic)/requests")}><Feather name="bell" size={21} color={C.text} /></TouchableOpacity></View>
+      <View style={s.identity}>
+        <View style={s.avatar}>{photo ? <Image source={{ uri: photo }} style={s.avatarImage} /> : <Feather name="tool" size={30} color={C.muted} />}</View>
+        <View style={s.identityInfo}><Text style={s.name} numberOfLines={1}>{name}</Text><Text style={s.role}>Onsite Mechanic</Text>{status === "VERIFIED" ? <View style={s.verified}><Feather name="check-circle" size={13} color="#F7EFED" /><Text style={s.verifiedText}>Verified</Text></View> : <TouchableOpacity style={s.pending} onPress={openVerification}><Text style={s.pendingText}>{status === "PENDING" ? "Verification Pending" : status === "REJECTED" ? "Verification Rejected" : "Complete Verification"}</Text></TouchableOpacity>}<TouchableOpacity style={s.editProfile} onPress={() => router.push({ pathname: "/(onsite-mechanic)/verification", params: { mode: "edit" } })} activeOpacity={0.8}><Feather name="edit-2" size={12} color="#F7EFED" /><Text style={s.editProfileText}>Edit Profile</Text></TouchableOpacity></View>
+      </View>
+
+      <View style={s.shortcuts}>
+        <Menu icon="map" title="Public Listing" onPress={() => router.push("/(onsite-mechanic)/public-listing")} />
+        <Menu icon="tool" title="Services" onPress={() => router.push("/(onsite-mechanic)/verification")} />
+        <Menu icon="file-text" title="Documents" onPress={openVerification} />
+      </View>
+
+      <View style={s.menu}>
+        <MenuRow icon="settings" title="Account Settings" onPress={() => router.push({ pathname: "/(onsite-mechanic)/verification", params: { mode: "edit" } })} />
+        <MenuRow icon="user" title="Contact Details" onPress={() => router.push({ pathname: "/(onsite-mechanic)/verification", params: { mode: "edit" } })} />
+        <MenuRow icon="help-circle" title="Help & Support" onPress={() => Alert.alert("Help & Support", "Contact support through your account administrator.")} last />
+      </View>
+      {canVerify && <TouchableOpacity style={s.verify} onPress={openVerification}><Feather name="shield" size={17} color="#fff" /><Text style={s.buttonText}>{status === "REJECTED" ? "Correct & Resubmit" : profile ? "Edit Profile" : "Complete Verification"}</Text></TouchableOpacity>}
+      <TouchableOpacity disabled={signingOut} style={s.logout} onPress={confirmLogout}>{signingOut ? <ActivityIndicator color={C.red} /> : <><Feather name="log-out" size={17} color={C.red} /><Text style={s.logoutText}>Log Out</Text></>}</TouchableOpacity>
+    </ScrollView>
+  </SafeAreaView>;
 }
-function Stat({value,label}:{value:string;label:string}){return <View style={s.stat}><Text style={s.statValue}>{value}</Text><Text style={s.statLabel}>{label}</Text></View>}
-function Menu({icon,title,subtitle,onPress}:{icon:keyof typeof Feather.glyphMap;title:string;subtitle:string;onPress:()=>void}){return <TouchableOpacity style={s.menuRow} onPress={onPress} activeOpacity={.7}><Feather name={icon} size={18} color={C.muted}/><View style={s.menuText}><Text style={s.menuTitle}>{title}</Text><Text style={s.menuSubtitle} numberOfLines={1}>{subtitle}</Text></View><Feather name="chevron-right" size={20} color={C.muted}/></TouchableOpacity>}
-const s=StyleSheet.create({
- safe:{flex:1,backgroundColor:C.canvas},content:{padding:16},title:{color:C.text,fontSize:24,fontWeight:"700"},state:{flex:1,alignItems:"center",justifyContent:"center",gap:14,padding:30},stateText:{color:C.muted,fontSize:16,textAlign:"center"},retry:{backgroundColor:C.red,borderRadius:8,paddingHorizontal:18,paddingVertical:11},buttonText:{color:"#fff",fontSize:15,fontWeight:"700"},identity:{flexDirection:"row",alignItems:"center",marginTop:20},avatar:{width:76,height:76,borderRadius:38,backgroundColor:"#303C44",alignItems:"center",justifyContent:"center",overflow:"hidden"},avatarImage:{width:"100%",height:"100%"},identityInfo:{marginLeft:14,flex:1},name:{color:C.text,fontSize:19,fontWeight:"700"},role:{color:C.muted,fontSize:14,marginTop:3},verified:{alignSelf:"flex-start",backgroundColor:"#1C8D5B",borderRadius:7,paddingHorizontal:8,paddingVertical:4,flexDirection:"row",gap:4,alignItems:"center",marginTop:8},verifiedText:{color:"#fff",fontSize:11,fontWeight:"700"},pending:{alignSelf:"flex-start",backgroundColor:C.status,borderRadius:7,paddingHorizontal:8,paddingVertical:5,marginTop:8},pendingText:{color:C.text,fontSize:11,fontWeight:"700"},stats:{flexDirection:"row",backgroundColor:C.card,borderRadius:10,marginTop:18},stat:{flex:1,alignItems:"center",paddingVertical:14},statValue:{color:C.text,fontSize:19,fontWeight:"700"},statLabel:{color:C.muted,fontSize:11,textAlign:"center",marginTop:4},menu:{backgroundColor:C.card,borderRadius:10,marginTop:14,paddingHorizontal:13},menuRow:{minHeight:64,flexDirection:"row",alignItems:"center",borderBottomWidth:1,borderBottomColor:C.line,gap:12},menuText:{flex:1},menuTitle:{color:C.text,fontSize:16,fontWeight:"600"},menuSubtitle:{color:C.muted,fontSize:12,marginTop:3},verify:{height:50,backgroundColor:C.red,borderRadius:8,alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8,marginTop:16},logout:{height:48,alignItems:"center",justifyContent:"center",flexDirection:"row",gap:8,marginTop:10},logoutText:{color:C.red,fontSize:15,fontWeight:"700"}
+
+function ScreenState({ loading, text, action }: { loading?: boolean; text: string; action?: () => void }) { return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" backgroundColor={C.canvas} /><View style={s.state}>{loading ? <ActivityIndicator size="large" color={C.red} /> : <Feather name="alert-circle" size={32} color={C.red} />}<Text style={s.stateText}>{text}</Text>{action && <TouchableOpacity style={s.retry} onPress={action}><Text style={s.buttonText}>Try Again</Text></TouchableOpacity>}</View></SafeAreaView>; }
+function Menu({ icon, title, onPress }: { icon: keyof typeof Feather.glyphMap; title: string; onPress: () => void }) { return <TouchableOpacity style={s.shortcut} onPress={onPress} activeOpacity={0.75}><View style={s.shortcutIcon}><Feather name={icon} size={20} color={C.text} /></View><Text style={s.shortcutTitle} numberOfLines={1}>{title}</Text></TouchableOpacity>; }
+function MenuRow({ icon, title, onPress, last }: { icon: keyof typeof Feather.glyphMap; title: string; onPress: () => void; last?: boolean }) { return <TouchableOpacity style={[s.menuRow, last && s.lastMenuRow]} onPress={onPress} activeOpacity={0.7}><Feather name={icon} size={20} color={C.muted} /><Text style={s.menuTitle}>{title}</Text><View style={s.menuSpacer} /><Feather name="chevron-right" size={21} color={C.muted} /></TouchableOpacity>; }
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.canvas }, content: { paddingHorizontal: 14, paddingTop: 5, flexGrow: 1 }, header: { height: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 5, marginBottom: 4 }, brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 30, lineHeight: 35, fontWeight: "900", fontStyle: "italic", marginRight: 5 }, brand: { color: C.text, fontSize: 19, fontWeight: "800" }, brandRed: { color: C.red }, bell: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  state: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 30 }, stateText: { color: C.muted, fontSize: 15, textAlign: "center" }, retry: { backgroundColor: C.red, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 11 }, buttonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  identity: { minHeight: 132, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 13, borderRadius: 16, backgroundColor: C.red }, avatar: { width: 84, height: 84, borderRadius: 42, backgroundColor: "#ECE8E6", alignItems: "center", justifyContent: "center", overflow: "hidden" }, avatarImage: { width: "100%", height: "100%" }, identityInfo: { marginLeft: 13, flex: 1 }, name: { color: "#F7EFED", fontSize: 18, lineHeight: 24, fontWeight: "800" }, role: { color: "#F7EFED", fontSize: 13, lineHeight: 19, marginTop: 2 }, verified: { alignSelf: "flex-start", flexDirection: "row", gap: 5, alignItems: "center", marginTop: 4 }, verifiedText: { color: "#F7EFED", fontSize: 12, fontWeight: "700" }, pending: { alignSelf: "flex-start", backgroundColor: C.status, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 6, marginTop: 5 }, pendingText: { color: C.text, fontSize: 12, fontWeight: "700" }, editProfile: { alignSelf: "flex-start", minWidth: 116, minHeight: 32, borderWidth: 1, borderColor: "rgba(255,255,255,0.8)", borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 6 }, editProfileText: { color: "#F7EFED", fontSize: 12, fontWeight: "700" },
+  shortcuts: { flexDirection: "row", justifyContent: "space-around", marginTop: 14, marginBottom: 15 }, shortcut: { flex: 1, alignItems: "center", gap: 6, minHeight: 76 }, shortcutIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: C.card, borderWidth: 1, borderColor: "#3A3B3F", alignItems: "center", justifyContent: "center" }, shortcutTitle: { color: C.text, fontSize: 12, lineHeight: 17, textAlign: "center" }, menu: { backgroundColor: C.card, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 3, borderWidth: 1, borderColor: C.line }, menuRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: "#2B2C2F", paddingHorizontal: 2 }, lastMenuRow: { borderBottomWidth: 0 }, menuSpacer: { flex: 1 }, menuTitle: { color: C.text, fontSize: 14, lineHeight: 20, fontWeight: "500" }, verify: { minHeight: 50, backgroundColor: C.red, borderRadius: 10, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 15 }, logout: { minHeight: 50, borderWidth: 1, borderColor: C.red, borderRadius: 11, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 13 }, logoutText: { color: C.red, fontSize: 14, fontWeight: "700" },
 });

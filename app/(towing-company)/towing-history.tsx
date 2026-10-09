@@ -1,62 +1,71 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeToTowingRequests } from "../../services/owner/towingService";
 import type { TowingBookingRequest } from "../../types/owner/towing";
 
-const COLORS = { canvas: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", red: "#F51F3B", bar: "#D9233C" };
-type Period = "WEEK" | "MONTH" | "ALL";
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-function amount(value: string) { return Number(value.replace(/[^\d.]/g, "")) || 0; }
-function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value); }
+const C = { canvas: "#08090B", card: "#191A1D", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#303135" };
+type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
 
-export default function TowingEarningsScreen() {
+function isCancelled(status: TowingBookingRequest["status"]) { return status === "cancelled" || status === "rejected"; }
+function statusLabel(status: TowingBookingRequest["status"]) { return isCancelled(status) ? "Cancelled" : "Completed"; }
+function historyDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export default function TowingHistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [period, setPeriod] = useState<Period>("WEEK");
   const [bookings, setBookings] = useState<TowingBookingRequest[]>([]);
+  const [filter, setFilter] = useState<HistoryFilter>("ALL");
+  const [search, setSearch] = useState("");
   useEffect(() => subscribeToTowingRequests(setBookings), []);
 
-  const completed = useMemo(() => bookings.filter((item) => item.status === "completed"), [bookings]);
-  const transactions = useMemo(() => {
-    if (period === "ALL") return completed;
-    const start = new Date();
-    start.setDate(start.getDate() - (period === "WEEK" ? 6 : 29));
-    start.setHours(0, 0, 0, 0);
-    return completed.filter((item) => new Date(item.updatedAt) >= start);
-  }, [completed, period]);
-  const total = transactions.reduce((sum, item) => sum + amount(item.startingPrice), 0);
-  const average = transactions.length ? total / transactions.length : 0;
-  const weeklyBars = useMemo(() => DAYS.map((_, day) => {
-    const target = new Date();
-    target.setDate(target.getDate() - ((target.getDay() + 6) % 7) + day);
-    return completed.filter((item) => new Date(item.updatedAt).toDateString() === target.toDateString()).reduce((sum, item) => sum + amount(item.startingPrice), 0);
-  }), [completed]);
-  const maximum = Math.max(...weeklyBars, 1);
+  const history = useMemo(() => bookings.filter((booking) => booking.status === "completed" || isCancelled(booking.status)), [bookings]);
+  const completedCount = history.filter((booking) => booking.status === "completed").length;
+  const cancelledCount = history.filter((booking) => isCancelled(booking.status)).length;
+  const visible = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return history.filter((booking) => {
+      const matchesFilter = filter === "ALL" || (filter === "COMPLETED" ? booking.status === "completed" : isCancelled(booking.status));
+      const matchesSearch = !query || `${booking.customerName} ${booking.vehicle} ${booking.pickupLocation} ${booking.destination}`.toLocaleLowerCase().includes(query);
+      return matchesFilter && matchesSearch;
+    });
+  }, [history, filter, search]);
 
-  return <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-    <StatusBar barStyle="light-content" backgroundColor={COLORS.canvas} />
-    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>Earnings</Text>
-      <View style={styles.filters}>{([["WEEK", "This Week"], ["MONTH", "This Month"], ["ALL", "All Time"]] as [Period, string][]).map(([key, label]) => <TouchableOpacity key={key} onPress={() => setPeriod(key)} style={[styles.filter, period === key && styles.filterActive]}><Text style={[styles.filterText, period === key && styles.filterTextActive]}>{label}</Text></TouchableOpacity>)}</View>
-      <View style={styles.totalCard}><Text style={styles.total}>{peso(total)}</Text><Text style={styles.totalLabel}>Total Earnings</Text><View style={styles.totalIcon}><Feather name="trending-up" size={20} color="#fff" /></View></View>
-      <View style={styles.summaryRow}><Metric icon="truck" value={String(transactions.length)} label="Completed Tows" /><Metric icon="dollar-sign" value={peso(average)} label="Average per Tow" /></View>
-      <View style={styles.chartCard}><View style={styles.chartHeader}><Text style={styles.chartTitle}>Earnings Overview</Text><Text style={styles.chartNote}>This week</Text></View><View style={styles.chart}>{weeklyBars.map((value, index) => <View key={DAYS[index]} style={styles.barItem}><View style={styles.barTrack}><View style={[styles.bar, { height: `${Math.max(value ? 16 : 4, (value / maximum) * 100)}%` }]} /></View><Text style={styles.day}>{DAYS[index]}</Text></View>)}</View></View>
-      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Transactions</Text><Text style={styles.sectionNote}>{transactions.length} completed</Text></View>
-      {transactions.length === 0 ? <View style={styles.empty}><Feather name="credit-card" size={30} color={COLORS.muted} /><Text style={styles.emptyText}>Completed towing jobs will appear here.</Text></View> : transactions.slice(0, 12).map((item) => <TouchableOpacity key={item.id} style={styles.transaction} activeOpacity={0.75} onPress={() => router.push({ pathname: "/(towing-company)/request-details", params: { id: item.id } })}><View style={styles.transactionTop}><View style={styles.vehicleIcon}><Feather name="truck" size={18} color={COLORS.text} /></View><View style={styles.transactionInfo}><Text style={styles.transactionTitle}>{item.vehicle}</Text><Text style={styles.transactionDate}>{new Date(item.updatedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</Text></View><Feather name="chevron-right" size={21} color={COLORS.muted} /></View><View style={styles.transactionBottom}><Text style={styles.transactionLabel}>Service amount</Text><Text style={styles.transactionAmount}>{item.startingPrice}</Text></View></TouchableOpacity>)}
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+    <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
+    <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 22 }]} showsVerticalScrollIndicator={false}>
+      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><TouchableOpacity style={s.bell} accessibilityLabel="Notifications"><Feather name="bell" size={22} color={C.text} /></TouchableOpacity></View>
+
+      <View style={s.summary}><Text style={s.summaryTitle}>Service history</Text><Text style={s.summarySubtitle}>{completedCount} Completed  ·  {cancelledCount} Cancelled</Text></View>
+
+      <View style={s.searchBox}><Feather name="search" size={19} color={C.muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Search customer or vehicle" placeholderTextColor={C.muted} style={s.searchInput} returnKeyType="search" clearButtonMode="while-editing" /></View>
+
+      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : "Cancelled"}</Text></TouchableOpacity>)}</View>
+
+      {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={29} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No service history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer or vehicle name." : "Completed and cancelled towing jobs will appear here."}</Text></View> : visible.map((booking) => (
+        <View key={booking.id} style={s.card}>
+          <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{statusLabel(booking.status)}</Text></View></View>
+          <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.updatedAt || booking.createdAt)}</Text></View>
+          <View style={s.infoRow}><Feather name="map-pin" size={18} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={1}>{booking.pickupLocation}  →  {booking.destination}</Text></View>
+          <TouchableOpacity style={s.detailsButton} onPress={() => router.push({ pathname: "/(towing-company)/request-details", params: { id: booking.id } })} activeOpacity={0.75}><Text style={s.detailsText}>View Details</Text><Feather name="chevron-right" size={18} color="#FFFFFF" /></TouchableOpacity>
+        </View>
+      ))}
     </ScrollView>
   </SafeAreaView>;
 }
 
-function Metric({ icon, value, label }: { icon: keyof typeof Feather.glyphMap; value: string; label: string }) { return <View style={styles.metric}><Feather name={icon} size={17} color={COLORS.muted} /><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>; }
-
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.canvas }, content: { padding: 16 }, title: { color: COLORS.text, fontSize: 24, fontWeight: "700" },
-  filters: { flexDirection: "row", gap: 8, marginTop: 18 }, filter: { flex: 1, minHeight: 42, justifyContent: "center", alignItems: "center", borderRadius: 7, backgroundColor: COLORS.card }, filterActive: { backgroundColor: COLORS.red }, filterText: { color: COLORS.muted, fontSize: 13, fontWeight: "700" }, filterTextActive: { color: "#fff" },
-  totalCard: { height: 122, marginTop: 14, borderRadius: 11, backgroundColor: COLORS.card, justifyContent: "center", paddingHorizontal: 16, position: "relative" }, total: { color: COLORS.text, fontSize: 30, fontWeight: "700" }, totalLabel: { color: COLORS.muted, fontSize: 14, marginTop: 4 }, totalIcon: { position: "absolute", right: 18, top: 22, height: 43, width: 43, borderRadius: 22, backgroundColor: COLORS.red, alignItems: "center", justifyContent: "center" },
-  summaryRow: { flexDirection: "row", gap: 10, marginTop: 10 }, metric: { flex: 1, minHeight: 94, backgroundColor: COLORS.card, borderRadius: 10, padding: 13 }, metricValue: { color: COLORS.text, fontSize: 20, fontWeight: "700", marginTop: 8 }, metricLabel: { color: COLORS.muted, fontSize: 13, marginTop: 3 },
-  chartCard: { marginTop: 18, backgroundColor: COLORS.card, borderRadius: 10, padding: 15 }, chartHeader: { flexDirection: "row", justifyContent: "space-between" }, chartTitle: { color: COLORS.text, fontSize: 17, fontWeight: "700" }, chartNote: { color: COLORS.muted, fontSize: 13 }, chart: { height: 150, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 12 }, barItem: { width: "12%", height: "100%", alignItems: "center", justifyContent: "flex-end" }, barTrack: { height: 120, width: 18, backgroundColor: "#202B32", borderRadius: 4, justifyContent: "flex-end", overflow: "hidden" }, bar: { width: "100%", backgroundColor: COLORS.bar, borderRadius: 4 }, day: { color: COLORS.muted, fontSize: 10, marginTop: 6 },
-  sectionHeader: { marginTop: 24, marginBottom: 11, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, sectionTitle: { color: COLORS.text, fontSize: 19, fontWeight: "700" }, sectionNote: { color: COLORS.muted, fontSize: 13 }, transaction: { backgroundColor: COLORS.card, borderRadius: 10, padding: 15, marginBottom: 11 }, transactionTop: { flexDirection: "row", alignItems: "center" }, vehicleIcon: { height: 44, width: 44, borderRadius: 22, backgroundColor: "#303C44", justifyContent: "center", alignItems: "center" }, transactionInfo: { marginLeft: 12, flex: 1 }, transactionTitle: { color: COLORS.text, fontSize: 17, fontWeight: "700" }, transactionDate: { color: COLORS.muted, fontSize: 13, marginTop: 4 }, transactionBottom: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#354249", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, transactionLabel: { color: COLORS.muted, fontSize: 13 }, transactionAmount: { color: COLORS.text, fontSize: 17, fontWeight: "700", textAlign: "right", flexShrink: 1, marginLeft: 12 }, empty: { alignItems: "center", paddingVertical: 40, gap: 10 }, emptyText: { color: COLORS.muted, fontSize: 15, textAlign: "center" },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.canvas }, content: { paddingHorizontal: 14, paddingTop: 3 },
+  header: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 5 }, brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 36, lineHeight: 42, fontWeight: "900", fontStyle: "italic", marginRight: 6 }, brand: { color: C.text, fontSize: 22, fontWeight: "800" }, brandRed: { color: C.red }, bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  summary: { minHeight: 122, borderRadius: 17, backgroundColor: C.red, justifyContent: "center", paddingHorizontal: 20, paddingVertical: 17 }, summaryTitle: { color: "#F7EFED", fontSize: 28, lineHeight: 36, fontWeight: "800" }, summarySubtitle: { color: "#F7EFED", fontSize: 15, lineHeight: 22, marginTop: 4 },
+  searchBox: { minHeight: 54, borderRadius: 28, backgroundColor: "#1C1F22", borderWidth: 1, borderColor: "#44464A", flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 16, marginTop: 13 }, searchInput: { flex: 1, color: C.text, fontSize: 16, paddingVertical: 10 },
+  filters: { flexDirection: "row", gap: 10, marginTop: 12, marginBottom: 13 }, filter: { minHeight: 42, minWidth: 58, justifyContent: "center", alignItems: "center", borderRadius: 22, paddingHorizontal: 18, backgroundColor: "#202225", borderWidth: 1, borderColor: "#44464A" }, filterActive: { backgroundColor: C.red, borderColor: C.red }, filterText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" }, filterTextActive: { color: "#FFFFFF", fontWeight: "800" },
+  card: { borderRadius: 15, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, paddingHorizontal: 15, paddingTop: 14, paddingBottom: 0, marginBottom: 13 }, cardHeader: { minHeight: 66, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 9 }, person: { flex: 1, flexDirection: "row", alignItems: "center", gap: 11 }, avatar: { width: 49, height: 49, borderRadius: 25, backgroundColor: "#424347", alignItems: "center", justifyContent: "center" }, personCopy: { flex: 1 }, customerName: { color: C.text, fontSize: 18, lineHeight: 25, fontWeight: "700" }, vehicle: { color: C.muted, fontSize: 14, lineHeight: 20, marginTop: 2 }, status: { borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }, completed: { backgroundColor: "#147A4A" }, cancelled: { backgroundColor: "#982E2E" }, statusText: { color: "#FFFFFF", fontSize: 12, lineHeight: 16, fontWeight: "800" },
+  infoRow: { minHeight: 39, flexDirection: "row", alignItems: "center", gap: 11 }, infoText: { color: "#FFFFFF", fontSize: 15, lineHeight: 21, flex: 1 }, detailsButton: { minHeight: 49, borderTopWidth: 1, borderTopColor: "#3A3B3F", marginTop: 7, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, detailsText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  empty: { minHeight: 280, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, gap: 12 }, emptyIcon: { width: 76, height: 76, borderRadius: 38, backgroundColor: C.card, alignItems: "center", justifyContent: "center", marginBottom: 4 }, emptyTitle: { color: C.text, fontSize: 21, fontWeight: "700" }, emptyText: { color: C.muted, fontSize: 16, lineHeight: 23, textAlign: "center" },
 });

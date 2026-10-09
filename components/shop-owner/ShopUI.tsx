@@ -6,13 +6,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { colors } from "../../constants/owner/theme";
 import { SHOP_STATUS_LABELS, type ShopBookingStatus } from "../../types/shopBooking";
 
-export const C = { ...colors, border: "#E5E7EB", muted: "#6B7280", section: "#F7F7F8" };
+export const C = { ...colors, primary: "#F52239", background: "#090A0C", surface: "#191A1D", surfaceAlt: "#202124", textPrimary: "#ECE8E6", textSecondary: "#B7B2B0", textMuted: "#9A9694", border: "#303135", muted: "#B7B2B0", section: "#202124", white: "#F7EFED", busyLight: "#342B1E", successLight: "#163B2B", success: "#49B982" };
 
-export function ShopScreen({ title, children, back = false }: { title: string; children: ReactNode; back?: boolean }) {
+export function ShopScreen({ title, children, back = false, scrollable = true }: { title: string; children: ReactNode; back?: boolean; scrollable?: boolean }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  return <SafeAreaView style={s.safe} edges={["left", "right"]}>
-    <StatusBar barStyle="light-content" backgroundColor={C.primary} />
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+    <StatusBar barStyle="light-content" backgroundColor={C.background} />
     <View style={[s.header, { paddingTop: insets.top + 14 }]}>
       {back && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back to requests"
         onPress={() => router.canGoBack() ? router.back() : router.replace("/(shop-owner)/requests")} style={s.iconButton}>
@@ -22,7 +22,7 @@ export function ShopScreen({ title, children, back = false }: { title: string; c
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Shop profile" style={s.iconButton}
         onPress={() => router.navigate("/(shop-owner)/profile")}><Feather name="user" size={22} color={C.white} /></TouchableOpacity>
     </View>
-    <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+    {scrollable ? <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">{children}</ScrollView> : <View style={s.fixedContent}>{children}</View>}
   </SafeAreaView>;
 }
 
@@ -63,28 +63,29 @@ export function formatTime(value: string): string {
 
 export const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.background },
-  header: { backgroundColor: C.primary, paddingHorizontal: 16, paddingBottom: 14, flexDirection: "row", alignItems: "center", gap: 12 },
-  headerTitle: { color: C.white, fontWeight: "700", fontSize: 18 },
-  headerSubtitle: { color: "rgba(255,255,255,.85)", fontSize: 12, marginTop: 2 },
-  iconButton: { padding: 10 }, flex: { flex: 1 },
+  header: { backgroundColor: C.background, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  headerTitle: { color: C.textPrimary, fontWeight: "800", fontSize: 20 },
+  headerSubtitle: { color: C.muted, fontSize: 12, marginTop: 2 },
+  iconButton: { padding: 10, borderRadius: 24, backgroundColor: C.surfaceAlt }, flex: { flex: 1 },
   content: { padding: 16, paddingBottom: 32, gap: 14 },
-  card: { backgroundColor: C.background, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 16, gap: 12 },
-  heading: { fontSize: 12, fontWeight: "700", color: C.muted, letterSpacing: .6, marginTop: 8 },
-  title: { color: C.textPrimary, fontSize: 17, fontWeight: "700", flexShrink: 1 },
-  text: { color: C.textPrimary, fontSize: 14, lineHeight: 21 },
-  muted: { color: C.muted, fontSize: 13, lineHeight: 19 },
+  fixedContent: { flex: 1, minHeight: 0, padding: 16, gap: 12 },
+  card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 15, padding: 17, gap: 13 },
+  heading: { fontSize: 13, fontWeight: "800", color: C.muted, letterSpacing: .7, marginTop: 3 },
+  title: { color: C.textPrimary, fontSize: 20, fontWeight: "800", flexShrink: 1 },
+  text: { color: C.textPrimary, fontSize: 15, lineHeight: 22 },
+  muted: { color: C.muted, fontSize: 14, lineHeight: 20 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
   between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  button: { backgroundColor: C.primary, borderRadius: 8, paddingVertical: 13, paddingHorizontal: 16, alignItems: "center", minHeight: 46 },
-  buttonText: { fontSize: 13, fontWeight: "700", color: C.white, textAlign: "center" },
-  secondaryButton: { backgroundColor: C.background, borderWidth: 1, borderColor: C.border },
-  secondaryText: { color: C.primary }, disabled: { opacity: .5 },
-  badge: { backgroundColor: C.busyLight, borderRadius: 6, paddingVertical: 5, paddingHorizontal: 9, alignSelf: "flex-start" },
-  badgeText: { color: C.primary, fontSize: 11, fontWeight: "700" },
-  info: { gap: 4 }, label: { color: C.muted, fontSize: 12, fontWeight: "600" },
-  error: { color: C.primary, fontSize: 13, lineHeight: 19 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 12, color: C.textPrimary, fontSize: 14, minHeight: 46 },
-  identity: { backgroundColor: C.primary, borderRadius: 12, padding: 20, gap: 8, alignItems: "center" },
+  button: { backgroundColor: C.primary, borderRadius: 10, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", minHeight: 50 },
+  buttonText: { fontSize: 15, fontWeight: "800", color: C.white, textAlign: "center" },
+  secondaryButton: { backgroundColor: C.surface, borderWidth: 1, borderColor: "#45464A" },
+  secondaryText: { color: C.textPrimary }, disabled: { opacity: .5 },
+  badge: { backgroundColor: "#342B1E", borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10, alignSelf: "flex-start" },
+  badgeText: { color: "#F4D28A", fontSize: 12, fontWeight: "800" },
+  info: { gap: 5, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10 }, label: { color: C.muted, fontSize: 13, fontWeight: "600" },
+  error: { color: "#FF9AA8", fontSize: 14, lineHeight: 20 },
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 13, color: C.textPrimary, fontSize: 15, minHeight: 48, backgroundColor: C.surface },
+  identity: { backgroundColor: C.primary, borderRadius: 15, padding: 20, gap: 8, alignItems: "center" },
   identityName: { color: C.white, fontSize: 20, fontWeight: "700", textAlign: "center" },
   identityText: { color: C.white, fontSize: 13, textAlign: "center" },
   stat: { flexGrow: 1, flexBasis: "30%", borderRadius: 12, backgroundColor: C.primary, padding: 14, gap: 6 },

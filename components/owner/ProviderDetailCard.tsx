@@ -49,6 +49,15 @@ export function ProviderDetailCard({
       await Linking.openURL(url);
     } catch { Alert.alert("Contact unavailable", `Unable to open your ${kind === "call" ? "phone" : "messages"} app.`); }
   };
+  const openDirections = async () => {
+    if (!Number.isFinite(provider.lat) || !Number.isFinite(provider.lng)) {
+      Alert.alert("Location unavailable", "This provider has not shared a map location.");
+      return;
+    }
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${provider.lat},${provider.lng}&travelmode=driving`;
+    try { await Linking.openURL(url); }
+    catch { Alert.alert("Navigation unavailable", "Unable to open a maps app on this device."); }
+  };
   const openBooking = async () => {
     if (provider.category === "Parking Lots") {
       const existing = await getActiveParkingBookingForCustomer(provider.id);
@@ -239,6 +248,12 @@ export function ProviderDetailCard({
         </View>
 
         {/* Actions */}
+        {(provider.category === "Auto Shops" || provider.category === "Parking Lots") && (
+          <Pressable style={styles.directionsButton} onPress={() => void openDirections()} accessibilityRole="button" accessibilityLabel={`Get directions to ${provider.name}`}>
+            <Ionicons name="navigate-outline" size={18} color={colors.primary} />
+            <Text style={styles.directionsButtonText}>Get Directions</Text>
+          </Pressable>
+        )}
         <View style={styles.actionsRow}>
           <Pressable style={styles.callButton} onPress={() => void contactProvider("call")}>
             <Ionicons name="call-outline" size={18} color={colors.primary} />
@@ -252,7 +267,7 @@ export function ProviderDetailCard({
               style={styles.bookButton}
               onPress={() => void openBooking()}
             >
-              <Text style={styles.bookButtonText}>{provider.category === "Parking Lots" ? "Reserve Parking" : provider.category === "Auto Shops" ? "Request Emergency Repair" : "Book Service"}</Text>
+              <Text style={styles.bookButtonText}>{provider.category === "Parking Lots" ? "Reserve Parking" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
             </Pressable>
           )}
         </View>
@@ -404,6 +419,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  directionsButton: {
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  directionsButtonText: { fontSize: 15, fontWeight: "700", color: colors.primary },
   callButton: {
     width: 46,
     height: 46,

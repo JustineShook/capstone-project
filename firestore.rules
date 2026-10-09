@@ -275,6 +275,22 @@ service cloud.firestore {
           || (shop.status == "closed" && request.resource.data.availability == "offline"));
     }
 
+    // Availability toggles only change one public field. Keep this narrowly
+    // authorized so older approved listings do not need to pass the full
+    // listing creation schema just to sync open/closed state.
+    function validShopAvailabilitySync(uid) {
+      return signedIn()
+        && request.auth.uid == uid
+        && verifiedShop(uid)
+        && resource.data.providerId == uid
+        && resource.data.role == "shop-owner"
+        && resource.data.category == "Auto Shops"
+        && resource.data.visibility == "active"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["availability"])
+        && request.resource.data.availability in ["available", "offline"]
+        && validShopListingProfile(uid);
+    }
+
     function validHomeGarageListingProfile(uid) {
       let verification = get(/databases/$(database)/documents/users/$(uid)/homeGarageVerification/profile).data;
       return request.resource.data.businessName == verification.business.name;
@@ -328,6 +344,31 @@ service cloud.firestore {
         && verifiedShop(request.resource.data.providerId)
         && validShopBookingListing()
         && validShopVehicle();
+    }
+
+    // One lock per customer/shop pair serializes simultaneous request creates.
+    // The lock must point to the pending booking created in the same commit.
+    function validShopBookingLock(bookingId) {
+      let lockPath = /databases/$(database)/documents/users/$(request.resource.data.customerId)/shopBookingLocks/$(request.resource.data.providerId);
+      return existsAfter(lockPath)
+        && getAfter(lockPath).data.customerId == request.resource.data.customerId
+        && getAfter(lockPath).data.providerId == request.resource.data.providerId
+        && getAfter(lockPath).data.bookingId == bookingId;
+    }
+
+    function validShopBookingLockWrite(uid, providerId) {
+      let bookingPath = /databases/$(database)/documents/bookings/$(request.resource.data.bookingId);
+      return signedIn()
+        && request.resource.data.keys().hasOnly(["customerId", "providerId", "bookingId"])
+        && isDocumentOwner(uid)
+        && request.resource.data.customerId == uid
+        && request.resource.data.providerId == providerId
+        && request.resource.data.bookingId is string
+        && existsAfter(bookingPath)
+        && getAfter(bookingPath).data.bookingType == "shop-owner"
+        && getAfter(bookingPath).data.customerId == request.auth.uid
+        && getAfter(bookingPath).data.providerId == request.resource.data.providerId
+        && getAfter(bookingPath).data.status == "pending";
     }
 
     function validShopBookingTransition() {
@@ -488,7 +529,32 @@ service cloud.firestore {
         && request.resource.data.providerId == booking.providerId
         && request.resource.data.providerId != request.auth.uid
         && request.resource.data.providerRole == booking.bookingType
-        && request.resource.data.providerRole in ["onsite-mechanic", "towing-company"]
+        && request.resource.data.providerRole in ["onsite-mechanic", "towing-company", "shop-owner"]
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.comment is string
+        && request.resource.data.comment.size() <= 1000
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validParkingProviderReview(reviewId) {
+      let bookingPath = /databases/$(database)/documents/parkingBookings/$(reviewId);
+      let booking = get(bookingPath).data;
+      return signedIn()
+        && exists(bookingPath)
+        && request.resource.data.keys().hasOnly([
+          "bookingId", "customerId", "providerId", "providerRole", "rating",
+          "comment", "createdAt", "updatedAt"
+        ])
+        && request.resource.data.bookingId == reviewId
+        && request.resource.data.customerId == request.auth.uid
+        && booking.customerId == request.auth.uid
+        && booking.status == "completed"
+        && request.resource.data.providerId == booking.providerId
+        && request.resource.data.providerId != request.auth.uid
+        && request.resource.data.providerRole == "homegarage"
         && request.resource.data.rating is int
         && request.resource.data.rating >= 1
         && request.resource.data.rating <= 5
@@ -523,6 +589,14 @@ service cloud.firestore {
             "type", "make", "model", "year", "color", "plateNumber", "updatedAt"
           ]);
         allow delete: if isDocumentOwner(uid);
+      }
+
+      // Per-shop idempotency pointer, private to the vehicle owner.
+      match /shopBookingLocks/{providerId} {
+        allow get: if isDocumentOwner(uid);
+        allow list: if false;
+        allow create, update: if validShopBookingLockWrite(uid, providerId);
+        allow delete: if false;
       }
 
       // Providers may submit and resubmit private verification information,
@@ -629,12 +703,13 @@ service cloud.firestore {
       allow get: if isDocumentOwner(providerId) || (signedIn() && resource.data.visibility == "active");
       allow list: if signedIn() && resource.data.visibility == "active";
       allow create: if validPublicListingWrite(providerId);
-      allow update: if validPublicListingWrite(providerId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
-          "services", "vehicleTypes", "operatingHours", "startingPrice",
-          "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
-        ]);
+      allow update: if (validPublicListingWrite(providerId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
+            "services", "vehicleTypes", "operatingHours", "startingPrice",
+            "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
+          ]))
+        || validShopAvailabilitySync(providerId);
       allow delete: if false;
     }
 
@@ -699,7 +774,7 @@ service cloud.firestore {
 
     match /bookings/{bookingId} {
       allow create: if validBookingBase()
-        && (validShopBooking()
+        && ((validShopBooking() && validShopBookingLock(bookingId))
           || (validBookingProvider() && (validMechanicBooking() || validTowingBooking())));
       allow get, list: if signedIn()
         && (resource.data.customerId == request.auth.uid
@@ -724,7 +799,7 @@ service cloud.firestore {
 
     match /providerReviews/{reviewId} {
       allow get, list: if signedIn();
-      allow create: if validProviderReview(reviewId);
+      allow create: if validProviderReview(reviewId) || validParkingProviderReview(reviewId);
       allow update, delete: if false;
     }
 

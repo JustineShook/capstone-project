@@ -73,7 +73,7 @@ export default function BookMechanicScreen() {
       return subscribeToMyVehicles((items) => {
         setVehicles(items);
         setSelectedVehicleId((current) => current && items.some((item) => item.vehicleId === current)
-          ? current : items[0]?.vehicleId ?? null);
+          ? current : null);
         setVehiclesLoading(false);
       }, (error) => { setVehicleError(error.message); setVehiclesLoading(false); });
     } catch (error) {
@@ -208,7 +208,7 @@ export default function BookMechanicScreen() {
             else router.push("/(v_owner)/vehicle");
           }}>
             <Ionicons name="car-outline" size={18} color={colors.primary} />
-            <Text style={styles.emptyCardText}>{vehiclesLoading ? "Loading your vehicles..." : vehicleError || "Add a vehicle in My Vehicles"}</Text>
+            <Text style={styles.emptyCardText}>{vehiclesLoading ? "Loading your vehicles..." : vehicleError || (vehicles.length ? "Please select a vehicle" : "Add a vehicle in My Vehicles")}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         )}

@@ -6,59 +6,64 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { subscribeToMechanicRequests } from "../../services/owner/bookingService";
 import type { BookingRequest } from "../../types/owner/booking";
 
-const COLORS = { canvas: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", status: "#2A363E", red: "#F51F3B", line: "#53616A" };
-type Filter = "ALL" | "NEW" | "ONGOING" | "COMPLETED" | "CANCELLED";
-type BookingStatus = Exclude<Filter, "ALL">;
+const C = { canvas: "#08090B", card: "#191A1D", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#303135" };
+type Filter = "PENDING" | "ACTIVE";
+const ACTIVE_STATUSES: BookingRequest["status"][] = ["accepted", "en_route", "arrived", "in_progress"];
 
-interface DisplayBooking { id: string; status: BookingStatus; time: string; vehicle: string; location: string; }
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "ALL", label: "All" }, { key: "NEW", label: "New" }, { key: "ONGOING", label: "Ongoing" }, { key: "COMPLETED", label: "Completed" }, { key: "CANCELLED", label: "Cancelled" },
-];
-
-function statusLabel(status: BookingStatus) {
-  if (status === "NEW") return "New request";
-  if (status === "ONGOING") return "On the way";
-  if (status === "COMPLETED") return "Completed";
-  return "Cancelled";
+function label(status: BookingRequest["status"]) {
+  switch (status) {
+    case "pending": return "Pending";
+    case "en_route": return "On the way";
+    case "in_progress": return "In progress";
+    case "accepted": return "Accepted";
+    case "arrived": return "Arrived";
+    case "completed": return "Completed";
+    case "rejected": return "Declined";
+    case "cancelled": return "Cancelled";
+  }
 }
 
-function toDisplayBooking(booking: BookingRequest): DisplayBooking {
-  const status: BookingStatus = booking.status === "pending" ? "NEW"
-    : booking.status === "completed" ? "COMPLETED"
-    : booking.status === "cancelled" || booking.status === "rejected" ? "CANCELLED"
-    : "ONGOING";
-  const date = new Date(booking.createdAt);
-  const time = Number.isNaN(date.getTime()) ? "Recently" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const location = booking.customerAddress?.trim() || (Number.isFinite(booking.latitude) && Number.isFinite(booking.longitude)
-    ? `${booking.latitude.toFixed(4)}, ${booking.longitude.toFixed(4)}`
-    : "Customer location");
-  return { id: booking.id, status, time, vehicle: booking.vehicle, location };
-}
-
-export default function RequestsScreen() {
+export default function MechanicRequestsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [filter, setFilter] = useState<Filter>("ALL");
-  const [bookings, setBookings] = useState<DisplayBooking[]>([]);
-  useEffect(() => subscribeToMechanicRequests((items) => setBookings(items.map(toDisplayBooking))), []);
-  const filteredBookings = useMemo(() => filter === "ALL" ? bookings : bookings.filter((booking) => booking.status === filter), [bookings, filter]);
-  return <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-    <StatusBar barStyle="light-content" backgroundColor={COLORS.canvas} />
-    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
-      <Text style={styles.title}>My Bookings</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        {FILTERS.map(({ key, label }) => <TouchableOpacity key={key} style={[styles.filter, filter === key && styles.filterActive]} onPress={() => setFilter(key)}><Text style={[styles.filterText, filter === key && styles.filterTextActive]}>{label}</Text></TouchableOpacity>)}
-      </ScrollView>
-      {filteredBookings.length === 0 ? <View style={styles.empty}><Feather name="inbox" size={28} color={COLORS.muted} /><Text style={styles.emptyText}>No {filter === "ALL" ? "bookings" : filter.toLowerCase() + " bookings"}.</Text></View> : filteredBookings.map((booking) => <TouchableOpacity key={booking.id} style={styles.bookingCard} onPress={() => router.push({ pathname: "/(onsite-mechanic)/request-details", params: { id: booking.id } })} activeOpacity={0.75}>
-        <View style={styles.cardTop}><View style={styles.status}><Text style={styles.statusText}>{statusLabel(booking.status)}</Text></View><Text style={styles.time}>{booking.time}</Text></View>
-        <View style={styles.vehicleRow}><Text style={styles.vehicle}>{booking.vehicle}</Text><Feather name="chevron-right" size={24} color={COLORS.muted} /></View>
-        <View style={styles.locationRow}><View style={styles.locationIcon}><Feather name="map-pin" size={18} color={COLORS.text} /></View><Text style={styles.location}>{booking.location}</Text></View>
-      </TouchableOpacity>)}
+  const [filter, setFilter] = useState<Filter>("PENDING");
+  const [bookings, setBookings] = useState<BookingRequest[]>([]);
+  useEffect(() => subscribeToMechanicRequests(setBookings), []);
+
+  const pending = useMemo(() => bookings.filter((booking) => booking.status === "pending"), [bookings]);
+  const active = useMemo(() => bookings.filter((booking) => ACTIVE_STATUSES.includes(booking.status)), [bookings]);
+  const visible = filter === "PENDING" ? pending : active;
+  const open = (id: string) => router.push({ pathname: "/(onsite-mechanic)/request-details", params: { id } });
+
+  return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
+    <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
+    <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
+      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><TouchableOpacity style={s.bell} accessibilityLabel="Notifications"><Feather name="bell" size={22} color={C.text} /></TouchableOpacity></View>
+      <View style={s.summary}><View><Text style={s.summaryTitle}>Requests</Text><Text style={s.summaryHint}>Review and manage mechanic requests</Text></View><View style={s.summaryDivider} /><View style={s.summaryCount}><Text style={s.countValue}>{pending.length}</Text><Text style={s.countLabel}>Pending{"\n"}requests</Text></View></View>
+      <View style={s.filters}>
+        <FilterButton icon="clipboard" label="Pending" count={pending.length} active={filter === "PENDING"} onPress={() => setFilter("PENDING")} />
+        <FilterButton icon="tool" label="Active" count={active.length} active={filter === "ACTIVE"} onPress={() => setFilter("ACTIVE")} />
+      </View>
+      {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name={filter === "PENDING" ? "inbox" : "tool"} size={28} color={C.muted} /></View><Text style={s.emptyTitle}>{filter === "PENDING" ? "No pending requests" : "No active jobs"}</Text><Text style={s.emptyText}>{filter === "PENDING" ? "New mechanic requests will appear here." : "Accepted jobs will appear here while you assist customers."}</Text></View> : visible.map((booking) => <View key={booking.id} style={s.card}>
+        <View style={s.customerRow}><View style={s.avatar}><Feather name="user" size={20} color="#FFFFFF" /></View><View style={s.customerCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View><View style={[s.status, booking.status !== "pending" && s.activeStatus]}><Text style={[s.statusText, booking.status !== "pending" && s.activeStatusText]}>{label(booking.status)}</Text></View></View>
+        <View style={s.locationGrid}><View style={s.locationCell}><View style={s.locationHeading}><Feather name="map-pin" size={17} color={C.red} /><Text style={s.locationLabel}>Service location</Text></View><Text style={s.locationText} numberOfLines={2}>{booking.customerAddress || "Customer location"}</Text></View></View>
+        <View style={s.details}><Detail icon="tool" text={booking.problem || "Mechanic service request"} /><Detail icon="message-square" text={booking.notes || "No additional notes"} /></View>
+        <TouchableOpacity style={s.viewButton} onPress={() => open(booking.id)} activeOpacity={0.82}><Text style={s.viewButtonText}>View Request</Text><Feather name="chevron-right" size={19} color="#FFFFFF" /></TouchableOpacity>
+      </View>)}
     </ScrollView>
   </SafeAreaView>;
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.canvas }, content: { paddingHorizontal: 16, paddingTop: 14 }, title: { color: COLORS.text, fontSize: 24, fontWeight: "700" }, filterRow: { gap: 9, paddingTop: 18, paddingBottom: 16 }, filter: { minHeight: 42, justifyContent: "center", paddingHorizontal: 16, borderRadius: 7, backgroundColor: COLORS.card }, filterActive: { backgroundColor: COLORS.red }, filterText: { color: COLORS.text, fontSize: 14, fontWeight: "600" }, filterTextActive: { color: "#FFFFFF" }, bookingCard: { borderRadius: 10, backgroundColor: COLORS.card, padding: 16, marginBottom: 12 }, cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, status: { borderRadius: 6, backgroundColor: COLORS.status, paddingHorizontal: 9, paddingVertical: 5 }, statusText: { color: COLORS.text, fontSize: 13, fontWeight: "600" }, time: { color: COLORS.muted, fontSize: 14 }, vehicleRow: { marginTop: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, vehicle: { color: COLORS.text, fontSize: 19, fontWeight: "700" }, locationRow: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 9 }, locationIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "#39444C" }, location: { color: COLORS.text, fontSize: 15 }, empty: { alignItems: "center", gap: 12, paddingTop: 72 }, emptyText: { color: COLORS.muted, fontSize: 16 },
+function FilterButton({ icon, label, count, active, onPress }: { icon: "clipboard" | "tool"; label: string; count: number; active: boolean; onPress: () => void }) {
+  return <TouchableOpacity style={s.filterButton} onPress={onPress} activeOpacity={0.75} accessibilityRole="button" accessibilityState={{ selected: active }}><View style={[s.filterIcon, active && s.filterIconActive]}><Feather name={icon} size={21} color={active ? "#FFFFFF" : C.muted} />{count > 0 && <View style={[s.filterDot, active && s.filterDotActive]} />}</View><Text style={[s.filterLabel, active && s.filterLabelActive]}>{label}</Text><View style={[s.filterUnderline, active && s.filterUnderlineActive]} /></TouchableOpacity>;
+}
+function Detail({ icon, text }: { icon: "tool" | "message-square"; text: string }) { return <View style={s.detailRow}><Feather name={icon} size={16} color="#D3D4D6" /><Text style={s.detailText} numberOfLines={2}>{text}</Text></View>; }
+
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: C.canvas }, content: { paddingHorizontal: 14, paddingTop: 3 }, header: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 5 }, brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 36, lineHeight: 42, fontWeight: "900", fontStyle: "italic", marginRight: 6 }, brand: { color: C.text, fontSize: 22, fontWeight: "800" }, brandRed: { color: C.red }, bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  summary: { minHeight: 122, borderRadius: 17, backgroundColor: C.red, flexDirection: "row", alignItems: "center", paddingHorizontal: 19, paddingVertical: 16 }, summaryTitle: { color: "#F7EFED", fontSize: 25, lineHeight: 32, fontWeight: "800" }, summaryHint: { color: "#F7EFED", fontSize: 13, lineHeight: 19, marginTop: 4 }, summaryDivider: { width: 1, height: 66, backgroundColor: "rgba(255,255,255,0.5)", marginHorizontal: 18 }, summaryCount: { width: 66, alignItems: "center" }, countValue: { color: "#F7EFED", fontSize: 30, lineHeight: 36, fontWeight: "800" }, countLabel: { color: "#F7EFED", fontSize: 12, lineHeight: 17, textAlign: "center" },
+  filters: { minHeight: 108, flexDirection: "row", justifyContent: "center", gap: 48, marginBottom: 10 }, filterButton: { width: 88, minHeight: 100, alignItems: "center", justifyContent: "flex-start", paddingTop: 11 }, filterIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#191A1D", borderWidth: 1, borderColor: "#36373A", alignItems: "center", justifyContent: "center", position: "relative" }, filterIconActive: { backgroundColor: C.red, borderColor: C.red }, filterDot: { position: "absolute", top: 1, right: 0, width: 9, height: 9, borderRadius: 5, backgroundColor: C.red }, filterDotActive: { backgroundColor: "#FFFFFF" }, filterLabel: { color: C.muted, fontSize: 14, lineHeight: 20, marginTop: 5 }, filterLabelActive: { color: "#FFFFFF", fontWeight: "700" }, filterUnderline: { height: 3, width: 46, backgroundColor: "transparent", marginTop: 3 }, filterUnderlineActive: { backgroundColor: C.red },
+  card: { borderRadius: 15, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 14 }, customerRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 12 }, avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#424347", alignItems: "center", justifyContent: "center" }, customerCopy: { flex: 1 }, customerName: { color: C.text, fontSize: 17, lineHeight: 23, fontWeight: "700" }, vehicle: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 2 }, status: { backgroundColor: "#F4D28A", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 }, statusText: { color: "#292316", fontSize: 12, lineHeight: 16, fontWeight: "800" }, activeStatus: { backgroundColor: "#303135" }, activeStatusText: { color: "#FFFFFF" },
+  locationGrid: { borderTopWidth: 1, borderTopColor: "#292A2D", marginTop: 12, paddingTop: 13 }, locationCell: { paddingHorizontal: 4 }, locationHeading: { flexDirection: "row", alignItems: "center", gap: 8 }, locationLabel: { color: C.muted, fontSize: 13, lineHeight: 18 }, locationText: { color: C.text, fontSize: 14, lineHeight: 20, marginLeft: 25, marginTop: 4 }, details: { gap: 8, marginTop: 12 }, detailRow: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 9 }, detailText: { color: "#FFFFFF", fontSize: 14, lineHeight: 20, flex: 1 }, viewButton: { minHeight: 46, borderRadius: 10, backgroundColor: C.red, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 13 }, viewButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  empty: { minHeight: 260, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, gap: 12 }, emptyIcon: { width: 74, height: 74, borderRadius: 37, backgroundColor: C.card, alignItems: "center", justifyContent: "center", marginBottom: 4 }, emptyTitle: { color: C.text, fontSize: 21, fontWeight: "700" }, emptyText: { color: C.muted, fontSize: 16, lineHeight: 23, textAlign: "center" },
 });

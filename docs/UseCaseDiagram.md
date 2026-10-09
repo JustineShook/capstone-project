@@ -19,7 +19,7 @@ flowchart LR
         UC6([Browse service providers])
         UC7([Book onsite mechanic])
         UC8([Book towing service])
-        UC9([Book shop service appointment])
+        UC9([Request shop service and await approval])
         UC10([Track booking status])
         UC11([Rate completed service])
         UC12([Call or SMS provider])
@@ -84,14 +84,22 @@ flowchart LR
 
 | Actor | Main responsibilities |
 | --- | --- |
-| Vehicle Owner | Maintains vehicles, verifies their account, books mechanic/towing/shop services, tracks and rates bookings. |
+| Vehicle Owner | Maintains vehicles, verifies their account, requests mechanic/towing/shop services, tracks and rates bookings. |
 | Onsite Mechanic | Verifies provider account, reviews mechanic requests, updates service progress, contacts customers. |
 | Towing Company | Verifies company account, reviews towing requests, updates towing progress, contacts customers. |
-| Home Garage / Shop Owner | Verifies the shop, manages services and appointments, reviews shop bookings, and updates booking status. |
+| Home Garage / Shop Owner | Verifies the shop, manages services, reviews requests, accepts or rejects them, and updates accepted service status. |
 | Administrator | Reviews verification submissions and approves or rejects provider/owner verification. |
 | Cloudinary | Stores uploaded verification documents and returns secure URLs. |
 | Phone / SMS App | Handles direct calls and SMS; VeResc has no separate in-app messaging feature. |
 
 ## Current implementation note
 
-The diagram represents the capstone’s intended workflow. Verification and Cloudinary uploads are implemented. Booking, ratings, and notifications are currently partly backed by mock/in-memory services and can be migrated to Firestore later without changing the use cases.
+## Auto shop request and approval flow
+
+1. A vehicle owner chooses an available, verified auto shop, selects a saved vehicle, describes the issue, and reviews the request.
+2. VeResc creates a pending request in Firestore. The request includes the vehicle snapshot, issue description, customer location, and the shop location and indicative starting price captured at submission.
+3. The shop reviews the request and accepts or rejects it. The shop must be verified and open to accept.
+4. If accepted, the customer brings the vehicle to the shop. The shop updates progress through Vehicle Arrived, Diagnosing, Repairing, and Completed. The customer can follow status updates from the request detail screen.
+5. The final repair cost is agreed after the shop assesses the vehicle; the displayed starting price is not a final bill.
+
+This is a request and approval process, not a scheduled appointment: customers do not choose a date or time, and an accepted request does not reserve a time slot. The app currently implements this shop flow with Firestore-backed requests and live status updates. The mechanic and towing bookings, ratings, and notifications have separate implementation status and may still use mock or partial services.
