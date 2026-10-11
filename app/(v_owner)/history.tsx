@@ -8,7 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../../services/firebase";
 
 type HistoryItem = { id: string; bookingType: "onsite-mechanic" | "towing-company" | "shop-owner"; providerName: string; vehicle: string; vehiclePlate: string; status: string; problem?: string; towingType?: string; startingPrice: string; createdAt?: Timestamp };
-const C = { bg: "#F7F7F7", card: "#FFFFFF", text: "#1A1A1A", muted: "#7A7A7A", border: "#EDEDED", red: "#D32F2F", success: "#2E7D32" };
+const C = { bg: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", border: "#28313A", red: "#F52239", success: "#39D98A" };
 
 export default function HistoryScreen() {
   const router = useRouter(); const [items, setItems] = useState<HistoryItem[]>([]); const [loading, setLoading] = useState(true);

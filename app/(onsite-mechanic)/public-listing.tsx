@@ -25,7 +25,7 @@ export default function MechanicPublicListingScreen() {
 
       setInitialListing({
         businessName: existing?.businessName ?? "",
-        contactPhone: profile.personal.phone,
+        contactPhone: existing?.contactPhone ?? profile.personal.phone,
         location: existing?.location,
         availability: existing?.availability ?? "offline",
         services: existing?.services.length ? existing.services : profile.professional.specializations,

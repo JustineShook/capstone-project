@@ -83,6 +83,7 @@ export interface BookingRequest {
   customerAddress?: string;
   providerId: string;
   providerName: string;
+  providerPhone?: string;
   vehicleId: string;
   vehicle: string;
   vehicleYear: number;

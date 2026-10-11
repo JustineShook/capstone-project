@@ -58,6 +58,7 @@ export default function OnsiteMechanicLayout() {
       <Tabs.Screen name="service-history" options={{ href: null }} />
       <Tabs.Screen name="earnings" options={{ href: null }} />
       <Tabs.Screen name="profile" options={{ href: null }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
       <Tabs.Screen
         name="history"
         options={{

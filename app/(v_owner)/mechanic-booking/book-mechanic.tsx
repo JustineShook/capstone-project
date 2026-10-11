@@ -58,7 +58,7 @@ export default function BookMechanicScreen() {
         isPositiveStatus: listing.availability === "available", initials: listing.businessName.slice(0, 2).toUpperCase(),
         color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
         description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
-        emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
+        emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: listing.contactPhone ?? "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
     }).catch(() => setProviderError("Unable to load this provider."));
   }, [providerId]);
 
@@ -116,6 +116,7 @@ export default function BookMechanicScreen() {
   const booking = await createBooking({
     providerId: provider.id,
     providerName: provider.name,
+    providerPhone: provider.phone,
     vehicleId: selectedVehicle.vehicleId,
     vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
     vehicleYear: selectedVehicle.year,
@@ -142,11 +143,11 @@ export default function BookMechanicScreen() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
           <Pressable
-            onPress={() => router.replace("/(v_owner)")}
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}
             hitSlop={10}
           >
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -361,8 +362,8 @@ export default function BookMechanicScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  root: { flex: 1, backgroundColor: colors.background },
+  header: { backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
@@ -454,7 +455,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   modalSheet: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: "70%",
@@ -486,7 +487,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 14,
     padding: 12,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
   },
   modalOptionCardSelected: {
     borderColor: colors.primary,

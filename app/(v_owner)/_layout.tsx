@@ -1,16 +1,25 @@
 // app/(v_owner)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { useEffect, useState } from "react";
 import { Platform } from "react-native";
+import { subscribeToCustomerNotifications } from "../../services/customerNotificationService";
 
 const colors = {
-  primary: "#D32F2F",
-  inactive: "#9E9E9E",
-  background: "#FFFFFF",
-  border: "#EEE0E0",
+  primary: "#F52239",
+  inactive: "#7E8B97",
+  background: "#0C1015",
+  border: "#28313A",
 };
 
 export default function VOwnerLayout() {
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+
+  useEffect(() => subscribeToCustomerNotifications(
+    (items) => setUnreadNotificationCount(items.filter((item) => !item.isRead).length),
+    () => setUnreadNotificationCount(0),
+  ), []);
+
   return (
     <Tabs
       screenOptions={{
@@ -43,6 +52,8 @@ export default function VOwnerLayout() {
       <Tabs.Screen name="personal-information" options={{ href: null }} />
       <Tabs.Screen name="verification" options={{ href: null }} />
       <Tabs.Screen name="vehicle-history" options={{ href: null }} />
+      <Tabs.Screen name="help-support" options={{ href: null }} />
+      <Tabs.Screen name="privacy-security" options={{ href: null }} />
       
       <Tabs.Screen
         name="index"
@@ -82,6 +93,10 @@ export default function VOwnerLayout() {
         name="notifications"
         options={{
           title: "Notifications",
+          tabBarBadge: unreadNotificationCount > 0
+            ? unreadNotificationCount > 99 ? "99+" : unreadNotificationCount
+            : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.primary, color: "#FFFFFF" },
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? "notifications" : "notifications-outline"}

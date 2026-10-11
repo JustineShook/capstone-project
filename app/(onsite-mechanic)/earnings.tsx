@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { MechanicNotificationBell } from "../../components/onsite-mechanic/MechanicNotificationBell";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -39,7 +40,7 @@ export default function MechanicEarningsScreen() {
   return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
     <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
     <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
-      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><TouchableOpacity style={s.bell} accessibilityLabel="Notifications" onPress={() => router.push("/(onsite-mechanic)/requests")}><Feather name="bell" size={21} color={C.text} /></TouchableOpacity></View>
+      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><MechanicNotificationBell style={s.bell} size={21} color={C.text} /></View>
       <Text style={s.title}>Earnings</Text>
       <View style={s.filters}>{([ ["WEEK", "This Week"], ["MONTH", "This Month"], ["ALL", "All Time"] ] as [Period, string][]).map(([key, label]) => <TouchableOpacity key={key} onPress={() => setPeriod(key)} style={[s.filter, period === key && s.filterActive]}><Text style={[s.filterText, period === key && s.filterTextActive]}>{label}</Text></TouchableOpacity>)}</View>
       <View style={s.totalCard}><Text style={s.total}>{peso(total)}</Text><Text style={s.totalLabel}>Total Earnings</Text><View style={s.totalIcon}><Feather name="trending-up" size={20} color="#FFFFFF" /></View></View>

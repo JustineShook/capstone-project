@@ -52,7 +52,7 @@ export default function BookingConfirmationScreen() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.successIconWrap}>
           <Ionicons name="checkmark" size={36} color={colors.white} />
@@ -111,8 +111,8 @@ export default function BookingConfirmationScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  loadingRoot: { flex: 1, backgroundColor: colors.white, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
+  root: { flex: 1, backgroundColor: colors.background },
+  loadingRoot: { flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   notFoundText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: "center" },
 
   content: { padding: 24, paddingTop: 48, alignItems: "center" },

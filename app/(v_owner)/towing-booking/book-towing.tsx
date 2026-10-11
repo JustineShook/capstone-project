@@ -472,11 +472,11 @@ export default function BookTowingScreen() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
           <Pressable
-            onPress={() => router.replace("/(v_owner)")}
+            onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}
             hitSlop={10}
           >
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -877,8 +877,8 @@ export default function BookTowingScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  root: { flex: 1, backgroundColor: colors.background },
+  header: { backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
@@ -980,7 +980,7 @@ const styles = StyleSheet.create({
   suggestionHint: { fontSize: 12, lineHeight: 17, color: colors.textSecondary, marginTop: 6 },
   inlineSuggestionList: {
     marginTop: 6,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
@@ -1044,7 +1044,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
   },
   modalSheet: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: "70%",
@@ -1076,7 +1076,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 14,
     padding: 12,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
   },
   modalOptionCardSelected: {
     borderColor: colors.primary,

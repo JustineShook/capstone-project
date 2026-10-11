@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { TowingCompanyProfile } from "../types/towingCompanyProfile";
 import { db } from "./firebase";
 
@@ -17,6 +17,19 @@ export async function saveTowingCompanyProfile(
   await setDoc(towingCompanyProfileRef(uid), {
     ...profile,
     submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Updates only the company and service details exposed by the profile editor. */
+export async function updateTowingCompanyProfileDetails(
+  uid: string,
+  profile: TowingCompanyProfile
+): Promise<void> {
+  await updateDoc(towingCompanyProfileRef(uid), {
+    company: profile.company,
+    services: profile.services,
+    "representative.fullName": profile.representative.fullName,
     updatedAt: serverTimestamp(),
   });
 }

@@ -16,6 +16,8 @@ import {
   supportsBooking,
 } from "../../data/owner/mockProviders";
 import { getTowingPricing } from "../../services/towingPricingService";
+import { getActiveMechanicBooking, subscribeToActiveMechanicBooking } from "../../services/owner/bookingService";
+import { getActiveTowingBooking, subscribeToActiveTowingBooking } from "../../services/owner/towingService";
 import { getActiveParkingBookingForCustomer, subscribeToParkingListing } from "../../services/parkingBookingService";
 import { StatusPill } from "./StatusPill";
 
@@ -34,18 +36,49 @@ export function ProviderDetailCard({
   onClose: () => void;
 }) {
   const badge = getCategoryBadge(provider.category);
+  const [hasActiveMechanicBooking, setHasActiveMechanicBooking] = useState(false);
+  const [hasActiveTowingBooking, setHasActiveTowingBooking] = useState(false);
+  const hasActiveRequest = hasActiveMechanicBooking || hasActiveTowingBooking;
   const showBookButton = supportsBooking(provider.category)
-    && (provider.category !== "Auto Shops" || (provider.isPositiveStatus && provider.emergencyServiceAvailable === true));
+    && (provider.category === "Onsite Mechanics"
+      ? (provider.isPositiveStatus || hasActiveMechanicBooking)
+      : provider.category === "Towing"
+        ? (provider.isPositiveStatus || hasActiveTowingBooking)
+        : provider.isPositiveStatus)
+    && (provider.category !== "Auto Shops" || provider.emergencyServiceAvailable === true);
   const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
   const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
   const [parkingCapacity, setParkingCapacity] = useState<{ totalSlots: number; availableSlots: number } | null>(null);
+
+  useEffect(() => {
+    if (provider.category !== "Onsite Mechanics") {
+      setHasActiveMechanicBooking(false);
+      return;
+    }
+    return subscribeToActiveMechanicBooking(provider.id, (booking) => setHasActiveMechanicBooking(booking !== null));
+  }, [provider.category, provider.id]);
+
+  useEffect(() => {
+    if (provider.category !== "Towing") {
+      setHasActiveTowingBooking(false);
+      return;
+    }
+    return subscribeToActiveTowingBooking(provider.id, (booking) => setHasActiveTowingBooking(booking !== null));
+  }, [provider.category, provider.id]);
+
   const contactProvider = async (kind: "call" | "message") => {
+    if (!provider.isPositiveStatus) {
+      Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
+      return;
+    }
     if (!provider.phone) {
       Alert.alert("Contact unavailable", "This provider has not published a contact number.");
       return;
     }
     const url = `${kind === "call" ? "tel" : "sms"}:${provider.phone.replace(/[^+\d]/g, "")}`;
     try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) throw new Error("No compatible app is available.");
       await Linking.openURL(url);
     } catch { Alert.alert("Contact unavailable", `Unable to open your ${kind === "call" ? "phone" : "messages"} app.`); }
   };
@@ -59,6 +92,36 @@ export function ProviderDetailCard({
     catch { Alert.alert("Navigation unavailable", "Unable to open a maps app on this device."); }
   };
   const openBooking = async () => {
+    if (provider.category === "Onsite Mechanics") {
+      const existing = await getActiveMechanicBooking(provider.id);
+      if (existing) {
+        router.push({ pathname: "/(v_owner)/mechanic-booking/booking-detail", params: { bookingId: existing.id } });
+        return;
+      }
+      if (!provider.isPositiveStatus) {
+        Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
+        return;
+      }
+      router.push({ pathname: "/(v_owner)/mechanic-booking/book-mechanic", params: { providerId: provider.id } });
+      return;
+    }
+    if (provider.category === "Towing") {
+      const existing = await getActiveTowingBooking(provider.id);
+      if (existing) {
+        router.push({ pathname: "/(v_owner)/towing-booking/booking-detail", params: { bookingId: existing.id } });
+        return;
+      }
+      if (!provider.isPositiveStatus) {
+        Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
+        return;
+      }
+      router.push({ pathname: "/(v_owner)/towing-booking/book-towing", params: { providerId: provider.id } });
+      return;
+    }
+    if (!provider.isPositiveStatus) {
+      Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
+      return;
+    }
     if (provider.category === "Parking Lots") {
       const existing = await getActiveParkingBookingForCustomer(provider.id);
       router.push({ pathname: existing ? "/(v_owner)/parking-booking/parking-detail" : "/(v_owner)/parking-booking/book-parking", params: existing ? { bookingId: existing.id } : { providerId: provider.id } });
@@ -98,7 +161,7 @@ export function ProviderDetailCard({
   }, [provider.category, provider.id]);
 
   return (
-    <View style={styles.card}>
+      <View style={styles.card}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -254,23 +317,37 @@ export function ProviderDetailCard({
             <Text style={styles.directionsButtonText}>Get Directions</Text>
           </Pressable>
         )}
-        <View style={styles.actionsRow}>
-          <Pressable style={styles.callButton} onPress={() => void contactProvider("call")}>
-            <Ionicons name="call-outline" size={18} color={colors.primary} />
-          </Pressable>
-          <Pressable style={[styles.messageButton, !showBookButton && styles.messageButtonWide]} onPress={() => void contactProvider("message")}>
-            <Ionicons name="chatbubble-outline" size={16} color={colors.primary} />
-            <Text style={styles.messageButtonText}>Message</Text>
-          </Pressable>
-          {showBookButton && (
-            <Pressable
-              style={styles.bookButton}
-              onPress={() => void openBooking()}
-            >
-              <Text style={styles.bookButtonText}>{provider.category === "Parking Lots" ? "Reserve Parking" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
+        {provider.isPositiveStatus && provider.phone ? (
+          <View style={styles.actionsRow}>
+            <Pressable style={styles.callButton} onPress={() => void contactProvider("call")} accessibilityRole="button" accessibilityLabel={`Call ${provider.name}`}>
+              <Ionicons name="call-outline" size={18} color={colors.primary} />
             </Pressable>
-          )}
-        </View>
+            <Pressable style={[styles.messageButton, !showBookButton && styles.messageButtonWide]} onPress={() => void contactProvider("message")} accessibilityRole="button">
+              <Ionicons name="chatbubble-outline" size={16} color={colors.primary} />
+              <Text style={styles.messageButtonText}>Message</Text>
+            </Pressable>
+            {showBookButton && (
+              <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
+              <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Reserve Parking" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
+              </Pressable>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.unavailable}>
+            {!provider.isPositiveStatus
+              ? hasActiveRequest
+                ? "This provider is offline. Your existing request is still active."
+                : "Contact and booking are unavailable while this provider is offline."
+              : hasActiveRequest
+                ? "Contact details are unavailable, but you can still view your request status."
+                : "Contact details are not available yet. You can still book a service request."}
+          </Text>
+        )}
+        {showBookButton && (!provider.isPositiveStatus || !provider.phone) && (
+          <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
+            <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : "Book Service"}</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );
@@ -279,163 +356,176 @@ export function ProviderDetailCard({
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 20,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 28,
   },
 
   headerRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 14,
+    gap: 15,
+    marginBottom: 20,
   },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 62,
+    height: 62,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  avatarText: { color: colors.white, fontWeight: "700", fontSize: 16 },
-  headerInfo: { flex: 1, gap: 4 },
-  name: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { fontSize: 12.5, color: colors.textSecondary },
-  metaDot: { fontSize: 12, color: colors.textMuted },
-  closeButton: { padding: 4 },
+  avatarText: { color: "#FFFFFF", fontWeight: "900", fontSize: 19, letterSpacing: 0.3 },
+  headerInfo: { flex: 1, gap: 5 },
+  name: { fontSize: 24, lineHeight: 29, fontWeight: "800", color: colors.textPrimary },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  metaText: { fontSize: 14, lineHeight: 19, fontWeight: "600", color: colors.textSecondary },
+  metaDot: { fontSize: 14, color: colors.textMuted, marginHorizontal: 1 },
+  closeButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
 
   tagsRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 18,
+    gap: 9,
+    marginBottom: 22,
   },
   tag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    backgroundColor: colors.surfaceAlt,
+    gap: 7,
+    backgroundColor: "#1C252E",
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
   },
-  tagText: { fontSize: 12, fontWeight: "600", color: colors.primary },
+  tagText: { fontSize: 13, fontWeight: "700", color: colors.primary },
 
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
     color: colors.textSecondary,
-    marginBottom: 6,
-    marginTop: 4,
+    marginBottom: 8,
+    marginTop: 7,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   description: {
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 23,
     color: colors.textSecondary,
-    marginBottom: 16,
+    marginBottom: 22,
   },
-  photoRow: { gap: 10, marginBottom: 16 },
-  shopPhoto: { width: 210, height: 140, borderRadius: 12, backgroundColor: colors.surfaceAlt },
+  photoRow: { gap: 12, marginBottom: 22 },
+  shopPhoto: { width: 240, height: 156, borderRadius: 16, backgroundColor: colors.surfaceAlt },
 
-  servicesList: { marginBottom: 16, gap: 6 },
-  serviceRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  servicesList: { marginBottom: 22, gap: 10, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 15 },
+  serviceRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 24 },
   serviceBullet: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: colors.primary,
   },
-  serviceText: { fontSize: 12.5, color: colors.textSecondary },
+  serviceText: { fontSize: 15, lineHeight: 21, fontWeight: "500", color: colors.textPrimary, flex: 1 },
 
   vehicleTypesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
+    gap: 9,
+    marginBottom: 22,
   },
   vehicleTypePill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.surfaceAlt,
+    gap: 8,
+    backgroundColor: "#1C252E",
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
-  vehicleTypeText: { fontSize: 12.5, fontWeight: "500", color: colors.textPrimary },
+  vehicleTypeText: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
 
   hoursRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 16,
+    gap: 8,
+    marginBottom: 18,
   },
-  hoursText: { fontSize: 12.5, color: colors.textSecondary },
+  hoursText: { fontSize: 15, lineHeight: 21, color: colors.textPrimary, fontWeight: "500" },
 
   priceRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    paddingHorizontal: 17,
+    paddingVertical: 16,
+    marginBottom: 19,
   },
-  priceLabel: { fontSize: 12.5, color: colors.textSecondary },
-  priceValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
-  parkingCapacity: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 13, marginTop: -8, marginBottom: 16 },
-  parkingCapacityText: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  priceLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+  priceValue: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary, marginTop: 3 },
+  parkingCapacity: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16, marginTop: -7, marginBottom: 20 },
+  parkingCapacityText: { fontSize: 15, lineHeight: 21, fontWeight: "700", color: colors.textPrimary },
 
   reviewsSummaryRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 15,
   },
-  reviewsSummaryRating: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
-  reviewsSummaryCount: { fontSize: 12.5, color: colors.textSecondary },
+  reviewsSummaryRating: { fontSize: 17, fontWeight: "800", color: colors.textPrimary },
+  reviewsSummaryCount: { fontSize: 14, color: colors.textSecondary },
 
-  reviewsList: { gap: 10, marginBottom: 16 },
+  reviewsList: { gap: 12, marginBottom: 22 },
   reviewCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 15,
+    padding: 15,
+    gap: 7,
   },
-  reviewStars: { fontSize: 13, color: colors.rating, letterSpacing: 1 },
-  reviewComment: { fontSize: 12.5, color: colors.textSecondary, lineHeight: 18 },
-  reviewFooterRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
-  reviewAuthor: { fontSize: 12.5, fontWeight: "500", color: colors.textPrimary },
-  reviewDate: { fontSize: 12, color: colors.textSecondary },
+  reviewStars: { fontSize: 15, color: colors.rating, letterSpacing: 1 },
+  reviewComment: { fontSize: 15, color: colors.textPrimary, lineHeight: 22 },
+  reviewFooterRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 3 },
+  reviewAuthor: { fontSize: 14, fontWeight: "700", color: colors.textPrimary },
+  reviewDate: { fontSize: 13, color: colors.textSecondary },
 
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    marginTop: 8,
   },
+  unavailable: { color: colors.textSecondary, textAlign: "center", fontSize: 14, lineHeight: 21, paddingVertical: 17, paddingHorizontal: 15, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 15 },
   directionsButton: {
-    minHeight: 46,
+    minHeight: 54,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  directionsButtonText: { fontSize: 15, fontWeight: "700", color: colors.primary },
+  directionsButtonText: { fontSize: 16, fontWeight: "800", color: colors.primary },
   callButton: {
-    width: 46,
-    height: 46,
+    width: 54,
+    height: 54,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -446,22 +536,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    height: 46,
+    height: 54,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.primary,
   },
   messageButtonWide: {
     flex: 2.4,
   },
-  messageButtonText: { fontSize: 15, fontWeight: "700", color: colors.primary },
+  messageButtonText: { fontSize: 15, fontWeight: "800", color: colors.primary },
   bookButton: {
     flex: 1.4,
     alignItems: "center",
     justifyContent: "center",
-    height: 46,
+    height: 54,
     borderRadius: 14,
     backgroundColor: colors.primary,
   },
-  bookButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
+  bookButtonText: { fontSize: 15, fontWeight: "800", color: "#FFFFFF" },
 });

@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { MechanicNotificationBell } from "../../components/onsite-mechanic/MechanicNotificationBell";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -40,7 +41,7 @@ export default function ProfileScreen() {
   return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
     <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
     <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
-      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><TouchableOpacity style={s.bell} accessibilityLabel="Notifications" onPress={() => router.push("/(onsite-mechanic)/requests")}><Feather name="bell" size={21} color={C.text} /></TouchableOpacity></View>
+      <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><MechanicNotificationBell style={s.bell} size={21} color={C.text} /></View>
       <View style={s.identity}>
         <View style={s.avatar}>{photo ? <Image source={{ uri: photo }} style={s.avatarImage} /> : <Feather name="tool" size={30} color={C.muted} />}</View>
         <View style={s.identityInfo}><Text style={s.name} numberOfLines={1}>{name}</Text><Text style={s.role}>Onsite Mechanic</Text>{status === "VERIFIED" ? <View style={s.verified}><Feather name="check-circle" size={13} color="#F7EFED" /><Text style={s.verifiedText}>Verified</Text></View> : <TouchableOpacity style={s.pending} onPress={openVerification}><Text style={s.pendingText}>{status === "PENDING" ? "Verification Pending" : status === "REJECTED" ? "Verification Rejected" : "Complete Verification"}</Text></TouchableOpacity>}<TouchableOpacity style={s.editProfile} onPress={() => router.push({ pathname: "/(onsite-mechanic)/verification", params: { mode: "edit" } })} activeOpacity={0.8}><Feather name="edit-2" size={12} color="#F7EFED" /><Text style={s.editProfileText}>Edit Profile</Text></TouchableOpacity></View>

@@ -8,6 +8,7 @@ export type ShopBookingStatus = typeof SHOP_STATUS_FLOW[number] | "rejected" | "
 export type ShopBookingRequest = Omit<BookingRequest, "bookingType" | "status"> & {
   bookingType: "shop-owner";
   status: ShopBookingStatus;
+  completionNote?: string;
   // Public shop location captured at booking time, available even if a listing is removed.
   shopLatitude?: number;
   shopLongitude?: number;

@@ -21,13 +21,13 @@ import type { UserProfile, UserRole } from "../../types/user";
 import type { OwnerVerificationProfile } from "../../types/ownerVerificationProfile";
 
 const COLORS = {
-  primary: "#D32F2F",
-  darkRed: "#B71C1C",
-  white: "#FFFFFF",
-  background: "#F7F7F7",
-  textPrimary: "#1A1A1A",
-  textSecondary: "#7A7A7A",
-  border: "#EDEDED",
+  primary: "#F52239",
+  darkRed: "#C9152A",
+  white: "#F4F6F8",
+  background: "#0C1015",
+  textPrimary: "#F4F6F8",
+  textSecondary: "#AAB5C0",
+  border: "#28313A",
 };
 
 function formatRole(role: UserRole): string {
@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
   },
   roleBadge: {
     marginTop: 14,
-    backgroundColor: "#FDECEC",
+    backgroundColor: "#3A2025",
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: "#FDECEC",
+    backgroundColor: "#3A2025",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,

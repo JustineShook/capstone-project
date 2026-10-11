@@ -34,8 +34,9 @@ export default function ShopRequestDetails({ active = false }: { active?: boolea
         <View style={d.summaryRule} />
         <View style={d.summaryMeta}><View style={d.metaItem}><Text style={d.metaLabel}>REQUESTED</Text><Text style={d.metaValue}>{formatTime(request.createdAt)}</Text></View><View style={d.metaDivider} /><View style={d.metaItem}><Text style={d.metaLabel}>{request.status === "completed" ? "COMPLETED" : "LAST UPDATED"}</Text><Text style={d.metaValue}>{formatTime(request.updatedAt)}</Text></View></View>
       </View>
-      {currentIndex >= 0 && <View style={d.progressCard}><View style={d.progressHeading}><Feather name="activity" size={17} color={C.primary} /><Text style={d.progressTitle}>Service progress</Text></View>
-        <View style={d.progressSteps}>{SHOP_STATUS_FLOW.map((status, index) => <View key={status} style={d.progressStep}><View style={[d.stepDot, index < currentIndex || request.status === "completed" ? d.stepDone : null, index === currentIndex && d.stepCurrent]}>{(index < currentIndex || request.status === "completed") && <Feather name="check" size={11} color={C.white} />}</View>{index < SHOP_STATUS_FLOW.length - 1 && <View style={[d.stepLine, index < currentIndex && d.stepLineActive]} />}<Text style={[d.stepLabel, index === currentIndex && d.stepLabelActive]}>{SHOP_STATUS_LABELS[status]}</Text></View>)}</View>
+      {currentIndex >= 0 && <View style={d.progressCard}>
+        <View style={d.progressHeading}><View style={d.progressIcon}><Feather name="activity" size={16} color={C.primary} /></View><View style={d.progressCopy}><Text style={d.progressTitle}>Service progress</Text><Text style={d.progressSubtitle}>Step {currentIndex + 1} of {SHOP_STATUS_FLOW.length}</Text></View><StatusBadge status={request.status} /></View>
+        <View style={d.progressTrack}><View style={[d.progressFill, { width: `${Math.round(((request.status === "completed" ? SHOP_STATUS_FLOW.length : currentIndex + 1) / SHOP_STATUS_FLOW.length) * 100)}%` }]} /></View>
       </View>}
       <ScrollView style={d.dataScroll} contentContainerStyle={d.dataContent} showsVerticalScrollIndicator={false}>
         <View style={s.card}><Text style={d.cardTitle}>Customer</Text><Info label="Name" value={request.customerName} /><Info label="Email" value={request.customerEmail} /></View>
@@ -66,18 +67,14 @@ const d = StyleSheet.create({
   metaLabel: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: .6 },
   metaValue: { color: C.textPrimary, fontSize: 12, lineHeight: 16, fontWeight: "600" },
   metaDivider: { width: 1, height: 30, backgroundColor: C.border },
-  progressCard: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 15, padding: 14, gap: 12 },
-  progressHeading: { flexDirection: "row", alignItems: "center", gap: 8 },
-  progressTitle: { color: C.textPrimary, fontSize: 15, fontWeight: "800" },
-  progressSteps: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  progressStep: { flex: 1, alignItems: "center", position: "relative", gap: 6 },
-  stepDot: { width: 23, height: 23, borderRadius: 12, borderWidth: 2, borderColor: "#77797D", backgroundColor: C.surface, alignItems: "center", justifyContent: "center", zIndex: 1 },
-  stepDone: { borderColor: C.primary, backgroundColor: C.primary },
-  stepCurrent: { borderColor: C.primary, backgroundColor: "#35191E" },
-  stepLine: { position: "absolute", height: 2, backgroundColor: "#45464A", left: "50%", right: "-50%", top: 11 },
-  stepLineActive: { backgroundColor: C.primary },
-  stepLabel: { color: C.muted, fontSize: 10, lineHeight: 13, textAlign: "center" },
-  stepLabelActive: { color: C.textPrimary, fontWeight: "800" },
+  progressCard: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 15, paddingHorizontal: 13, paddingVertical: 11, gap: 9 },
+  progressHeading: { flexDirection: "row", alignItems: "center", gap: 9 },
+  progressIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: "#35191E", alignItems: "center", justifyContent: "center" },
+  progressCopy: { flex: 1, gap: 1 },
+  progressTitle: { color: C.textPrimary, fontSize: 14, fontWeight: "800" },
+  progressSubtitle: { color: C.muted, fontSize: 11, fontWeight: "600" },
+  progressTrack: { height: 5, borderRadius: 3, backgroundColor: "#45464A", overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 3, backgroundColor: C.primary },
   dataScroll: { flex: 1, minHeight: 0 },
   dataContent: { gap: 12, paddingBottom: 4 },
   cardTitle: { color: C.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 1 },

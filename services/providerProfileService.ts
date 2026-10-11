@@ -1,4 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import type { OnsiteMechanicProviderProfile } from "../types/onsiteMechanicProfile";
 import { db } from "./firebase";
 
@@ -21,6 +21,17 @@ export async function saveProviderProfile(
   await setDoc(providerProfileRef(uid), {
     ...profile,
     submittedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Saves an existing mechanic profile without resetting its verification submission time. */
+export async function updateMechanicProviderProfile(
+  uid: string,
+  profile: OnsiteMechanicProviderProfile
+): Promise<void> {
+  await updateDoc(providerProfileRef(uid), {
+    ...profile,
     updatedAt: serverTimestamp(),
   });
 }

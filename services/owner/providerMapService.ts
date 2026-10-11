@@ -1,24 +1,74 @@
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 
-import {
-  MOCK_PROVIDERS,
-  type MockProvider,
-  type ProviderCategory,
-} from "../../data/owner/mockProviders";
+import type { MockProvider, ProviderCategory } from "../../data/owner/mockProviders";
 import { isBookableShopListing, type ProviderListing } from "../../types/providerListing";
 import { db } from "../firebase";
 import { getProviderReviewSummary, type ProviderReviewSummary } from "./ratingService";
 
 const LISTINGS_COLLECTION = "providerListings";
 
-/** Live shop availability; existing mechanic/towing loading remains unchanged. */
+/** Live shop availability; only currently open shops are discoverable. */
 export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) => void, onError: (error: Error) => void) {
-  return onSnapshot(query(collection(db, LISTINGS_COLLECTION), where("visibility", "==", "active"),
+  let generation = 0;
+  const stop = onSnapshot(query(collection(db, LISTINGS_COLLECTION), where("visibility", "==", "active"),
     where("role", "==", "shop-owner"), where("availability", "==", "available")), (snapshot) => {
-    const shops = snapshot.docs.map((item) => item.data()).filter(isActiveListing)
-      .map((listing) => toMapProvider(listing, { average: listing.ratingSummary.average, count: listing.ratingSummary.count, reviews: [] }));
-    callback(shops);
+    const currentGeneration = ++generation;
+    const listings = snapshot.docs.map((item) => item.data()).filter(isActiveListing);
+    void Promise.all(listings.map(async (listing) => {
+      let reviewSummary: ProviderReviewSummary = { average: 0, count: 0, reviews: [] };
+      try {
+        reviewSummary = await getProviderReviewSummary(listing.providerId);
+      } catch (error) {
+        console.warn(`Failed to load reviews for auto shop ${listing.providerId}`, error);
+        reviewSummary = { average: listing.ratingSummary.average, count: listing.ratingSummary.count, reviews: [] };
+      }
+      return toMapProvider(listing, reviewSummary);
+    })).then((shops) => {
+      if (generation === currentGeneration) callback(shops);
+    });
   }, onError);
+  return () => {
+    generation += 1;
+    stop();
+  };
+}
+
+/** Live listings for all other provider types; offline providers leave the map immediately. */
+export function subscribeToCustomerMapProviders(callback: (providers: MockProvider[]) => void, onError: (error: Error) => void) {
+  let generation = 0;
+  const stop = onSnapshot(query(
+    collection(db, LISTINGS_COLLECTION),
+    where("visibility", "==", "active"),
+    where("availability", "==", "available")
+  ), (snapshot) => {
+    const currentGeneration = ++generation;
+    const listings = snapshot.docs
+      .map((document) => document.data())
+      .filter(isActiveListing)
+      .filter((listing) => listing.availability === "available");
+
+    if (listings.length === 0) {
+      callback([]);
+      return;
+    }
+
+    void Promise.all(listings.map(async (listing) => {
+      let reviewSummary: ProviderReviewSummary = { average: 0, count: 0, reviews: [] };
+      try {
+        reviewSummary = await getProviderReviewSummary(listing.providerId);
+      } catch (error) {
+        console.warn(`Failed to load reviews for provider ${listing.providerId}`, error);
+      }
+      return toMapProvider(listing, reviewSummary);
+    })).then((providers) => {
+      if (generation === currentGeneration) callback(providers);
+    });
+  }, onError);
+
+  return () => {
+    generation += 1;
+    stop();
+  };
 }
 
 function buildInitials(name: string) {
@@ -94,7 +144,7 @@ function toMapProvider(listing: ProviderListing, reviewSummary: ProviderReviewSu
     services,
     hours: listing.operatingHours ?? "Hours not provided",
     emergencyServiceAvailable: listing.emergencyServiceAvailable,
-    // Only HomeGarage opts into a rule-validated public phone number.
+    // Provider listing phone numbers are explicitly published by providers.
     phone: listing.contactPhone ?? "",
     vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"],
     photoUrls: listing.photoUrls ?? [],
@@ -103,35 +153,6 @@ function toMapProvider(listing: ProviderListing, reviewSummary: ProviderReviewSu
 }
 
 /**
- * Loads only trusted, active public listing documents. Private `users` and
- * profile collections are never read by the customer map.
+ * Customer map access is constrained by the Firestore query to listings that
+ * are active and currently available. Private profile collections are never read.
  */
-export async function loadCustomerMapProviders(): Promise<MockProvider[]> {
-  try {
-    const listingQuery = query(
-      collection(db, LISTINGS_COLLECTION),
-      where("visibility", "==", "active")
-    );
-    const snapshot = await getDocs(listingQuery);
-    const listings = snapshot.docs
-      .map((document) => document.data())
-      .filter(isActiveListing);
-
-    if (listings.length === 0) return MOCK_PROVIDERS.filter((provider) => provider.category !== "Auto Shops");
-
-    const providers = await Promise.all(listings.map(async (listing) => {
-      let reviewSummary: ProviderReviewSummary = { average: 0, count: 0, reviews: [] };
-      try {
-        reviewSummary = await getProviderReviewSummary(listing.providerId);
-      } catch (error) {
-        console.warn(`Failed to load reviews for provider ${listing.providerId}`, error);
-      }
-      return toMapProvider(listing, reviewSummary);
-    }));
-
-    return providers;
-  } catch (error) {
-    console.error("Failed to load public provider listings", error);
-    return MOCK_PROVIDERS.filter((provider) => provider.category !== "Auto Shops");
-  }
-}

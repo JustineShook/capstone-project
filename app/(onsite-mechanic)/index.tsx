@@ -1,16 +1,17 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import { MechanicNotificationBell } from "../../components/onsite-mechanic/MechanicNotificationBell";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../services/firebase";
 import { subscribeToMechanicRequests } from "../../services/owner/bookingService";
-import { getPublicProviderListing, updatePublicProviderListing } from "../../services/publicProviderListingService";
+import { getPublicProviderListing, updateMechanicAvailability } from "../../services/publicProviderListingService";
 import { getProviderProfile } from "../../services/providerProfileService";
 import type { BookingRequest } from "../../types/owner/booking";
 import type { PublicProviderListingInput } from "../../types/providerListing";
 
-const C = { canvas: "#090A0C", card: "#191A1D", text: "#ECE8E6", muted: "#B7B2B0", red: "#F52239", line: "#303135" };
+const C = { canvas: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", red: "#F52239", line: "#28313A", green: "#39D98A", blue: "#54B8FF" };
 const ACTIVE_STATUSES: BookingRequest["status"][] = ["accepted", "en_route", "arrived", "in_progress"];
 type ListingSettings = Omit<PublicProviderListingInput, "availability">;
 
@@ -35,22 +36,38 @@ export default function OnsiteMechanicDashboard() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [online, setOnline] = useState(false);
+  const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
+  const [hasPublicListing, setHasPublicListing] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
   const [listingSettings, setListingSettings] = useState<ListingSettings | null>(null);
   const [bookings, setBookings] = useState<BookingRequest[]>([]);
 
   useEffect(() => {
-    let alive = true;
     const stop = subscribeToMechanicRequests(setBookings);
+    return stop;
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    setAvailabilityLoaded(false);
     const uid = auth.currentUser?.uid;
-    if (uid) {
-      void Promise.all([getPublicProviderListing(uid), getProviderProfile(uid)]).then(([listing, profile]) => {
+    if (!uid) {
+      setOnline(false);
+      setHasPublicListing(false);
+      setListingSettings(null);
+      setAvailabilityLoaded(true);
+      return () => { alive = false; };
+    }
+    void Promise.all([getPublicProviderListing(uid), getProviderProfile(uid)]).then(([listing, profile]) => {
         if (!alive) return;
-        setOnline(listing?.availability === "available");
         if (listing?.role === "onsite-mechanic") {
+          setHasPublicListing(true);
+          setOnline(listing.availability === "available");
           const { availability: _availability, ...settings } = listing;
           setListingSettings(settings);
         } else if (profile?.role === "onsite-mechanic" && profile.verificationStatus === "VERIFIED") {
+          setHasPublicListing(false);
+          setOnline(false);
           setListingSettings({
             businessName: profile.publicListing?.businessName || profile.personal.fullName,
             location: profile.publicListing?.location ?? { latitude: 0, longitude: 0 },
@@ -63,11 +80,20 @@ export default function OnsiteMechanicDashboard() {
             startingPrice: profile.publicListing?.startingPrice ?? profile.serviceInfo.serviceRate,
             emergencyServiceAvailable: profile.publicListing?.emergencyServiceAvailable ?? profile.serviceInfo.emergencyServiceAvailable,
           });
+        } else {
+          setHasPublicListing(false);
+          setOnline(false);
+          setListingSettings(null);
         }
-      }).catch(() => undefined);
-    }
-    return () => { alive = false; stop(); };
-  }, []);
+      }).catch(() => {
+        if (alive) {
+          setHasPublicListing(false);
+          setListingSettings(null);
+          Alert.alert("Availability unavailable", "We couldn't load your mechanic listing. Check your connection and try again.");
+        }
+      }).finally(() => { if (alive) setAvailabilityLoaded(true); });
+    return () => { alive = false; };
+  }, []));
 
   const pending = useMemo(() => bookings.filter((booking) => booking.status === "pending"), [bookings]);
   const active = useMemo(() => bookings.find((booking) => ACTIVE_STATUSES.includes(booking.status)), [bookings]);
@@ -76,7 +102,7 @@ export default function OnsiteMechanicDashboard() {
 
   const toggleAvailability = async (next: boolean) => {
     const uid = auth.currentUser?.uid;
-    if (!uid || !listingSettings) {
+    if (!uid || !listingSettings || !hasPublicListing) {
       Alert.alert("Listing required", "Set up your public listing before becoming available.", [
         { text: "Not now", style: "cancel" },
         { text: "Set up listing", onPress: () => router.push("/(onsite-mechanic)/public-listing") },
@@ -85,7 +111,7 @@ export default function OnsiteMechanicDashboard() {
     }
     setSavingAvailability(true);
     try {
-      await updatePublicProviderListing(uid, "onsite-mechanic", { ...listingSettings, availability: next ? "available" : "offline" });
+      await updateMechanicAvailability(uid, next ? "available" : "offline");
       setOnline(next);
     } catch (error) {
       Alert.alert("Availability not changed", error instanceof Error ? error.message : "Please try again.");
@@ -105,19 +131,24 @@ export default function OnsiteMechanicDashboard() {
       <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 16 }]} showsVerticalScrollIndicator={false}>
         <View style={s.header}>
           <View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>VeResc</Text></View>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Notifications" onPress={() => router.push("/(onsite-mechanic)/requests")} style={s.bell}><Feather name="bell" size={26} color={C.text} /></TouchableOpacity>
+          <MechanicNotificationBell style={s.bell} size={26} color={C.text} />
         </View>
 
-        <View style={s.hero}>
+        <ImageBackground
+          source={require("../../assets/images/towing-dashboard-bg.png")}
+          imageStyle={s.heroImage}
+          style={[s.hero, online ? s.heroOnline : s.heroOffline]}
+        >
+          <View style={s.heroShade} />
           <View style={s.heroTop}>
             <View style={s.heroCopy}>
-              <Text style={s.locationLabel} numberOfLines={1}>{listingSettings?.serviceAreaLabel || "Onsite mechanic"}</Text>
+              <View style={s.locationRow}><Feather name="map-pin" size={13} color={online ? C.green : "#F4A45D"} /><Text style={s.locationLabel} numberOfLines={1}>{listingSettings?.serviceAreaLabel || "Onsite mechanic"}</Text></View>
               <Text style={s.heroTitle}>{online ? "Ready to assist" : "You're offline"}</Text>
-              <Text style={s.heroHint}>{online ? "Your mechanic service is online." : "Go online to receive new requests."}</Text>
+              <Text style={s.heroHint}>{online ? "Customers can find you and send requests." : "Switch on when you're ready for work."}</Text>
             </View>
             <View style={s.availabilityToggle}>
-              <Text style={s.availableLabel}>{online ? "Available" : "Offline"}</Text>
-              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={savingAvailability} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
+              <View style={[s.statusDot, online && s.statusDotOnline]} /><Text style={s.availableLabel}>{online ? "Online" : "Offline"}</Text>
+              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
             </View>
           </View>
           <View style={s.heroDivider} />
@@ -126,9 +157,9 @@ export default function OnsiteMechanicDashboard() {
             <View style={s.statDivider} />
             <View style={s.stat}><Text style={s.statValue}>{completed}</Text><Text style={s.statLabel}>Completed jobs</Text></View>
           </View>
-        </View>
+        </ImageBackground>
 
-        <Text style={s.overline}>QUICK ACTIONS</Text>
+        <Text style={s.overline}>YOUR WORKSPACE</Text>
         <View style={s.quickActions}>
           {actions.map((action) => <TouchableOpacity key={action.label} style={s.quickAction} onPress={() => action.job && active ? open(active.id) : action.route && router.push(action.route as "/(onsite-mechanic)/requests" | "/(onsite-mechanic)/earnings" | "/(onsite-mechanic)/public-listing")} activeOpacity={0.78}>
             <View style={s.actionIcon}><Feather name={action.icon} size={25} color={C.red} />{action.label === "Requests" && pending.length > 0 ? <View style={s.actionBadge}><Text style={s.actionBadgeText}>{pending.length}</Text></View> : null}</View>
@@ -149,8 +180,8 @@ export default function OnsiteMechanicDashboard() {
           </View>
           <TouchableOpacity style={s.primary} onPress={() => open(active.id)} activeOpacity={0.85}><Text style={s.primaryText}>Continue Job</Text><Feather name="arrow-right" size={16} color="#fff" /></TouchableOpacity>
         </View> : <TouchableOpacity style={s.emptyJob} onPress={() => router.push("/(onsite-mechanic)/requests")} activeOpacity={0.8}>
-          <View style={s.emptyJobIcon}><Feather name="tool" size={23} color={C.red} /></View>
-          <View style={s.emptyCopy}><Text style={s.emptyTitle}>No active job right now</Text><Text style={s.emptySubtitle}>Your accepted mechanic jobs will show here.</Text></View>
+          <View style={s.emptyJobIcon}><Feather name="tool" size={23} color={C.blue} /></View>
+          <View style={s.emptyCopy}><Text style={s.emptyTitle}>Room for your next job</Text><Text style={s.emptySubtitle}>{online ? "Stay available and we'll show accepted jobs here." : "Go online whenever you're ready to help a customer."}</Text></View>
           <Feather name="chevron-right" size={20} color={C.muted} />
         </TouchableOpacity>}
 
@@ -160,8 +191,8 @@ export default function OnsiteMechanicDashboard() {
           <View style={s.requestCopy}><Text style={s.requestName} numberOfLines={1}>{pending[0].customerName || "New customer"}</Text><Text style={s.requestDistance} numberOfLines={1}>{pending[0].vehicle} · {pending[0].problem || "Service request"}</Text></View>
           <View style={s.requestArrow}><Feather name="chevron-right" size={19} color="#fff" /></View>
         </TouchableOpacity> : <TouchableOpacity style={s.emptyRequest} onPress={() => router.push("/(onsite-mechanic)/requests")} activeOpacity={0.8}>
-          <View style={s.emptyJobIcon}><Feather name="inbox" size={22} color={C.red} /></View>
-          <View style={s.emptyCopy}><Text style={s.emptyTitle}>No new requests yet</Text><Text style={s.emptySubtitle}>{online ? "New customer requests will appear here." : "Go online to start receiving requests."}</Text></View>
+          <View style={s.emptyJobIcon}><Feather name="inbox" size={22} color={C.blue} /></View>
+          <View style={s.emptyCopy}><Text style={s.emptyTitle}>{online ? "You're ready for requests" : "No requests while offline"}</Text><Text style={s.emptySubtitle}>{online ? "We'll bring new customer requests right here." : "Switch online when you want customers to reach you."}</Text></View>
           <Feather name="chevron-right" size={20} color={C.muted} />
         </TouchableOpacity>}
 
@@ -189,16 +220,16 @@ const s = StyleSheet.create({
   header: { height: 62, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 5 },
   brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 38, lineHeight: 44, fontWeight: "900", fontStyle: "italic", marginRight: 7 }, brand: { color: C.text, fontSize: 23, fontWeight: "800", letterSpacing: -0.4 },
   bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
-  hero: { backgroundColor: C.red, borderRadius: 20, minHeight: 178, paddingHorizontal: 21, paddingTop: 20, paddingBottom: 17 },
-  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, heroCopy: { flex: 1, paddingRight: 5 }, locationLabel: { color: "#FFFFFF", fontSize: 16, lineHeight: 23, fontWeight: "500" }, heroTitle: { color: "#fff", fontSize: 29, fontWeight: "800", lineHeight: 37 }, heroHint: { color: "#FFFFFF", fontSize: 16, lineHeight: 23 },
-  availabilityToggle: { minHeight: 48, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 25, paddingLeft: 14, paddingRight: 5 }, availableLabel: { color: "#252525", fontSize: 15, fontWeight: "700" }, switch: { transform: [{ scaleX: 1.04 }, { scaleY: 1.04 }], width: 52, marginLeft: 3, marginRight: -1 },
-  heroDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.3)", marginTop: 14, marginBottom: 10 }, stats: { minHeight: 50, flexDirection: "row", alignItems: "center" }, stat: { flex: 1 }, statDivider: { width: 1, height: 38, backgroundColor: "rgba(255,255,255,0.38)", marginHorizontal: 17 }, statValue: { color: "#fff", fontSize: 34, lineHeight: 39, fontWeight: "800" }, statLabel: { color: "#FFFFFF", fontSize: 15, lineHeight: 21, fontWeight: "500" },
-  overline: { color: "#C4C5C8", fontSize: 15, fontWeight: "800", letterSpacing: 1.1, marginTop: 21, marginBottom: 13 }, quickActions: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 1 }, quickAction: { alignItems: "center", width: "24%", minHeight: 90 }, actionIcon: { width: 62, height: 62, borderRadius: 31, backgroundColor: "#202124", alignItems: "center", justifyContent: "center", position: "relative" }, actionBadge: { position: "absolute", right: -2, top: -2, minWidth: 22, height: 22, borderRadius: 11, backgroundColor: C.red, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, actionBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" }, actionLabel: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "600", marginTop: 7, textAlign: "center" },
+  hero: { borderRadius: 20, minHeight: 178, paddingHorizontal: 21, paddingTop: 20, paddingBottom: 17, borderWidth: 1, overflow: "hidden" }, heroImage: { borderRadius: 20, opacity: 0.55 }, heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,14,18,0.55)" }, heroOnline: { backgroundColor: "#13251F", borderColor: "#26533D" }, heroOffline: { backgroundColor: "#211B19", borderColor: "#54372C" },
+  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, heroCopy: { flex: 1, paddingRight: 5 }, locationRow: { flexDirection: "row", alignItems: "center", gap: 5 }, locationLabel: { color: "#D7E1E8", fontSize: 14, lineHeight: 22, fontWeight: "600", flexShrink: 1 }, heroTitle: { color: "#fff", fontSize: 27, fontWeight: "800", lineHeight: 35, marginTop: 5 }, heroHint: { color: "#C5D0D7", fontSize: 14, lineHeight: 20, marginTop: 2 }, statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#F4A45D", marginRight: 7 }, statusDotOnline: { backgroundColor: C.green },
+  availabilityToggle: { minHeight: 48, flexDirection: "row", alignItems: "center", backgroundColor: "#F7F9FA", borderRadius: 25, paddingLeft: 12, paddingRight: 5 }, availableLabel: { color: "#252525", fontSize: 14, fontWeight: "700" }, switch: { transform: [{ scaleX: 1.04 }, { scaleY: 1.04 }], width: 52, marginLeft: 1, marginRight: -1 },
+  heroDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.14)", marginTop: 14, marginBottom: 10 }, stats: { minHeight: 50, flexDirection: "row", alignItems: "center" }, stat: { flex: 1 }, statDivider: { width: 1, height: 38, backgroundColor: "rgba(255,255,255,0.18)", marginHorizontal: 17 }, statValue: { color: "#fff", fontSize: 32, lineHeight: 38, fontWeight: "800" }, statLabel: { color: "#C5D0D7", fontSize: 13, lineHeight: 19, fontWeight: "600" },
+  overline: { color: "#9AA8B3", fontSize: 12, fontWeight: "800", letterSpacing: 1.4, marginTop: 21, marginBottom: 13 }, quickActions: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 1 }, quickAction: { alignItems: "center", width: "24%", minHeight: 90 }, actionIcon: { width: 62, height: 62, borderRadius: 21, backgroundColor: "#18222B", borderWidth: 1, borderColor: "#283744", alignItems: "center", justifyContent: "center", position: "relative" }, actionBadge: { position: "absolute", right: -2, top: -2, minWidth: 22, height: 22, borderRadius: 11, backgroundColor: C.red, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, actionBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" }, actionLabel: { color: "#DCE3E8", fontSize: 12, lineHeight: 17, fontWeight: "600", marginTop: 7, textAlign: "center" },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginTop: 23, marginBottom: 12, paddingHorizontal: 3, minHeight: 38 }, sectionTitle: { color: C.text, fontSize: 23, lineHeight: 31, fontWeight: "800" }, viewAll: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 5 }, viewAllText: { color: "#FF6678", fontSize: 16, fontWeight: "700" },
   jobCard: { backgroundColor: C.card, borderRadius: 17, padding: 20, minHeight: 300 }, jobTop: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, onWay: { backgroundColor: "#A91225", borderRadius: 14, paddingHorizontal: 13, paddingVertical: 7 }, onWayText: { color: "#fff", fontSize: 14, lineHeight: 19, fontWeight: "700" }, customer: { color: C.text, fontSize: 23, lineHeight: 30, fontWeight: "800", marginTop: 8 }, vehicle: { color: "#D0D1D3", fontSize: 18, lineHeight: 25, marginTop: 4, marginBottom: 11 },
   routeRow: { minHeight: 45, flexDirection: "row", alignItems: "center", gap: 10 }, routeDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.red, marginLeft: 2 }, routeText: { color: "#FFFFFF", fontSize: 17, lineHeight: 23, flex: 1 }, routeLabel: { color: "#C0C1C4", fontSize: 14 }, issue: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 9, marginTop: 3 }, issueText: { color: "#FFFFFF", fontSize: 16, lineHeight: 22, flex: 1 }, metrics: { borderTopWidth: 1, borderTopColor: "#3A3B3F", marginTop: 13, paddingTop: 14, flexDirection: "row", justifyContent: "space-between", gap: 7, flexWrap: "wrap" }, metric: { flexDirection: "row", alignItems: "center", gap: 8 }, metricText: { color: "#FFFFFF", fontSize: 15, lineHeight: 21 },
   primary: { minHeight: 54, borderRadius: 10, backgroundColor: C.red, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 13 }, primaryText: { color: "#fff", fontSize: 17, fontWeight: "800" },
-  emptyJob: { minHeight: 138, borderRadius: 17, backgroundColor: C.card, paddingHorizontal: 20, paddingVertical: 20, flexDirection: "row", alignItems: "center", gap: 15 }, emptyRequest: { minHeight: 132, borderRadius: 17, backgroundColor: C.card, paddingHorizontal: 20, paddingVertical: 19, flexDirection: "row", alignItems: "center", gap: 15 }, emptyJobIcon: { width: 60, height: 60, borderRadius: 30, backgroundColor: "#303135", alignItems: "center", justifyContent: "center" }, emptyCopy: { flex: 1, gap: 7 }, emptyTitle: { color: C.text, fontSize: 20, lineHeight: 27, fontWeight: "700" }, emptySubtitle: { color: "#C0C1C4", fontSize: 16, lineHeight: 23 },
+  emptyJob: { minHeight: 138, borderRadius: 17, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, paddingHorizontal: 20, paddingVertical: 20, flexDirection: "row", alignItems: "center", gap: 15 }, emptyRequest: { minHeight: 132, borderRadius: 17, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, paddingHorizontal: 20, paddingVertical: 19, flexDirection: "row", alignItems: "center", gap: 15 }, emptyJobIcon: { width: 56, height: 56, borderRadius: 18, backgroundColor: "#1A2A36", alignItems: "center", justifyContent: "center" }, emptyCopy: { flex: 1, gap: 7 }, emptyTitle: { color: C.text, fontSize: 18, lineHeight: 25, fontWeight: "700" }, emptySubtitle: { color: "#AAB5C0", fontSize: 14, lineHeight: 20 },
   requestCard: { minHeight: 90, borderRadius: 15, backgroundColor: C.card, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 14 }, requestIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#303135", alignItems: "center", justifyContent: "center" }, requestCopy: { flex: 1 }, requestName: { color: C.text, fontSize: 19, lineHeight: 26, fontWeight: "700" }, requestDistance: { color: "#C0C1C4", fontSize: 15, lineHeight: 21, marginTop: 4 }, requestArrow: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.red, alignItems: "center", justifyContent: "center" },
   listingHint: { minHeight: 76, borderRadius: 13, backgroundColor: C.card, marginTop: 14, paddingHorizontal: 15, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 13 }, listingIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: "#303135", alignItems: "center", justifyContent: "center" }, listingCopy: { flex: 1 }, listingTitle: { color: C.text, fontSize: 14, fontWeight: "700", lineHeight: 20 }, listingSubtitle: { color: "#C0C1C4", fontSize: 13, lineHeight: 18 }, editListing: { color: "#FF6678", fontSize: 14, fontWeight: "700" },
 });

@@ -42,9 +42,9 @@ export function CustomerRating({ bookingId, bookingType, providerName }: { booki
     <Text style={s.hint}>{saved ? "Your feedback helps improve VeResc." : `How was your experience with ${providerName}?`}</Text>
     {loading ? <Text style={s.hint}>Loading your review…</Text> : <>
       <View style={s.stars}>{[1, 2, 3, 4, 5].map((value) => <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Rate ${value} out of 5 stars`} accessibilityState={{ selected: value <= stars, disabled: Boolean(saved) }} disabled={Boolean(saved)} onPress={() => setStars(value)} hitSlop={6}>
-        <Ionicons name={value <= stars ? "star" : "star-outline"} size={32} color={value <= stars ? "#E6A800" : "#9E9E9E"} />
+        <Ionicons name={value <= stars ? "star" : "star-outline"} size={32} color={value <= stars ? "#F5C451" : "#7E8B97"} />
       </Pressable>)}</View>
-      {saved ? comment ? <Text style={s.comment}>“{comment}”</Text> : null : <TextInput accessibilityLabel="Written feedback (optional)" value={comment} onChangeText={setComment} maxLength={1000} multiline placeholder="Share a few words (optional)" placeholderTextColor="#8B8684" style={s.input} />}
+      {saved ? comment ? <Text style={s.comment}>“{comment}”</Text> : null : <TextInput accessibilityLabel="Written feedback (optional)" value={comment} onChangeText={setComment} maxLength={1000} multiline placeholder="Share a few words (optional)" placeholderTextColor="#7E8B97" style={s.input} />}
       {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
       {!saved && <Pressable accessibilityRole="button" accessibilityState={{ disabled: stars === 0 || saving }} disabled={stars === 0 || saving} onPress={() => void send()} style={[s.button, (stars === 0 || saving) && s.disabled]}>
         <Text style={s.buttonText}>{saving ? "Submitting…" : "Submit Rating"}</Text>
@@ -54,14 +54,14 @@ export function CustomerRating({ bookingId, bookingType, providerName }: { booki
 }
 
 const s = StyleSheet.create({
-  card: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#EEE0E0", borderRadius: 14, padding: 16, gap: 11 },
-  title: { color: "#1A1A1A", fontSize: 17, fontWeight: "700" },
-  hint: { color: "#6B6B6B", fontSize: 14, lineHeight: 20 },
+  card: { backgroundColor: "#151C23", borderWidth: 1, borderColor: "#28313A", borderRadius: 14, padding: 16, gap: 11 },
+  title: { color: "#F4F6F8", fontSize: 17, fontWeight: "700" },
+  hint: { color: "#AAB5C0", fontSize: 14, lineHeight: 20 },
   stars: { flexDirection: "row", gap: 12, paddingVertical: 3 },
-  input: { minHeight: 84, borderWidth: 1, borderColor: "#EEE0E0", borderRadius: 11, padding: 12, textAlignVertical: "top", color: "#1A1A1A", fontSize: 15 },
-  comment: { color: "#4E4E4E", fontSize: 15, lineHeight: 22 },
-  button: { minHeight: 48, backgroundColor: "#D32F2F", borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
-  buttonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  input: { minHeight: 84, borderWidth: 1, borderColor: "#28313A", borderRadius: 11, padding: 12, textAlignVertical: "top", color: "#F4F6F8", fontSize: 15 },
+  comment: { color: "#AAB5C0", fontSize: 15, lineHeight: 22 },
+  button: { minHeight: 48, backgroundColor: "#F52239", borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  buttonText: { color: "#F4F6F8", fontSize: 15, fontWeight: "700" },
   disabled: { opacity: 0.48 },
-  error: { color: "#B3261E", fontSize: 14, lineHeight: 20 },
+  error: { color: "#FF7482", fontSize: 14, lineHeight: 20 },
 });

@@ -1,4 +1,4 @@
-﻿import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -12,7 +12,7 @@ import { createShopBooking } from "../../../services/shopOwnerService";
 import type { SavedVehicle } from "../../../types/owner/vehicle";
 import { isBookableShopListing, type ProviderListing } from "../../../types/providerListing";
 
-const C = { background: "#FFFFFF", card: "#FFFFFF", text: "#1A1A1A", muted: "#6B6B6B", line: "#EEE0E0", red: "#D32F2F" };
+const C = { background: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", line: "#28313A", red: "#F52239" };
 
 export default function BookShopScreen() {
   const { providerId } = useLocalSearchParams<{ providerId?: string | string[] }>();
@@ -87,14 +87,14 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
     {providerError && <RequestButton title="Choose Another Shop" secondary onPress={() => router.replace("/(v_owner)")} />}
     {provider && !loading && !providerError && <>
       <View style={s.providerCard}><View style={s.providerIcon}><Ionicons name="storefront-outline" size={24} color={C.red} /></View><View style={{ flex: 1, gap: 4 }}>
-        <Text style={s.title}>{provider.businessName}</Text><View style={s.metaRow}><Ionicons name="checkmark-circle" size={14} color="#2E7D32" /><Text style={s.metaText}>Verified auto shop</Text></View><Text style={s.muted}>{provider.serviceAreaLabel}</Text>
+        <Text style={s.title}>{provider.businessName}</Text><View style={s.metaRow}><Ionicons name="checkmark-circle" size={14} color="#39D98A" /><Text style={s.metaText}>Verified auto shop</Text></View><Text style={s.muted}>{provider.serviceAreaLabel}</Text>
       </View></View>
-      <View style={s.priceCard}><View><Text style={s.priceLabel}>Starting price</Text><Text style={s.priceValue}>{provider.startingPrice == null ? "Price on assessment" : `₱${provider.startingPrice.toLocaleString("en-PH")}`}</Text></View><Ionicons name="pricetag-outline" size={21} color={C.red} /></View>
+      <View style={s.priceCard}><View><Text style={s.priceLabel}>Starting price</Text><Text style={s.priceValue}>{provider.startingPrice == null ? "Price on assessment" : `?${provider.startingPrice.toLocaleString("en-PH")}`}</Text></View><Ionicons name="pricetag-outline" size={21} color={C.red} /></View>
       <View style={s.noticeCard}><Ionicons name="information-circle-outline" size={18} color={C.red} /><Text style={[s.muted, { flex: 1 }]}>The shop will review your request first. Bring your vehicle only after it accepts.</Text></View>
       <Text style={s.label}>Vehicle</Text><Text style={s.sectionSubtitle}>Which vehicle needs service?</Text>
       <RequestLoadState loading={vehicleLoading} error={vehicleError} retry={() => setAttempt((value) => value + 1)} />
       {vehicle && <Pressable accessibilityRole="button" style={s.card} onPress={() => setModal("vehicle")}>
-        <View style={s.vehicleRow}><View style={s.vehicleIcon}><Ionicons name="car-outline" size={22} color={C.red} /></View><View style={{ flex: 1, gap: 4 }}><Text style={s.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text><Text style={s.muted}>{vehicle.type} · {vehicle.plateNumber}</Text></View><Text style={s.changeLabel}>Change</Text><Ionicons name="chevron-forward" size={18} color={C.muted} /></View>
+        <View style={s.vehicleRow}><View style={s.vehicleIcon}><Ionicons name="car-outline" size={22} color={C.red} /></View><View style={{ flex: 1, gap: 4 }}><Text style={s.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text><Text style={s.muted}>{vehicle.type} � {vehicle.plateNumber}</Text></View><Text style={s.changeLabel}>Change</Text><Ionicons name="chevron-forward" size={18} color={C.muted} /></View>
         {!provider.vehicleTypes.includes(vehicle.type) && <Text style={s.muted}>This shop may not typically service this vehicle type. The shop will review your request.</Text>}
       </Pressable>}
       {!vehicleLoading && !vehicleError && vehicles.length > 0 && !vehicle && <Pressable accessibilityRole="button" style={s.emptyVehicleCard} onPress={() => setModal("vehicle")}><Ionicons name="car-outline" size={22} color={C.red} /><Text style={s.emptyVehicleText}>Please select a vehicle</Text><Ionicons name="chevron-forward" size={18} color={C.muted} /></Pressable>}
@@ -105,7 +105,7 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
       <Text style={s.label}>Additional Notes</Text><Text style={s.sectionSubtitle}>Share any other details that may help.</Text>
       <TextInput accessibilityLabel="Additional notes" style={s.input} value={notes} onChangeText={setNotes} maxLength={1000} multiline placeholder="Any other information for the shop" placeholderTextColor={C.muted} />
       <Text style={s.label}>Your Location</Text><Text style={s.sectionSubtitle}>Shared with the shop with your request.</Text>
-      <View style={s.addressCard}><Ionicons name="location-outline" size={20} color={C.red} /><View style={{ flex: 1, gap: 4 }}><Text style={s.addressLabel}>Current location</Text><Text style={s.addressValue}>{location.loading ? "Finding your location…" : location.error || (location.location ? `${location.location.lat.toFixed(6)}, ${location.location.lng.toFixed(6)}` : "Location not available")}</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh location" disabled={location.loading} onPress={() => void location.refresh()}><Ionicons name="refresh-outline" size={20} color={C.red} /></TouchableOpacity></View>
+      <View style={s.addressCard}><Ionicons name="location-outline" size={20} color={C.red} /><View style={{ flex: 1, gap: 4 }}><Text style={s.addressLabel}>Current location</Text><Text style={s.addressValue}>{location.loading ? "Finding your location�" : location.error || (location.location ? `${location.location.lat.toFixed(6)}, ${location.location.lng.toFixed(6)}` : "Location not available")}</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh location" disabled={location.loading} onPress={() => void location.refresh()}><Ionicons name="refresh-outline" size={20} color={C.red} /></TouchableOpacity></View>
       {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
       <RequestButton title="Review Request" disabled={!canSubmit || saving} onPress={() => { setError(null); setModal("review"); }} />
     </>}
@@ -115,13 +115,13 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
         <ScrollView contentContainerStyle={{ gap: 14 }} keyboardShouldPersistTaps="handled">
           {modal === "vehicle" ? vehicles.map((item) => <Pressable key={item.vehicleId} style={[s.card, item.vehicleId === vehicleId && s.selected]}
             onPress={() => { setVehicleId(item.vehicleId); setModal(null); }}>
-            <Text style={s.text}>{item.year} {item.make} {item.model}</Text><Text style={s.muted}>{item.type} Â· {item.plateNumber}</Text>
+            <Text style={s.text}>{item.year} {item.make} {item.model}</Text><Text style={s.muted}>{item.type} · {item.plateNumber}</Text>
           </Pressable>) : <>
-            <RequestInfo label="Shop" value={provider?.businessName ?? ""} /><RequestInfo label="Vehicle" value={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} Â· ${vehicle.plateNumber}` : "Vehicle no longer available"} />
+            <RequestInfo label="Shop" value={provider?.businessName ?? ""} /><RequestInfo label="Vehicle" value={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}` : "Vehicle no longer available"} />
             <RequestInfo label="Problem" value={problem} />{notes.trim() && <RequestInfo label="Notes" value={notes} />}
             <Text style={s.muted}>The shop will review your request and accept or reject it. This does not reserve a date or time. Bring the vehicle only after acceptance. Agree on the final repair cost with the shop after its assessment.</Text>
             {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
-            <RequestButton title={saving ? "Sendingâ€¦" : "Confirm Request"} disabled={!canSubmit || saving} onPress={() => void submit()} />
+            <RequestButton title={saving ? "Sending…" : "Confirm Request"} disabled={!canSubmit || saving} onPress={() => void submit()} />
           </>}
         </ScrollView>
         <RequestButton title={modal === "vehicle" ? "Close" : "Back to Edit"} secondary disabled={saving} onPress={() => setModal(null)} />
@@ -138,6 +138,6 @@ function RequestLoadState({ loading, error, retry }: { loading: boolean; error: 
   if (!loading && !error) return null;
   return <View style={ui.loadCard}>{loading ? <ActivityIndicator color={C.red} /> : <><Text style={ui.loadError}>{error}</Text><RequestButton title="Try Again" onPress={retry} /></>}</View>;
 }
-const ui = StyleSheet.create({ button: { minHeight: 52, borderRadius: 10, backgroundColor: C.red, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }, buttonText: { color: "#F7EFED", fontSize: 16, fontWeight: "800" }, secondaryButton: { backgroundColor: C.card, borderWidth: 1, borderColor: "#45464A" }, secondaryText: { color: C.text }, disabled: { opacity: 0.5 }, info: { gap: 4, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }, infoLabel: { color: C.muted, fontSize: 13, fontWeight: "600" }, infoValue: { color: C.text, fontSize: 16, lineHeight: 22 }, loadCard: { minHeight: 64, backgroundColor: C.card, borderRadius: 12, padding: 14, gap: 10 }, loadError: { color: "#FF9AA8", fontSize: 14, lineHeight: 20 } });
+const ui = StyleSheet.create({ button: { minHeight: 52, borderRadius: 10, backgroundColor: C.red, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }, buttonText: { color: "#F4F6F8", fontSize: 16, fontWeight: "800" }, secondaryButton: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line }, secondaryText: { color: C.text }, disabled: { opacity: 0.5 }, info: { gap: 4, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }, infoLabel: { color: C.muted, fontSize: 13, fontWeight: "600" }, infoValue: { color: C.text, fontSize: 16, lineHeight: 22 }, loadCard: { minHeight: 64, backgroundColor: C.card, borderRadius: 12, padding: 14, gap: 10 }, loadError: { color: "#FF9AA8", fontSize: 14, lineHeight: 20 } });
 
 

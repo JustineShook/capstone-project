@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, runTransaction, setDoc, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, runTransaction, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 
 import type { ProviderListing, PublicProviderListingInput } from "../types/providerListing";
 import { db } from "./firebase";
@@ -20,6 +20,14 @@ async function ensureParkingSlots(uid: string, totalSlots: number) {
 export async function getPublicProviderListing(uid: string): Promise<ProviderListing | null> {
   const snapshot = await getDoc(publicProviderListingRef(uid));
   return snapshot.exists() ? (snapshot.data() as ProviderListing) : null;
+}
+
+/** Changes only availability on an existing verified mechanic listing. */
+export async function updateMechanicAvailability(
+  uid: string,
+  availability: "available" | "offline"
+): Promise<void> {
+  await updateDoc(publicProviderListingRef(uid), { availability });
 }
 
 /**

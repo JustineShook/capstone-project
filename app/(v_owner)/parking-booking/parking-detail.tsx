@@ -1,4 +1,5 @@
-import { useLocalSearchParams } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -7,6 +8,7 @@ import { endParking, startParking, subscribeToMyParkingBookings } from "../../..
 import type { ParkingBooking } from "../../../types/parkingBooking";
 
 export default function ParkingDetail() {
+  const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const [booking, setBooking] = useState<ParkingBooking>();
   const [saving, setSaving] = useState(false);
@@ -34,11 +36,12 @@ export default function ParkingDetail() {
     await run();
   };
 
-  if (!booking) return <SafeAreaView style={s.loading}><StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" /><Text style={s.body}>Loading parking session...</Text></SafeAreaView>;
+  if (!booking) return <SafeAreaView style={s.loading}><StatusBar barStyle="light-content" backgroundColor="#151C23" /><Text style={s.body}>Loading parking session...</Text></SafeAreaView>;
   const label = booking.status === "reserved" ? "Parking Reserved" : booking.status === "active" ? "Parking Active" : "Parking Completed";
 
   return <SafeAreaView style={s.safe}>
-    <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+    <StatusBar barStyle="light-content" backgroundColor="#151C23" />
+    <View style={s.header}><Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}><Ionicons name="chevron-back" size={25} color="#F4F6F8" /></Pressable><Text style={s.headerTitle}>Parking Booking</Text><View style={{ width: 25 }} /></View>
     <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
       <View style={s.card}>
         <View style={s.headingRow}><View style={s.icon}><Text style={s.iconText}>P</Text></View><View style={{ flex: 1 }}><Text style={s.title}>{label}</Text><Text style={s.name}>{booking.providerName}</Text></View></View>
@@ -60,21 +63,23 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#FFFFFF" },
-  loading: { flex: 1, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", padding: 20 },
+  safe: { flex: 1, backgroundColor: "#0C1015" },
+  header: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 17, borderBottomWidth: 1, borderBottomColor: "#28313A" },
+  headerTitle: { color: "#F4F6F8", fontSize: 18, fontWeight: "700" },
+  loading: { flex: 1, backgroundColor: "#0C1015", alignItems: "center", justifyContent: "center", padding: 20 },
   content: { flexGrow: 1, justifyContent: "center", padding: 18, gap: 14 },
-  card: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#EEE0E0", borderRadius: 16, padding: 18, gap: 13 },
+  card: { backgroundColor: "#0C1015", borderWidth: 1, borderColor: "#28313A", borderRadius: 16, padding: 18, gap: 13 },
   headingRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  icon: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#FDECEA", alignItems: "center", justifyContent: "center" },
-  iconText: { color: "#D32F2F", fontSize: 21, fontWeight: "800" },
-  title: { color: "#1A1A1A", fontSize: 21, fontWeight: "800" },
-  name: { color: "#6B6B6B", fontSize: 15, marginTop: 3 },
-  rule: { height: 1, backgroundColor: "#EEE0E0" },
+  icon: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#3A2025", alignItems: "center", justifyContent: "center" },
+  iconText: { color: "#F52239", fontSize: 21, fontWeight: "800" },
+  title: { color: "#F4F6F8", fontSize: 21, fontWeight: "800" },
+  name: { color: "#AAB5C0", fontSize: 15, marginTop: 3 },
+  rule: { height: 1, backgroundColor: "#28313A" },
   detail: { gap: 3 },
-  detailLabel: { color: "#6B6B6B", fontSize: 13, fontWeight: "600" },
-  body: { color: "#1A1A1A", fontSize: 15, lineHeight: 22 },
-  button: { minHeight: 50, marginTop: 3, backgroundColor: "#D32F2F", padding: 14, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  buttonText: { color: "#FFFFFF", fontWeight: "800", fontSize: 15 },
+  detailLabel: { color: "#AAB5C0", fontSize: 13, fontWeight: "600" },
+  body: { color: "#F4F6F8", fontSize: 15, lineHeight: 22 },
+  button: { minHeight: 50, marginTop: 3, backgroundColor: "#F52239", padding: 14, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  buttonText: { color: "#F4F6F8", fontWeight: "800", fontSize: 15 },
   disabled: { opacity: 0.5 },
-  done: { color: "#287A45", fontWeight: "700", fontSize: 14 },
+  done: { color: "#39D98A", fontWeight: "700", fontSize: 14 },
 });

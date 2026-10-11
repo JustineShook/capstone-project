@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -17,8 +18,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
 import { getServiceLabel } from "../../../data/owner/mockProviders";
+import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 import { getProviderReviewSummary, getRating, mergeRating, submitRating } from "../../../services/owner/ratingService";
-import { subscribeToTowingBooking } from "../../../services/owner/towingService";
+import { cancelTowingBookingAsCustomer, subscribeToTowingBooking } from "../../../services/owner/towingService";
 import {
   getTowingStatusLabel,
   getTowingStatusShortLabel,
@@ -49,7 +51,9 @@ export default function TowingBookingDetailScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const [booking, setBooking] = useState<TowingBookingRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [providerPhone, setProviderPhone] = useState("");
   const [providerRating, setProviderRating] = useState({ average: 0, count: 0 });
+  const [isCancelling, setIsCancelling] = useState(false);
 
   // --- Rating state --------------------------------------------------------
   const [selectedStars, setSelectedStars] = useState(0);
@@ -68,26 +72,84 @@ export default function TowingBookingDetailScreen() {
   }, [bookingId]);
 
   useEffect(() => {
+    if (!booking?.providerId) {
+      setProviderPhone("");
+      return;
+    }
+    let isCurrent = true;
+    void getPublicProviderListing(booking.providerId)
+      .then((listing) => {
+        if (isCurrent) setProviderPhone(listing?.contactPhone?.trim() ?? "");
+      })
+      .catch(() => {
+        if (isCurrent) setProviderPhone("");
+      });
+    return () => { isCurrent = false; };
+  }, [booking?.providerId]);
+
+  useEffect(() => {
     if (!booking?.providerId) return;
     void getProviderReviewSummary(booking.providerId).then(({ average, count }) => setProviderRating({ average, count }));
   }, [booking?.providerId]);
 
-  const provider = booking ? { name: booking.providerName, initials: booking.providerName.slice(0, 2).toUpperCase(), color: colors.primary, phone: booking.pricingMode === "dispatcher" ? booking.dispatcherPhone : "", rating: providerRating.average, reviewCount: providerRating.count, distanceKm: 0, category: "Towing" as const } : undefined;
+  const provider = booking ? { name: booking.providerName, initials: booking.providerName.slice(0, 2).toUpperCase(), color: colors.primary, phone: booking.dispatcherPhone?.trim() || providerPhone, rating: providerRating.average, reviewCount: providerRating.count, distanceKm: 0, category: "Towing" as const } : undefined;
   const vehicle = booking ? { year: booking.vehicleYear, make: booking.vehicle, model: "", vehicleType: "" } : undefined;
   const currentStepIndex = booking ? TOWING_STATUS_FLOW.indexOf(booking.status) : -1;
   const isTerminalStatus = booking?.status === "cancelled" || booking?.status === "rejected";
+  const canCustomerCancel = booking?.status === "pending" || booking?.status === "accepted";
+
+  const confirmCancelBooking = () => {
+    if (!booking || !canCustomerCancel || isCancelling) return;
+    Alert.alert(
+      "Cancel this request?",
+      "You can cancel before the tow truck is on the way.",
+      [
+        { text: "Keep Request", style: "cancel" },
+        {
+          text: "Cancel Request",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setIsCancelling(true);
+              try {
+                await cancelTowingBookingAsCustomer(booking.id);
+              } catch (error) {
+                Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.");
+              } finally {
+                setIsCancelling(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
 
   // --- Call / Message the provider -----------------------------------------
   // Assumes `provider.phone` exists on the Provider type — swap the field
   // name below if mockProviders uses something different.
-  const handleCallProvider = () => {
-    if (!provider?.phone) return;
-    Linking.openURL(`tel:${provider.phone}`);
+  const handleCallProvider = async () => {
+    if (!provider?.phone) {
+      Alert.alert("Phone number unavailable", "This towing provider has not added a contact number.");
+      return;
+    }
+    try {
+      await Linking.openURL(`tel:${provider.phone}`);
+    } catch {
+      Alert.alert("Unable to call", "This device could not open the phone app.");
+    }
   };
 
-  const handleMessageProvider = () => {
-    if (!provider?.phone) return;
-    Linking.openURL(`sms:${provider.phone}`);
+  const handleMessageProvider = async () => {
+    if (!provider?.phone) {
+      Alert.alert("Phone number unavailable", "This towing provider has not added a contact number.");
+      return;
+    }
+    try {
+      await Linking.openURL(`sms:${provider.phone}`);
+    } catch {
+      Alert.alert("Unable to message", "This device could not open the messaging app.");
+    }
   };
 
   // Tapping a star just selects it — submission is a separate, explicit
@@ -117,7 +179,7 @@ export default function TowingBookingDetailScreen() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.white} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
           <Pressable
@@ -149,9 +211,9 @@ export default function TowingBookingDetailScreen() {
                 <View style={[styles.avatar, { backgroundColor: provider.color }]}>
                   <Text style={styles.avatarText}>{provider.initials}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.providerName}>{provider.name}</Text>
-                  <Text style={styles.problemText}>
+                  <Text style={styles.problemText} numberOfLines={1} ellipsizeMode="tail">
                     {booking.pickupLocation} → {booking.destination}
                   </Text>
                 </View>
@@ -174,7 +236,8 @@ export default function TowingBookingDetailScreen() {
               </View>
             )}
 
-            <Text style={styles.sectionLabel}>Status</Text>
+            <View style={styles.statusCard}>
+            <Text style={styles.sectionLabel}>Request Progress</Text>
             <View style={styles.statusBlock}>
               {!isTerminalStatus && (
                 <Text style={styles.currentStatusText}>{getTowingStatusLabel(booking.status)}</Text>
@@ -229,6 +292,22 @@ export default function TowingBookingDetailScreen() {
                   ))}
                 </View>
               )}
+            </View>
+            {canCustomerCancel && (
+              <Pressable
+                style={[styles.cancelRequestButton, isCancelling && styles.cancelRequestButtonDisabled]}
+                onPress={confirmCancelBooking}
+                disabled={isCancelling}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel towing request"
+              >
+                {isCancelling ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.cancelRequestButtonText}>Cancel Request</Text>
+                )}
+              </Pressable>
+            )}
             </View>
           </View>
 
@@ -392,13 +471,13 @@ export default function TowingBookingDetailScreen() {
               <View style={styles.detailRow}>
                 <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
                 <Text style={styles.detailLabel}>Pickup</Text>
-                <Text style={styles.detailValue}>{booking.pickupLocation}</Text>
+                <Text style={styles.detailValue} numberOfLines={2} ellipsizeMode="tail">{booking.pickupLocation}</Text>
               </View>
 
               <View style={styles.detailRow}>
                 <Ionicons name="flag-outline" size={16} color={colors.textSecondary} />
                 <Text style={styles.detailLabel}>Destination</Text>
-                <Text style={styles.detailValue}>{booking.destination}</Text>
+                <Text style={styles.detailValue} numberOfLines={2} ellipsizeMode="tail">{booking.destination}</Text>
               </View>
 
               <View style={styles.detailRow}>
@@ -479,8 +558,8 @@ export default function TowingBookingDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.white },
-  header: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.border },
+  root: { flex: 1, backgroundColor: colors.background },
+  header: { backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
@@ -491,45 +570,66 @@ const styles = StyleSheet.create({
 
   // Fixed (non-scrolling) section: provider card + status.
   fixedTop: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingBottom: 12,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    backgroundColor: colors.background,
+    paddingBottom: 16,
   },
 
   content: { padding: 16, paddingBottom: 24 },
 
   providerCard: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: colors.surfaceAlt, borderRadius: 14, padding: 12, marginBottom: 20,
+    minHeight: 92,
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: colors.surface, borderRadius: 17, borderWidth: 1,
+    borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 14,
   },
-  avatar: { width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.white, fontWeight: "700", fontSize: 14 },
-  providerName: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
-  problemText: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
+  avatar: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
+  avatarText: { color: "#FFFFFF", fontWeight: "800", fontSize: 17 },
+  providerName: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary },
+  problemText: { fontSize: 14, lineHeight: 20, color: colors.textSecondary, marginTop: 3 },
   providerActionsRow: {
     flexDirection: "row",
     gap: 8,
   },
   actionButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 12, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
+  statusCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 17,
+    paddingHorizontal: 17,
+    paddingTop: 15,
+    paddingBottom: 17,
+  },
+  sectionLabel: { fontSize: 13, fontWeight: "800", color: colors.textSecondary, marginBottom: 11, textTransform: "uppercase", letterSpacing: 1.1 },
+  cancelRequestButton: {
+    minHeight: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#B42318",
+    borderRadius: 13,
+    paddingHorizontal: 16,
+    marginTop: 16,
+  },
+  cancelRequestButtonDisabled: { opacity: 0.65 },
+  cancelRequestButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
 
   statusBlock: { marginBottom: 4 },
   currentStatusText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 14,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    marginBottom: 16,
   },
   progressRow: {
     flexDirection: "row",
@@ -545,12 +645,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   progressDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 19,
+    height: 19,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -560,24 +660,25 @@ const styles = StyleSheet.create({
   },
   progressDotCurrent: {
     borderColor: colors.primary,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
   },
   progressLine: {
     flex: 1,
-    height: 2,
+    height: 3,
     backgroundColor: colors.border,
   },
   progressLineActive: { backgroundColor: colors.primary },
   progressLabelsRow: {
     flexDirection: "row",
-    marginTop: 6,
+    marginTop: 9,
   },
   progressLabelCol: {
     flex: 1,
     alignItems: "center",
   },
   progressStepLabel: {
-    fontSize: 9,
+    fontSize: 10.5,
+    lineHeight: 15,
     color: colors.textMuted,
     textAlign: "center",
   },
@@ -589,12 +690,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     alignSelf: "flex-start",
-    backgroundColor: colors.textMuted,
-    borderRadius: 20,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 13,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
   },
-  cancelledBadgeText: { color: colors.white, fontSize: 12, fontWeight: "600" },
+  cancelledBadgeText: { color: colors.textPrimary, fontSize: 15, fontWeight: "800" },
 
   // --- Rating ---
   ratingCard: {
@@ -622,7 +725,7 @@ const styles = StyleSheet.create({
   commentInput: {
     width: "100%",
     minHeight: 80,
-    backgroundColor: colors.white,
+    backgroundColor: colors.background,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,

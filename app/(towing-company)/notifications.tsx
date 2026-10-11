@@ -1,0 +1,135 @@
+import { Feather } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import {
+  markTowingNotificationRead,
+  subscribeToTowingNotifications,
+  type TowingNotification,
+} from "../../services/towingNotificationService";
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : "Recently";
+}
+
+export default function TowingNotificationsScreen() {
+  const [items, setItems] = useState<TowingNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => subscribeToTowingNotifications(
+    (notifications) => {
+      setItems(notifications);
+      setLoading(false);
+      setError("");
+    },
+    (listenerError) => {
+      setError(listenerError.message || "Could not load notifications.");
+      setLoading(false);
+    },
+  ), []);
+
+  const openNotification = async (item: TowingNotification) => {
+    if (!item.isRead) {
+      try { await markTowingNotificationRead(item.id); } catch { /* Still open the request if marking it read fails. */ }
+    }
+    router.push({
+      pathname: "/(towing-company)/request-details",
+      params: {
+        id: item.bookingId,
+        cancellationSource: item.title === "Customer cancelled request" ? "customer" : "provider",
+      },
+    });
+  };
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      <View style={styles.header}>
+        <Pressable style={styles.back} onPress={() => router.canGoBack() ? router.back() : router.replace("/(towing-company)")} accessibilityRole="button" accessibilityLabel="Go back">
+          <Feather name="arrow-left" size={22} color={COLORS.text} />
+        </Pressable>
+        <View style={styles.headerCopy}>
+          <Text style={styles.title}>Notifications</Text>
+          <Text style={styles.subtitle}>{items.filter((item) => !item.isRead).length} unread updates</Text>
+        </View>
+        <View style={styles.headerSpacer} />
+      </View>
+
+      {loading ? (
+        <View style={styles.state}><ActivityIndicator color={COLORS.red} /></View>
+      ) : error ? (
+        <View style={styles.state}>
+          <Feather name="wifi-off" size={30} color={COLORS.muted} />
+          <Text style={styles.emptyTitle}>Notifications unavailable</Text>
+          <Text style={styles.emptyText}>{error}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={items.length ? styles.list : styles.emptyList}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={(
+            <View style={styles.state}>
+              <View style={styles.emptyIcon}><Feather name="bell" size={25} color={COLORS.red} /></View>
+              <Text style={styles.emptyTitle}>No notifications yet</Text>
+              <Text style={styles.emptyText}>New towing requests and customer cancellations will appear here.</Text>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <Pressable style={[styles.card, !item.isRead && styles.unreadCard]} onPress={() => void openNotification(item)} accessibilityRole="button">
+              <View style={styles.iconWrap}><Feather name={item.status === "cancelled" ? "slash" : "truck"} size={19} color={COLORS.red} /></View>
+              <View style={styles.copy}>
+                <View style={styles.titleRow}>
+                  <Text style={styles.cardTitle}>{item.title}</Text>
+                  {!item.isRead && <View style={styles.unreadDot} />}
+                </View>
+                <Text style={styles.message}>{item.message}</Text>
+                <Text style={styles.route} numberOfLines={1}>{item.pickupLocation} → {item.destination}</Text>
+                <View style={styles.footer}>
+                  <Text style={styles.date}>{formatDate(item.updatedAt)}</Text>
+                  <Text style={styles.status}>{item.status.replace(/_/g, " ").toUpperCase()}</Text>
+                </View>
+              </View>
+              <Feather name="chevron-right" size={18} color={COLORS.muted} />
+            </Pressable>
+          )}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+const COLORS = { background: "#090A0C", card: "#151D24", text: "#F5F7F8", muted: "#9AA6AE", red: "#F51F3B", border: "#2C3944" };
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: COLORS.background },
+  header: { minHeight: 72, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  back: { width: 42, height: 44, alignItems: "center", justifyContent: "center" },
+  headerCopy: { flex: 1, paddingLeft: 4 },
+  headerSpacer: { width: 42 },
+  title: { color: COLORS.text, fontSize: 22, fontWeight: "800" },
+  subtitle: { color: COLORS.muted, fontSize: 13, marginTop: 2 },
+  list: { padding: 14, gap: 10 },
+  emptyList: { flexGrow: 1, padding: 24 },
+  state: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 28 },
+  emptyIcon: { width: 58, height: 58, borderRadius: 19, backgroundColor: COLORS.card, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  emptyTitle: { color: COLORS.text, fontSize: 18, fontWeight: "800", textAlign: "center" },
+  emptyText: { color: COLORS.muted, fontSize: 14, lineHeight: 21, textAlign: "center" },
+  card: { flexDirection: "row", alignItems: "center", gap: 11, padding: 14, borderRadius: 15, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  unreadCard: { borderColor: COLORS.red },
+  iconWrap: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#281B20", alignItems: "center", justifyContent: "center" },
+  copy: { flex: 1, gap: 4 },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  cardTitle: { flex: 1, color: COLORS.text, fontSize: 14, fontWeight: "800" },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.red },
+  message: { color: "#C2CBD1", fontSize: 13, lineHeight: 19 },
+  route: { color: COLORS.muted, fontSize: 12, lineHeight: 17 },
+  footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  date: { color: COLORS.muted, fontSize: 11 },
+  status: { color: "#FFAAB5", fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
+});

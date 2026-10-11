@@ -4,8 +4,10 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  ImageBackground,
   PanResponder,
   Pressable,
+  ScrollView as ScrollViewType,
   ScrollView,
   StatusBar,
   Text,
@@ -29,10 +31,10 @@ import {
   ProviderCategory,
 } from "../../data/owner/mockProviders";
 import { useMyLocation } from "../../hooks/useMyLocation";
-import { loadCustomerMapProviders, subscribeToCustomerMapShops } from "../../services/owner/providerMapService";
+import { subscribeToCustomerMapProviders, subscribeToCustomerMapShops } from "../../services/owner/providerMapService";
 import { estimateEtaMinutes, haversineDistanceKm } from "../../utils/geo";
 import { buildMapHtml } from "../../utils/owner/buildMapHtml";
-import { styles } from "./index.styles";
+import { styles } from "../../components/owner/ownerMapStyles";
 
 // ---------------------------------------------------------------------------
 // SCREEN
@@ -57,20 +59,17 @@ export default function OwnerDashboard() {
       }, () => {
         if (active) { setShops([]); setShopError("Unable to load Auto Shops. Return to Home to try again."); }
       });
-
-      loadCustomerMapProviders()
-        .then((nextProviders) => {
-          if (active) {
-            setProviders(nextProviders.filter((provider) => provider.category !== "Auto Shops"));
-          }
-        })
-        .catch((error) => {
-          console.error("Failed to load customer map providers", error);
-        });
+      const stopProviders = subscribeToCustomerMapProviders((nextProviders) => {
+        if (active) setProviders(nextProviders.filter((provider) => provider.category !== "Auto Shops"));
+      }, (error) => {
+        console.error("Failed to load available customer map providers", error);
+        if (active) setProviders([]);
+      });
 
       return () => {
         active = false;
         stopShops();
+        stopProviders();
       };
     }, [])
   );
@@ -166,6 +165,16 @@ export default function OwnerDashboard() {
   const sheetHeight = useRef(new Animated.Value(SHEET_MID)).current;
   const sheetHeightValueRef = useRef(SHEET_MID);
   const dragStartHeightRef = useRef(SHEET_MID);
+  const listingScrollRef = useRef<ScrollViewType>(null);
+
+  const scrollToNearbyProviders = () => {
+    Animated.spring(sheetHeight, {
+      toValue: SHEET_EXPANDED,
+      useNativeDriver: false,
+      bounciness: 3,
+    }).start();
+    listingScrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
 
   // Keep a plain-number mirror of the animated value for clamping math
   useMemo(() => {
@@ -218,7 +227,7 @@ export default function OwnerDashboard() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       {/* Fullscreen map — fills the entire screen behind everything, stays visible
           and interactive even while a provider's details are expanded below */}
@@ -293,19 +302,37 @@ export default function OwnerDashboard() {
           />
         ) : (
           <ScrollView
+            ref={listingScrollRef}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.bottomPanelContent}
           >
-            {/* Quick actions */}
-            <Pressable style={styles.towingButton}>
-              <View style={styles.towingIconWrap}>
-                <Ionicons name="car-outline" size={22} color={colors.white} />
-              </View>
-              <View style={styles.towingTextWrap}>
-                <Text style={styles.towingTitle}>Request Towing</Text>
-                <Text style={styles.towingSubtitle}>24/7 emergency roadside assistance</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.white} />
+            <Pressable
+              style={styles.welcomePressable}
+              onPress={scrollToNearbyProviders}
+              accessibilityRole="button"
+              accessibilityLabel="Scroll to nearby providers"
+            >
+              <ImageBackground
+                source={require("../../assets/images/towing-dashboard-bg.png")}
+                style={styles.welcomeCard}
+                imageStyle={styles.welcomeImage}
+                resizeMode="cover"
+              >
+                <View style={styles.welcomeScrim} />
+                <View style={styles.welcomeContent}>
+                  <View style={styles.welcomeTextWrap}>
+                    <Text style={styles.welcomeEyebrow}>WELCOME TO VERESC</Text>
+                    <Text style={styles.welcomeTitle}>We’re here when the road gets tough.</Text>
+                    <Text style={styles.welcomeSubtitle}>
+                      Find nearby mechanics, towing, shops, and parking in one place.
+                    </Text>
+                    <Text style={styles.welcomeAction}>EXPLORE NEARBY PROVIDERS  ↓</Text>
+                  </View>
+                  <View style={styles.welcomeIconWrap}>
+                    <Ionicons name="shield-checkmark" size={29} color="#FFFFFF" />
+                  </View>
+                </View>
+              </ImageBackground>
             </Pressable>
 
             {/* Provider categories */}
@@ -328,7 +355,7 @@ export default function OwnerDashboard() {
                   >
                     <Ionicons
                       name={cat.icon}
-                      size={16}
+                      size={19}
                       color={isActive ? colors.white : colors.primary}
                     />
                     <Text
@@ -349,6 +376,7 @@ export default function OwnerDashboard() {
 
             {(selectedCategory === "Auto Shops" || selectedCategory === "All") && shopError && <Text style={styles.listingMetaTextMuted}>{shopError}</Text>}
             {selectedCategory === "Auto Shops" && !shopError && shops.length === 0 && <Text style={styles.listingMetaTextMuted}>No approved shops are currently open for emergency requests.</Text>}
+            {selectedCategory !== "Auto Shops" && filteredProviders.length === 0 && <Text style={styles.listingMetaTextMuted}>No providers are available right now.</Text>}
 
             <View style={styles.listingList}>
               {filteredProviders.map((provider) => {
@@ -363,11 +391,6 @@ export default function OwnerDashboard() {
                       selectProvider(provider.id);
                     }}
                   >
-                    {/* Small rounded-square thumbnail on the left */}
-                    <View style={[styles.listingThumb, { backgroundColor: provider.color }]}>
-                      <Text style={styles.listingThumbText}>{provider.initials}</Text>
-                    </View>
-
                     <View style={styles.listingBody}>
                       <View style={styles.listingTopRow}>
                         <Text style={styles.listingName} numberOfLines={1}>
@@ -377,19 +400,22 @@ export default function OwnerDashboard() {
                       </View>
 
                       <View style={styles.listingServiceRow}>
-                        <Ionicons name={getCategoryIcon(provider.category)} size={12} color={colors.primary} />
+                        <Ionicons name={getCategoryIcon(provider.category)} size={15} color={colors.primary} />
                         <Text style={styles.listingServiceText} numberOfLines={1}>
                           {getServiceLabel(provider.category)}
                         </Text>
                       </View>
 
                       <View style={styles.listingMetaRow}>
-                        <Ionicons name="star" size={12} color={colors.rating} />
+                        <Ionicons name="star" size={14} color={colors.rating} />
                         <Text style={styles.listingMetaText}>{provider.rating.toFixed(1)}</Text>
                         <Text style={styles.listingMetaTextMuted}>({provider.reviewCount})</Text>
                         <Text style={styles.listingMetaDot}>{"\u2022"}</Text>
-                        <Ionicons name="navigate-outline" size={11} color={colors.textMuted} />
+                        <Ionicons name="navigate-outline" size={13} color={colors.textMuted} />
                         <Text style={styles.listingMetaText}>{distanceKm.toFixed(1)} km</Text>
+                        <View style={styles.listingMetaSpacer} />
+                        <Ionicons name="flash" size={14} color={colors.rating} />
+                        <Text style={styles.listingMetaTextMuted}>{provider.isPositiveStatus ? "Ready now" : "Unavailable"}</Text>
                       </View>
 
                       <View style={styles.listingBottomRow}>

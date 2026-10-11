@@ -8,6 +8,8 @@ import type { CreateBookingInput } from "./owner/bookingService";
 import { auth, db } from "./firebase";
 import { isBookableShopListing, type ProviderListing } from "../types/providerListing";
 import type { SavedVehicle } from "../types/owner/vehicle";
+import { addBookingStatusNotification } from "./customerNotificationService";
+import { writeShopNotification } from "./shopNotificationService";
 
 function requireUser() {
   const user = auth.currentUser;
@@ -79,6 +81,9 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
       status: "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
     transaction.set(lockReference, { customerId: user.uid, providerId: input.providerId, bookingId: reference.id });
+    writeShopNotification(transaction, { bookingId: reference.id, providerId: input.providerId, customerId: user.uid,
+      customerName: account.displayName?.trim() || user.displayName?.trim() || "Customer", vehicle: `${vehicle.make} ${vehicle.model}`,
+      problem, status: "pending", event: "new_request" });
   });
   return bookingId;
 }
@@ -178,8 +183,10 @@ export async function setShopAvailability(status: "open" | "closed"): Promise<vo
   });
 }
 
-export async function updateShopBookingStatus(id: string, status: ShopBookingStatus): Promise<void> {
+export async function updateShopBookingStatus(id: string, status: ShopBookingStatus, completionNote?: string): Promise<void> {
   const user = requireUser();
+  const note = completionNote?.trim() ?? "";
+  if (status === "completed" && note.length > 160) throw new Error("Completion notes must be 160 characters or fewer.");
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "bookings", id);
     const snapshot = await transaction.get(reference);
@@ -196,6 +203,11 @@ export async function updateShopBookingStatus(id: string, status: ShopBookingSta
       if (profile.data()?.status !== "open") throw new Error("Open your shop before accepting requests.");
       if (profile.data()?.verified !== true) throw new Error("Your shop must be approved before accepting requests.");
     }
-    transaction.update(reference, { status, updatedAt: serverTimestamp() });
+    transaction.update(reference, { status, updatedAt: serverTimestamp(), ...(status === "completed" && note ? { completionNote: note } : {}) });
+    addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId, bookingType: "shop-owner", providerId: user.uid, providerName: booking.providerName, status,
+      ...(status === "completed" ? { message: `${booking.providerName} completed your service. Please rate it.${note ? ` Note: ${note.slice(0, 100)}` : ""}` } : {}) });
+    writeShopNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId,
+      customerName: booking.customerName || "Customer", vehicle: booking.vehicle, problem: booking.problem,
+      status, event: "provider_status" });
   });
 }
