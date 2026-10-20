@@ -71,3 +71,8 @@ export function isBookableShopListing(listing: ProviderListing | null | undefine
     && listing.visibility === "active" && listing.availability === "available"
     && listing.emergencyServiceAvailable === true);
 }
+
+export function isBookableHomeGarageListing(listing: ProviderListing | null | undefined): listing is ProviderListing {
+  return Boolean(listing && listing.role === "homegarage" && listing.category === "Parking Lots"
+    && listing.visibility === "active" && listing.availability === "available");
+}

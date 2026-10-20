@@ -28,12 +28,13 @@ export default function MechanicPublicListingScreen() {
         contactPhone: existing?.contactPhone ?? profile.personal.phone,
         location: existing?.location,
         availability: existing?.availability ?? "offline",
-        services: existing?.services.length ? existing.services : profile.professional.specializations,
-        vehicleTypes: existing?.vehicleTypes.length ? existing.vehicleTypes : profile.professional.vehicleTypesServed,
+        services: existing?.services ?? [],
+        vehicleTypes: existing?.vehicleTypes ?? [],
         serviceAreaLabel: existing?.serviceAreaLabel || profile.professional.serviceArea,
         operatingHours: existing?.operatingHours || profile.serviceInfo.availableHours,
-        startingPrice: existing ? existing.startingPrice : profile.serviceInfo.serviceRate,
-        emergencyServiceAvailable: existing?.emergencyServiceAvailable ?? profile.serviceInfo.emergencyServiceAvailable,
+        hoursType: existing?.hoursType,
+        weeklyHours: existing?.weeklyHours,
+        startingPrice: existing ? existing.startingPrice : profile.serviceInfo.serviceRate > 0 ? profile.serviceInfo.serviceRate : null,
       });
     }).catch(() => setInitialListing(null));
   }, []);

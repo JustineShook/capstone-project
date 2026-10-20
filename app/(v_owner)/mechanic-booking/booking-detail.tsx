@@ -1,10 +1,11 @@
 // app/(owner)/mechanic-booking/booking-detail.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Linking,
   Pressable,
   ScrollView,
@@ -17,6 +18,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
+import { CancelRequestModal } from "../../../components/owner/CancelRequestModal";
+import { ServiceProgress } from "../../../components/owner/ServiceProgress";
 import { getServiceLabel } from "../../../data/owner/mockProviders";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 import { cancelMechanicBookingAsCustomer, subscribeToBooking } from "../../../services/owner/bookingService";
@@ -49,11 +52,20 @@ function formatRequestDateTime(iso: string): string {
 
 export default function BookingDetailScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
+  const returnToHistory = useCallback(() => router.replace("/(v_owner)/history"), []);
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      returnToHistory();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [returnToHistory]));
   const [booking, setBooking] = useState<BookingRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [legacyProviderPhone, setLegacyProviderPhone] = useState("");
   const [providerRating, setProviderRating] = useState({ average: 0, count: 0 });
   const [isCancelling, setIsCancelling] = useState(false);
+  const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
 
   // --- Rating state --------------------------------------------------------
   const [selectedStars, setSelectedStars] = useState(0);
@@ -100,29 +112,21 @@ export default function BookingDetailScreen() {
 
   const confirmCancelBooking = () => {
     if (!booking || !canCustomerCancel || isCancelling) return;
-    Alert.alert(
-      "Cancel this request?",
-      "You can cancel before the mechanic is on the way.",
-      [
-        { text: "Keep Request", style: "cancel" },
-        {
-          text: "Cancel Request",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              setIsCancelling(true);
-              try {
-                await cancelMechanicBookingAsCustomer(booking.id);
-              } catch (error) {
-                Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.");
-              } finally {
-                setIsCancelling(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
+    setShowCancelConfirmation(true);
+  };
+
+  const cancelBooking = async () => {
+    if (!booking || !canCustomerCancel || isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await cancelMechanicBookingAsCustomer(booking.id);
+      setShowCancelConfirmation(false);
+    } catch (error) {
+      setShowCancelConfirmation(false);
+      Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.");
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   // --- Call / Message the provider -----------------------------------------
@@ -181,7 +185,7 @@ export default function BookingDetailScreen() {
       <SafeAreaView style={styles.header} edges={["top"]}>
         <View style={styles.headerRow}>
           <Pressable
-            onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)/history")}
+            onPress={returnToHistory}
             hitSlop={10}
           >
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -245,63 +249,11 @@ export default function BookingDetailScreen() {
               </Pressable>
             )}
 
-            <View style={styles.statusCard}>
-            <Text style={styles.sectionLabel}>Request Progress</Text>
-            <View style={styles.statusBlock}>
-              {!isTerminalStatus && (
-                <Text style={styles.currentStatusText}>{getBookingStatusLabel(booking.status)}</Text>
-              )}
-              {isTerminalStatus ? (
-                <View style={styles.cancelledBadge}>
-                  <Ionicons name="close-circle" size={18} color="#FFFFFF" />
-                  <Text style={styles.cancelledBadgeText}>{getBookingStatusLabel(booking.status)}</Text>
-                </View>
-              ) : (
-                <View style={styles.progressRow}>
-                  {BOOKING_STATUS_FLOW.map((status, index) => {
-                    const isDone = index < currentStepIndex;
-                    const isCurrent = index === currentStepIndex;
-                    const isLast = index === BOOKING_STATUS_FLOW.length - 1;
-                    return (
-                      <View key={status} style={styles.progressStep}>
-                        <View style={styles.progressStepCol}>
-                          <View
-                            style={[
-                              styles.progressDot,
-                              (isDone || isCurrent) && styles.progressDotActive,
-                              isCurrent && styles.progressDotCurrent,
-                            ]}
-                          >
-                            {isDone && <Ionicons name="checkmark" size={10} color="#FFFFFF" />}
-                          </View>
-                          {!isLast && (
-                            <View style={[styles.progressLine, isDone && styles.progressLineActive]} />
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-              {!isTerminalStatus && (
-                <View style={styles.progressLabelsRow}>
-                  {BOOKING_STATUS_FLOW.map((status, index) => (
-                    <View key={status} style={styles.progressLabelCol}>
-                      <Text
-                        style={[
-                          styles.progressStepLabel,
-                          index === currentStepIndex && styles.progressStepLabelCurrent,
-                          index < currentStepIndex && styles.progressStepLabelDone,
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {getBookingStatusShortLabel(status)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
+            <ServiceProgress
+              steps={BOOKING_STATUS_FLOW.map((status) => ({ key: status, label: getBookingStatusShortLabel(status) }))}
+              currentStep={currentStepIndex}
+              terminalLabel={isTerminalStatus ? getBookingStatusLabel(booking.status) : undefined}
+            />
             {canCustomerCancel && (
               <Pressable
                 style={[styles.cancelRequestButton, isCancelling && styles.cancelRequestButtonDisabled]}
@@ -310,14 +262,9 @@ export default function BookingDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Cancel service request"
               >
-                {isCancelling ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.cancelRequestButtonText}>Cancel Request</Text>
-                )}
+                {isCancelling ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.cancelRequestButtonText}>Cancel Request</Text>}
               </Pressable>
             )}
-            </View>
           </View>
 
           {/* Scrollable section — rating card + Provider/Vehicle/Service/
@@ -522,6 +469,14 @@ export default function BookingDetailScreen() {
           </ScrollView>
         </>
       )}
+      <CancelRequestModal
+        visible={showCancelConfirmation}
+        serviceName="Mechanic"
+        explanation="You can cancel while the mechanic has not started traveling to you."
+        isCancelling={isCancelling}
+        onKeep={() => setShowCancelConfirmation(false)}
+        onConfirm={() => void cancelBooking()}
+      />
     </View>
   );
 }
@@ -584,15 +539,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  statusCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 17,
-    paddingHorizontal: 17,
-    paddingTop: 15,
-    paddingBottom: 17,
-  },
   cancelRequestButton: {
     minHeight: 46,
     alignItems: "center",
@@ -604,84 +550,6 @@ const styles = StyleSheet.create({
   },
   cancelRequestButtonDisabled: { opacity: 0.65 },
   cancelRequestButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
-  sectionLabel: { fontSize: 13, fontWeight: "800", color: colors.textSecondary, marginBottom: 11, textTransform: "uppercase", letterSpacing: 1.1 },
-
-  statusBlock: { marginBottom: 4 },
-  currentStatusText: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: "800",
-    color: colors.textPrimary,
-    marginBottom: 16,
-  },
-  progressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  progressStep: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  progressStepCol: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  progressDot: {
-    width: 19,
-    height: 19,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressDotActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  progressDotCurrent: {
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  progressLine: {
-    flex: 1,
-    height: 3,
-    backgroundColor: colors.border,
-  },
-  progressLineActive: { backgroundColor: colors.primary },
-  progressLabelsRow: {
-    flexDirection: "row",
-    marginTop: 9,
-  },
-  progressLabelCol: {
-    flex: 1,
-    alignItems: "center",
-  },
-  progressStepLabel: {
-    fontSize: 10.5,
-    lineHeight: 15,
-    color: colors.textMuted,
-    textAlign: "center",
-  },
-  progressStepLabelCurrent: { color: colors.primary, fontWeight: "700" },
-  progressStepLabelDone: { color: colors.textSecondary, fontWeight: "600" },
-
-  cancelledBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 13,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  cancelledBadgeText: { color: colors.textPrimary, fontSize: 15, fontWeight: "800" },
-
   // --- Rating ---
   ratingCard: {
     backgroundColor: colors.surface,

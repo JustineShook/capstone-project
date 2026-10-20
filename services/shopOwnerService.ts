@@ -10,6 +10,7 @@ import { isBookableShopListing, type ProviderListing } from "../types/providerLi
 import type { SavedVehicle } from "../types/owner/vehicle";
 import { addBookingStatusNotification } from "./customerNotificationService";
 import { writeShopNotification } from "./shopNotificationService";
+import { requireVerifiedOwner } from "./ownerVerificationProfileService";
 
 function requireUser() {
   const user = auth.currentUser;
@@ -34,6 +35,7 @@ function fromDocument(id: string, data: Record<string, unknown>): ShopBookingReq
 export async function createShopBooking(input: CreateBookingInput): Promise<string> {
   const user = requireUser();
   const active=await getActiveShopBooking(input.providerId,user.uid); if(active)return active.id;
+  await requireVerifiedOwner(user.uid);
   const problem = input.problem.trim();
   const notes = input.notes.trim();
   if (!problem || problem.length > 300) throw new Error("Describe the problem in 1–300 characters.");
@@ -170,6 +172,9 @@ export async function setShopAvailability(status: "open" | "closed"): Promise<vo
     const listing = (await transaction.get(listingRef)).data();
     const profile = snapshot.data() as ProviderProfile | undefined;
     if (!profile || profile.uid !== user.uid || profile.role !== "shop-owner") throw new Error("Shop profile not found.");
+    if (status === "open" && profile.verified !== true) {
+      throw new Error("Your Auto Shop must be verified by an administrator before it can be opened.");
+    }
     if (status === "open" && (!profile.businessName.trim() || !profile.phone.trim() || !profile.address.trim()
       || !Number.isFinite(profile.latitude) || Math.abs(profile.latitude) > 90
       || !Number.isFinite(profile.longitude) || Math.abs(profile.longitude) > 180

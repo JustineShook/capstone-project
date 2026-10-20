@@ -77,7 +77,7 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
         problem, notes, latitude: location.location.lat, longitude: location.location.lng, startingPrice: "Price on assessment" });
       submittedId.current = id;
       setModal(null);
-      router.replace({ pathname: "/(v_owner)/shop-booking/booking-confirmation", params: { bookingId: id } });
+      router.replace({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: id } });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to send your request. Please try again."); }
     finally { lock.current = false; setSaving(false); }
   }

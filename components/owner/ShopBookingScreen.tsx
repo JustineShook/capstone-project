@@ -6,12 +6,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const C = { background: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", border: "#28313A", red: "#F52239" };
 
-export function ShopBookingScreen({ title, children, scrollable = true }: { title: string; children: ReactNode; scrollable?: boolean }) {
+export function ShopBookingScreen({ title, children, scrollable = true, onBack }: { title: string; children: ReactNode; scrollable?: boolean; onBack?: () => void }) {
   const router = useRouter();
   return <SafeAreaView style={styles.root} edges={["top"]}>
     <StatusBar barStyle="light-content" backgroundColor={C.background} />
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" hitSlop={12} onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Back" hitSlop={12} onPress={onBack ?? (() => router.canGoBack() ? router.back() : router.replace("/(v_owner)"))}>
         <Ionicons name="chevron-back" size={24} color={C.text} />
       </Pressable><Text style={styles.headerTitle}>{title}</Text><View style={{ width: 24 }} />
     </View>

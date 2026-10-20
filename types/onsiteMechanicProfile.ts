@@ -14,16 +14,18 @@ export interface OnsiteMechanicProviderProfile {
   };
   professional: {
     yearsOfExperience: number;
-    specializations: string[];
-    vehicleTypesServed: string[];
+    specializations?: string[];
+    vehicleTypesServed?: string[];
     serviceArea: string;
-    maxTravelDistanceKm: number;
+    maxTravelDistanceKm?: number | null;
   };
   identification: {
     idType: string;
     idNumber: string;
     validIdUrl: string;
+    validIdBackUrl?: string | null;
     profilePhotoUrl: string;
+    facePhotoUrl?: string | null;
   };
   credentials: {
     tesdaCertificate: string;

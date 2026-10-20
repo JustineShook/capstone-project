@@ -3,7 +3,7 @@ import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Times
 import type { ProviderReview } from "../../data/owner/mockProviders";
 import { auth, db } from "../firebase";
 
-export type RatedBookingType = "towing" | "mechanic" | "shop" | "parking";
+export type RatedBookingType = "towing" | "mechanic" | "shop" | "parking" | "homegarage";
 export type RatedProviderRole = "towing-company" | "onsite-mechanic" | "shop-owner" | "homegarage";
 
 export interface BookingRating {
@@ -38,7 +38,7 @@ function toIso(value: unknown): string {
 function bookingTypeForRole(role: RatedProviderRole): RatedBookingType {
   if (role === "onsite-mechanic") return "mechanic";
   if (role === "shop-owner") return "shop";
-  if (role === "homegarage") return "parking";
+  if (role === "homegarage") return "homegarage";
   return "towing";
 }
 
@@ -61,7 +61,8 @@ export async function submitRating(
   if (booking.customerId !== user.uid) throw new Error("Only the booking customer can submit this review.");
   if (booking.status !== "completed") throw new Error("Only completed bookings can be reviewed.");
   if (booking.providerId === user.uid) throw new Error("Providers cannot review themselves.");
-  if (bookingTypeForRole(providerRole) !== bookingType) throw new Error("Booking type does not match this review.");
+  const expectedType = providerRole === "homegarage" ? (isParking ? "parking" : "homegarage") : bookingTypeForRole(providerRole);
+  if (expectedType !== bookingType) throw new Error("Booking type does not match this review.");
 
   await setDoc(reviewRef(bookingId), {
     bookingId,
@@ -84,8 +85,9 @@ export async function getRating(bookingId: string): Promise<BookingRating | unde
   if (!snapshot.exists()) return undefined;
   const data = snapshot.data();
   const providerRole = data.providerRole as RatedProviderRole;
+  const homeGarageRequest = providerRole === "homegarage" && (await getDoc(doc(db, "bookings", bookingId))).exists();
   return { bookingId: data.bookingId, customerId: data.customerId, providerId: data.providerId,
-    providerRole, bookingType: bookingTypeForRole(providerRole), rating: data.rating,
+    providerRole, bookingType: providerRole === "homegarage" && !homeGarageRequest ? "parking" : bookingTypeForRole(providerRole), rating: data.rating,
     ...(data.comment ? { comment: data.comment } : {}), ratedAt: toIso(data.createdAt) };
 }
 

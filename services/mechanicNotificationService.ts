@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   type Transaction,
@@ -93,27 +92,35 @@ export function subscribeToMechanicNotifications(
     onChange([]);
     return () => undefined;
   }
+  // Sort locally so notifications created before updatedAt was added remain
+  // visible and the listener does not depend on an ordered-field index.
   const notificationsQuery = query(
     collection(db, "users", user.uid, "mechanicNotifications"),
-    orderBy("updatedAt", "desc"),
   );
   return onSnapshot(
     notificationsQuery,
-    (snapshot) => onChange(snapshot.docs.map((item) => {
-      const data = item.data();
-      return {
-        id: item.id,
-        bookingId: data.bookingId as string,
-        customerName: data.customerName as string,
-        vehicle: data.vehicle as string,
-        status: data.status as string,
-        title: data.title as string,
-        message: data.message as string,
-        isRead: data.isRead === true,
-        updatedAt: toIso(data.updatedAt),
-      };
-    })),
-    (error) => onError?.(error),
+    (snapshot) => {
+      const notifications = snapshot.docs.map((item) => {
+        const data = item.data();
+        return {
+          id: item.id,
+          bookingId: typeof data.bookingId === "string" ? data.bookingId : item.id,
+          customerName: typeof data.customerName === "string" ? data.customerName : "Customer",
+          vehicle: typeof data.vehicle === "string" ? data.vehicle : "Vehicle",
+          status: typeof data.status === "string" ? data.status : "pending",
+          title: typeof data.title === "string" ? data.title : "Service request update",
+          message: typeof data.message === "string" ? data.message : "You have an update about a service request.",
+          isRead: data.isRead === true,
+          updatedAt: toIso(data.updatedAt ?? data.createdAt),
+        };
+      });
+      notifications.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+      onChange(notifications);
+    },
+    (error) => {
+      console.error("Mechanic notifications listener failed", { code: error.code, message: error.message });
+      onError?.(error);
+    },
   );
 }
 

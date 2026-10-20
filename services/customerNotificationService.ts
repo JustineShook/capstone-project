@@ -12,7 +12,7 @@ import {
 
 import { auth, db } from "./firebase";
 
-export type CustomerNotificationBookingType = "onsite-mechanic" | "towing-company" | "shop-owner";
+export type CustomerNotificationBookingType = "onsite-mechanic" | "towing-company" | "shop-owner" | "homegarage";
 
 export interface CustomerNotification {
   id: string;
@@ -47,6 +47,7 @@ const STATUS_MESSAGES: Record<string, string> = {
   vehicle_arrived: "marked your vehicle as arrived at the shop.",
   diagnosing: "started diagnosing your vehicle.",
   repairing: "started repairing your vehicle.",
+  assessed: "completed the assessment and recorded the service price.",
 };
 
 /** Creates or updates the single inbox item for a booking atomically with its status change. */
@@ -69,6 +70,20 @@ export function addBookingStatusNotification(
     readAt: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  });
+}
+
+export function addHomeGaragePriceNotification(
+  transaction: Transaction,
+  input: Omit<BookingStatusNotificationInput, "bookingType" | "status"> & { status: "assessed" | "completed" },
+): void {
+  const message = input.message ?? STATUS_MESSAGES[input.status] ?? "updated your service request.";
+  const id = `${input.bookingId}_assessment`;
+  transaction.set(doc(db, "users", input.customerId, "notifications", id), {
+    customerId: input.customerId, bookingId: input.bookingId, bookingType: "homegarage",
+    providerId: input.providerId, providerName: input.providerName, status: "accepted",
+    title: "Service price assessed", message, isRead: false, readAt: null,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
 }
 

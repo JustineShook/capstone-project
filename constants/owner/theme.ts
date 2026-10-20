@@ -15,7 +15,7 @@ export const colors = {
   textMuted: "#7E8B97",
   success: "#39D98A",
   successLight: "#15382C",
-  busy: "#B71C1C",
+  busy: "#FF7A86",
   busyLight: "#3A2025",
   rating: "#F5C451",
   white: "#151C23",

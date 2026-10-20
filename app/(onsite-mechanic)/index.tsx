@@ -74,10 +74,10 @@ export default function OnsiteMechanicDashboard() {
             serviceAreaLabel: profile.publicListing?.serviceAreaLabel || profile.professional.serviceArea,
             description: profile.publicListing?.description || "",
             contactPhone: profile.publicListing?.contactPhone || profile.personal.phone,
-            services: profile.publicListing?.services?.length ? profile.publicListing.services : profile.professional.specializations,
-            vehicleTypes: profile.publicListing?.vehicleTypes?.length ? profile.publicListing.vehicleTypes : profile.professional.vehicleTypesServed,
+            services: profile.publicListing?.services ?? [],
+            vehicleTypes: profile.publicListing?.vehicleTypes ?? [],
             operatingHours: profile.publicListing?.operatingHours || profile.serviceInfo.availableHours,
-            startingPrice: profile.publicListing?.startingPrice ?? profile.serviceInfo.serviceRate,
+            startingPrice: profile.publicListing?.startingPrice ?? (profile.serviceInfo.serviceRate > 0 ? profile.serviceInfo.serviceRate : null),
             emergencyServiceAvailable: profile.publicListing?.emergencyServiceAvailable ?? profile.serviceInfo.emergencyServiceAvailable,
           });
         } else {

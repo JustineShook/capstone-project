@@ -6,10 +6,11 @@ import { colors } from "../../constants/owner/theme";
 import { useCustomerShopBooking } from "../../hooks/useCustomerShopBooking";
 import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
 import { CustomerRating } from "./CustomerRating";
+import { ServiceProgress } from "./ServiceProgress";
 import { Button, formatTime, Info, LoadState, StatusBadge } from "../shop-owner/ShopUI";
 import { ShopBookingScreen, styles as s } from "./ShopBookingScreen";
 
-export function CustomerShopRequest({ confirmation = false }: { confirmation?: boolean }) {
+export function CustomerShopRequest({ confirmation = false, title, onBack }: { confirmation?: boolean; title?: string; onBack?: () => void }) {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string | string[] }>();
   const id = Array.isArray(bookingId) ? bookingId[0] : bookingId;
@@ -21,7 +22,7 @@ export function CustomerShopRequest({ confirmation = false }: { confirmation?: b
     try { setMapError(null); await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`); }
     catch { setMapError("Unable to open maps. Please use the shop coordinates shown above."); }
   };
-  return <ShopBookingScreen title={confirmation ? "Request Sent" : "Request Status"}>
+  return <ShopBookingScreen title={title ?? (confirmation ? "Request Sent" : "Request Status")} onBack={onBack}>
     <LoadState loading={loading} error={error} retry={retry} />
     {!loading && !error && !booking && <Text style={s.text}>This shop request was not found or does not belong to your account.</Text>}
     {!loading && !error && booking && <>
@@ -35,12 +36,7 @@ export function CustomerShopRequest({ confirmation = false }: { confirmation?: b
           : `Your service is now ${SHOP_STATUS_LABELS[booking.status]?.toLowerCase() ?? booking.status}.`}</Text>
         {booking.status === "completed" && booking.completionNote?.trim() ? <View style={d.completionNote}><Text style={d.completionLabel}>NOTE FROM THE SHOP</Text><Text style={d.completionText}>{booking.completionNote}</Text></View> : null}
       </View>
-      {!confirmation && step >= 0 && <View style={s.card}><Text style={d.sectionTitle}>Service progress</Text>
-        <View style={d.progressList}>{SHOP_STATUS_FLOW.map((status, index) => <View key={status} style={d.progressRow}>
-          <View style={d.progressMarker}>{index < step || booking.status === "completed" ? <Ionicons name="checkmark-circle" size={21} color={colors.primary} /> : <View style={[d.progressDot, index === step && d.progressDotActive]} />}{index < SHOP_STATUS_FLOW.length - 1 && <View style={[d.progressLine, index < step && d.progressLineActive]} />}</View>
-          <Text style={[d.progressText, index === step && d.progressTextActive]}>{SHOP_STATUS_LABELS[status]}</Text>
-        </View>)}</View>
-      </View>}
+      {!confirmation && step >= 0 && <ServiceProgress steps={SHOP_STATUS_FLOW.map((status) => ({ key: status, label: SHOP_STATUS_LABELS[status] }))} currentStep={step} />}
       <View style={s.card}><Text style={d.sectionTitle}>Vehicle and service</Text><View style={d.vehicleSummary}><Ionicons name="car-sport-outline" size={22} color={colors.primary} /><Text style={d.vehicleName}>{booking.vehicleYear} {booking.vehicle}</Text></View><Info label="Plate number" value={booking.vehiclePlate} />
         <Info label="Problem" value={booking.problem} />{booking.notes ? <Info label="Notes" value={booking.notes} /> : null}
         <Info label="Starting price (not a final bill)" value={booking.startingPrice} />
@@ -76,15 +72,6 @@ const d = StyleSheet.create({
   completionLabel: { color: colors.primary, fontSize: 11, fontWeight: "800", letterSpacing: .8 },
   completionText: { color: "#F4F6F8", fontSize: 14, lineHeight: 21 },
   sectionTitle: { color: "#F4F6F8", fontSize: 16, fontWeight: "700" },
-  progressList: { gap: 2 },
-  progressRow: { minHeight: 36, flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  progressMarker: { width: 22, alignItems: "center", position: "relative", minHeight: 36 },
-  progressDot: { width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: "#7E8B97", backgroundColor: "#151C23", marginTop: 3 },
-  progressDotActive: { borderColor: "#F52239", backgroundColor: "#F52239" },
-  progressLine: { position: "absolute", top: 20, bottom: -2, width: 2, backgroundColor: "#28313A" },
-  progressLineActive: { backgroundColor: "#F52239" },
-  progressText: { color: "#AAB5C0", fontSize: 14, lineHeight: 20 },
-  progressTextActive: { color: "#F52239", fontWeight: "700" },
   vehicleSummary: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#1C252E", borderRadius: 10, padding: 12 },
   vehicleName: { flex: 1, color: "#F4F6F8", fontSize: 15, fontWeight: "700" },
 });

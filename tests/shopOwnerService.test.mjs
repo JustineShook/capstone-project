@@ -302,8 +302,11 @@ test("shop publication requires approval and derives public identity/availabilit
     const service = load("../services/publicProviderListingService.ts", {
       "firebase/firestore": { doc: (_db, ...parts) => parts.join("/"),
         runTransaction: async (_db, action) => action({
-          get: async () => ({ data: () => ({ ...validProfile, verified, status: "closed" }) }),
+          get: async (reference) => reference === "providers/shop"
+            ? { data: () => ({ ...validProfile, verified, status: "closed" }) }
+            : { exists: () => false },
           set: (path, data) => { written = { path, data }; },
+          update: (path, data) => { written = { path, data }; },
         }) },
       "./firebase": { db: {} },
     });
@@ -316,8 +319,40 @@ test("shop publication requires approval and derives public identity/availabilit
       assert.equal(written.path, "providerListings/shop");
       assert.equal(written.data.category, "Auto Shops");
       assert.equal(written.data.availability, "offline");
-      assert.equal(written.data.businessName, validProfile.businessName);
+      assert.equal(written.data.businessName, input.businessName);
       assert.deepEqual(written.data.location, { latitude: 14.67, longitude: 121.04 });
     }
   }
+});
+
+test("shop listing updates omit an empty public contact number", async () => {
+  let updated;
+  const currentListing = { exists: () => true };
+  const service = load("../services/publicProviderListingService.ts", {
+    "firebase/firestore": {
+      doc: (_db, ...parts) => parts.join("/"),
+      runTransaction: async (_db, action) => action({
+        get: async (reference) => reference === "providers/shop"
+          ? { data: () => ({ ...validProfile, status: "open" }) }
+          : currentListing,
+        update: (_reference, data) => { updated = data; },
+      }),
+    },
+    "./firebase": { db: {} },
+  });
+  await service.updatePublicProviderListing("shop", "shop-owner", {
+    businessName: "Repair Shop",
+    location: { latitude: 14.67, longitude: 121.04 },
+    availability: "available",
+    serviceAreaLabel: "Quezon City",
+    description: "General auto repair",
+    contactPhone: "",
+    services: ["Oil change"],
+    vehicleTypes: ["Cars"],
+    operatingHours: "Open 24/7",
+    startingPrice: null,
+    emergencyServiceAvailable: true,
+  });
+  assert.ok(updated);
+  assert.equal(Object.hasOwn(updated, "contactPhone"), false);
 });

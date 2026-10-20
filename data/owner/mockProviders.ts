@@ -10,18 +10,18 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 // ---------------------------------------------------------------------------
 export type ProviderCategory = "All" | "Towing" | "Auto Shops" | "Onsite Mechanics" | "Parking Lots";
 
-export const CATEGORIES: { label: ProviderCategory; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { label: "All", icon: "grid-outline" },
-  { label: "Towing", icon: "car-outline" },
-  { label: "Auto Shops", icon: "storefront-outline" },
-  { label: "Onsite Mechanics", icon: "construct-outline" },
-  { label: "Parking Lots", icon: "car-outline" },
+export const CATEGORIES: { label: string; value: ProviderCategory; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { label: "All", value: "All", icon: "grid-outline" },
+  { label: "Towing", value: "Towing", icon: "car-outline" },
+  { label: "Auto Shops", value: "Auto Shops", icon: "storefront-outline" },
+  { label: "Indie Mechanic", value: "Onsite Mechanics", icon: "construct-outline" },
+  { label: "Home Garage", value: "Parking Lots", icon: "home-outline" },
 ];
 
 export function getCategoryIcon(
   category: Exclude<ProviderCategory, "All">
 ): keyof typeof Ionicons.glyphMap {
-  return CATEGORIES.find((c) => c.label === category)?.icon ?? "ellipse-outline";
+  return CATEGORIES.find((c) => c.value === category)?.icon ?? "ellipse-outline";
 }
 
 // Small label shown under the provider name on each card
@@ -32,9 +32,9 @@ export function getServiceLabel(category: Exclude<ProviderCategory, "All">) {
     case "Auto Shops":
       return "Auto Shop";
     case "Onsite Mechanics":
-      return "Onsite Mechanic";
+      return "Indie Mechanic";
     case "Parking Lots":
-      return "Parking Space";
+      return "Home Garage";
   }
 }
 
@@ -49,9 +49,9 @@ export function getCategoryBadge(category: Exclude<ProviderCategory, "All">): {
     case "Auto Shops":
       return { icon: "storefront-outline", text: "Visit Shop" };
     case "Onsite Mechanics":
-      return { icon: "location-outline", text: "Onsite Service" };
+      return { icon: "construct-outline", text: "Independent Mechanic" };
     case "Parking Lots":
-      return { icon: "car-outline", text: "Park Here" };
+      return { icon: "build-outline", text: "Repairs at Garage" };
   }
 }
 
@@ -63,7 +63,7 @@ export function getStatusLabel(category: Exclude<ProviderCategory, "All">, isPos
 
 // Label for the services section — towing providers phrase it differently
 export function getServicesSectionLabel(category: Exclude<ProviderCategory, "All">) {
-  return category === "Towing" ? "Towing Services" : category === "Parking Lots" ? "Parking Features" : "Services";
+  return category === "Towing" ? "Towing Services" : category === "Parking Lots" ? "Home Garage Repair Services" : "Services";
 }
 
 // Whether this category supports a service request.

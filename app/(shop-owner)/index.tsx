@@ -1,11 +1,12 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { ShopNotificationBell } from "../../components/shop-owner/ShopNotificationBell";
 import { setShopAvailability } from "../../services/shopOwnerService";
+import { getShopVerificationProfile, syncApprovedShopProviderProfile } from "../../services/shopVerificationService";
 import { isActiveShopService, SHOP_STATUS_LABELS, type ShopBookingRequest } from "../../types/shopBooking";
 
 const C = { canvas: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", red: "#F52239", line: "#28313A", green: "#39D98A", amber: "#F4A45D" };
@@ -17,12 +18,32 @@ export default function ShopOwnerDashboard() {
   const { account, profile, requests, profileLoading, requestsLoading, profileError, requestsError, retry } = useShopDashboard();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncAttempted, setSyncAttempted] = useState(false);
   const locked = useRef(false);
   const pending = requests.filter((item) => item.status === "pending");
   const active = useMemo(() => requests.find((item) => isActiveShopService(item.status)), [requests]);
   const completed = requests.filter((item) => item.status === "completed").length;
+  useEffect(() => {
+    if (profileLoading || !profile || profile.verified === true || syncAttempted) return;
+    let active = true;
+    setSyncAttempted(true);
+    void getShopVerificationProfile(profile.uid)
+      .then(async (verification) => {
+        if (verification?.verificationStatus === "VERIFIED") {
+          await syncApprovedShopProviderProfile(profile.uid, verification);
+        }
+      })
+      .catch((cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : "Could not sync your approved shop profile.");
+      });
+    return () => { active = false; };
+  }, [profile, profileLoading, syncAttempted]);
   const toggle = async (open: boolean) => {
     if (locked.current) return;
+    if (open && profile && profile.verified !== true) {
+      setError("Your shop needs administrator approval before you can open it.");
+      return;
+    }
     locked.current = true; setSaving(true); setError(null);
     try { await setShopAvailability(open ? "open" : "closed"); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save availability."); }
@@ -52,6 +73,11 @@ export default function ShopOwnerDashboard() {
         <View style={s.heroDivider} />
         <View style={s.stats}><View style={s.stat}><Text style={s.statValue}>{pending.length}</Text><Text style={s.statLabel}>New requests</Text></View><View style={s.statDivider} /><View style={s.stat}><Text style={s.statValue}>{completed}</Text><Text style={s.statLabel}>Completed jobs</Text></View></View>
       </ImageBackground>
+      {profile.verified !== true && <TouchableOpacity style={s.verificationCard} onPress={() => router.push("/(shop-owner)/verification")} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Open Auto Shop verification">
+        <View style={s.verificationIcon}><Feather name="shield" size={21} color={C.amber} /></View>
+        <View style={s.verificationCopy}><Text style={s.verificationTitle}>Shop verification required</Text><Text style={s.verificationHint}>Submit your business details for review to open your shop and accept requests.</Text><Text style={s.verificationLink}>Go to verification <Feather name="arrow-right" size={13} color={C.red} /></Text></View>
+        <Feather name="chevron-right" size={20} color={C.muted} />
+      </TouchableOpacity>}
       {error && <Text style={s.error}>{error}</Text>}
 
       <Text style={s.overline}>QUICK ACTIONS</Text>
@@ -80,6 +106,7 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.canvas }, content: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 24 }, state: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, padding: 30 }, stateText: { color: C.muted, fontSize: 17, lineHeight: 24, textAlign: "center" }, retry: { backgroundColor: C.red, borderRadius: 10, paddingHorizontal: 22, paddingVertical: 15 },
   header: { height: 62, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 5 }, brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 38, lineHeight: 44, fontWeight: "900", fontStyle: "italic", marginRight: 7 }, brand: { color: C.text, fontSize: 23, fontWeight: "800", letterSpacing: -0.4 }, bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", position: "relative" },
   hero: { minHeight: 178, borderRadius: 20, paddingHorizontal: 21, paddingTop: 20, paddingBottom: 17, borderWidth: 1, overflow: "hidden" }, heroImage: { borderRadius: 20, opacity: 0.55 }, heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,14,18,0.58)" }, heroOpen: { backgroundColor: "#13251F", borderColor: "#26533D" }, heroClosed: { backgroundColor: "#211B19", borderColor: "#54372C" }, heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, heroCopy: { flex: 1, paddingRight: 6 }, locationRow: { flexDirection: "row", alignItems: "center", gap: 5 }, locationLabel: { color: "#D7E1E8", fontSize: 14, lineHeight: 22, fontWeight: "600", flexShrink: 1 }, heroTitle: { color: "#FFFFFF", fontSize: 27, lineHeight: 35, fontWeight: "800", marginTop: 5 }, heroHint: { color: "#C5D0D7", fontSize: 14, lineHeight: 20, marginTop: 2 }, availabilityToggle: { minHeight: 48, backgroundColor: "#F7F9FA", borderRadius: 25, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 5 }, statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.amber, marginRight: 7 }, statusDotOpen: { backgroundColor: C.green }, availableLabel: { color: "#252525", fontSize: 14, fontWeight: "700" }, switch: { transform: [{ scaleX: 1.04 }, { scaleY: 1.04 }], width: 52, marginLeft: 1, marginRight: -1 }, heroDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.14)", marginTop: 14, marginBottom: 10 }, stats: { minHeight: 50, flexDirection: "row", alignItems: "center" }, stat: { flex: 1 }, statDivider: { width: 1, height: 38, backgroundColor: "rgba(255,255,255,0.18)", marginHorizontal: 17 }, statValue: { color: "#FFFFFF", fontSize: 32, lineHeight: 38, fontWeight: "800" }, statLabel: { color: "#C5D0D7", fontSize: 13, lineHeight: 19, fontWeight: "600" }, error: { color: "#FF9AA8", fontSize: 15, lineHeight: 21, marginTop: 10 },
+  verificationCard: { minHeight: 106, flexDirection: "row", alignItems: "center", gap: 13, padding: 15, marginTop: 12, borderRadius: 16, backgroundColor: "#241C17", borderWidth: 1, borderColor: "#59412C" }, verificationIcon: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#38291C" }, verificationCopy: { flex: 1, gap: 4 }, verificationTitle: { color: C.text, fontSize: 16, fontWeight: "800" }, verificationHint: { color: C.muted, fontSize: 13, lineHeight: 18 }, verificationLink: { color: "#FF6678", fontSize: 13, fontWeight: "800", marginTop: 3 },
   overline: { color: "#9AA8B3", fontSize: 12, fontWeight: "800", letterSpacing: 1.4, marginTop: 21, marginBottom: 13 }, quickActions: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 1 }, quickAction: { width: "24%", minHeight: 90, alignItems: "center" }, actionIcon: { width: 62, height: 62, borderRadius: 21, backgroundColor: "#18222B", borderWidth: 1, borderColor: "#283744", alignItems: "center", justifyContent: "center", position: "relative" }, actionBadge: { position: "absolute", right: -2, top: -2, minWidth: 22, height: 22, borderRadius: 11, backgroundColor: C.red, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, actionBadgeText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" }, actionLabel: { color: "#DCE3E8", fontSize: 12, lineHeight: 17, fontWeight: "600", textAlign: "center", marginTop: 7 },
   sectionHeader: { minHeight: 42, flexDirection: "row", alignItems: "center", marginTop: 23, marginBottom: 12, paddingHorizontal: 3 }, sectionTitle: { color: C.text, fontSize: 23, lineHeight: 31, fontWeight: "800" }, viewAll: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto", paddingHorizontal: 5 }, viewAllText: { color: "#FF6678", fontSize: 16, fontWeight: "700" },
   jobCard: { backgroundColor: C.card, borderRadius: 17, padding: 20, minHeight: 300 }, jobTop: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, status: { borderRadius: 14, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: "#263541" }, statusText: { color: C.text, fontSize: 14, lineHeight: 19, fontWeight: "700" }, customer: { color: C.text, fontSize: 23, lineHeight: 30, fontWeight: "800", marginTop: 8 }, vehicle: { color: "#D0D8DE", fontSize: 18, lineHeight: 25, marginTop: 4, marginBottom: 11 }, routeRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 10 }, routeDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.red, marginLeft: 2 }, destinationDot: { backgroundColor: "#8F9296" }, routeText: { color: "#FFFFFF", flex: 1, fontSize: 17, lineHeight: 23 }, routeLabel: { color: "#C0C8CE", fontSize: 14 }, concern: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: C.line, marginTop: 8, paddingTop: 11 }, concernText: { color: "#FFFFFF", fontSize: 16, lineHeight: 22, flex: 1 }, primary: { minHeight: 54, backgroundColor: C.red, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 13 }, primaryText: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },

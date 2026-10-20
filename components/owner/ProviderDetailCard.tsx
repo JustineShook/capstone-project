@@ -2,7 +2,7 @@
 
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { router } from "expo-router";
 import { colors } from "../../constants/owner/theme";
@@ -15,15 +15,43 @@ import {
   MockProvider,
   supportsBooking,
 } from "../../data/owner/mockProviders";
-import { getTowingPricing } from "../../services/towingPricingService";
+import { auth } from "../../services/firebase";
 import { getActiveMechanicBooking, subscribeToActiveMechanicBooking } from "../../services/owner/bookingService";
 import { getActiveTowingBooking, subscribeToActiveTowingBooking } from "../../services/owner/towingService";
-import { getActiveParkingBookingForCustomer, subscribeToParkingListing } from "../../services/parkingBookingService";
+import { requireVerifiedOwner } from "../../services/ownerVerificationProfileService";
+import { getActiveHomeGarageBooking, subscribeToActiveHomeGarageBooking } from "../../services/homeGarageBookingService";
+import { getActiveShopBooking } from "../../services/shopOwnerService";
+import { getTowingPricing } from "../../services/towingPricingService";
 import { StatusPill } from "./StatusPill";
 
 function renderStars(rating: number) {
   const rounded = Math.round(rating);
   return "★★★★★".slice(0, rounded) + "☆☆☆☆☆".slice(0, 5 - rounded);
+}
+
+async function canBookAsOwner(onVerificationRequired: () => void): Promise<boolean> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    Alert.alert("Sign in required", "Please sign in before booking a service.");
+    return false;
+  }
+  try {
+    await requireVerifiedOwner(uid);
+    return true;
+  } catch (error) {
+    const verificationRequired = error instanceof Error
+      && error.message === "Complete owner verification and wait for approval before booking a service.";
+    if (verificationRequired) {
+      onVerificationRequired();
+      return false;
+    }
+    Alert.alert(
+      "Unable to check verification",
+      error instanceof Error ? error.message : "Please try again.",
+      [{ text: "OK" }]
+    );
+    return false;
+  }
 }
 
 export function ProviderDetailCard({
@@ -38,17 +66,22 @@ export function ProviderDetailCard({
   const badge = getCategoryBadge(provider.category);
   const [hasActiveMechanicBooking, setHasActiveMechanicBooking] = useState(false);
   const [hasActiveTowingBooking, setHasActiveTowingBooking] = useState(false);
-  const hasActiveRequest = hasActiveMechanicBooking || hasActiveTowingBooking;
+  const [hasActiveHomeGarageBooking, setHasActiveHomeGarageBooking] = useState(false);
+  const hasActiveRequest = hasActiveMechanicBooking || hasActiveTowingBooking || hasActiveHomeGarageBooking;
   const showBookButton = supportsBooking(provider.category)
     && (provider.category === "Onsite Mechanics"
       ? (provider.isPositiveStatus || hasActiveMechanicBooking)
       : provider.category === "Towing"
         ? (provider.isPositiveStatus || hasActiveTowingBooking)
+        : provider.category === "Parking Lots"
+          ? (provider.isPositiveStatus || hasActiveHomeGarageBooking)
         : provider.isPositiveStatus)
     && (provider.category !== "Auto Shops" || provider.emergencyServiceAvailable === true);
   const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
   const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
-  const [parkingCapacity, setParkingCapacity] = useState<{ totalSlots: number; availableSlots: number } | null>(null);
+  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+
+  const checkBookingAccess = () => canBookAsOwner(() => setShowVerificationPrompt(true));
 
   useEffect(() => {
     if (provider.category !== "Onsite Mechanics") {
@@ -56,6 +89,14 @@ export function ProviderDetailCard({
       return;
     }
     return subscribeToActiveMechanicBooking(provider.id, (booking) => setHasActiveMechanicBooking(booking !== null));
+  }, [provider.category, provider.id]);
+
+  useEffect(() => {
+    if (provider.category !== "Parking Lots") {
+      setHasActiveHomeGarageBooking(false);
+      return;
+    }
+    return subscribeToActiveHomeGarageBooking(provider.id, (booking) => setHasActiveHomeGarageBooking(booking !== null));
   }, [provider.category, provider.id]);
 
   useEffect(() => {
@@ -71,16 +112,18 @@ export function ProviderDetailCard({
       Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
       return;
     }
-    if (!provider.phone) {
+    const phoneNumber = provider.phone.trim().replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+    if (phoneNumber.replace(/\D/g, "").length < 7) {
       Alert.alert("Contact unavailable", "This provider has not published a contact number.");
       return;
     }
-    const url = `${kind === "call" ? "tel" : "sms"}:${provider.phone.replace(/[^+\d]/g, "")}`;
+    const url = `${kind === "call" ? "tel" : "sms"}:${phoneNumber}`;
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) throw new Error("No compatible app is available.");
       await Linking.openURL(url);
-    } catch { Alert.alert("Contact unavailable", `Unable to open your ${kind === "call" ? "phone" : "messages"} app.`); }
+    } catch (error) {
+      console.warn(`Unable to open ${kind === "call" ? "dialer" : "messages"} for provider`, error);
+      Alert.alert("Contact unavailable", `Unable to open the ${kind === "call" ? "phone dialer" : "messages app"}. You can call ${provider.phone} directly.`);
+    }
   };
   const openDirections = async () => {
     if (!Number.isFinite(provider.lat) || !Number.isFinite(provider.lng)) {
@@ -102,6 +145,7 @@ export function ProviderDetailCard({
         Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
         return;
       }
+      if (!(await checkBookingAccess())) return;
       router.push({ pathname: "/(v_owner)/mechanic-booking/book-mechanic", params: { providerId: provider.id } });
       return;
     }
@@ -115,18 +159,39 @@ export function ProviderDetailCard({
         Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
         return;
       }
+      if (!(await checkBookingAccess())) return;
       router.push({ pathname: "/(v_owner)/towing-booking/book-towing", params: { providerId: provider.id } });
+      return;
+    }
+    if (provider.category === "Auto Shops") {
+      const existing = await getActiveShopBooking(provider.id);
+      if (existing) {
+        router.push({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: existing.id } });
+        return;
+      }
+      if (!provider.isPositiveStatus) {
+        Alert.alert("Shop unavailable", "This shop is closed or unavailable right now.");
+        return;
+      }
+      if (!(await checkBookingAccess())) return;
+      router.push({ pathname: "/(v_owner)/shop-booking/book-shop", params: { providerId: provider.id } });
+      return;
+    }
+    if (provider.category === "Parking Lots") {
+      const existing = await getActiveHomeGarageBooking(provider.id);
+      if (!existing && !provider.isPositiveStatus) {
+        Alert.alert("Home Garage unavailable", "This Home Garage is offline or unavailable right now.");
+        return;
+      }
+      if (!existing && !(await checkBookingAccess())) return;
+      router.push({ pathname: existing ? "/(v_owner)/homegarage-booking/booking-detail" : "/(v_owner)/homegarage-booking/book-homegarage", params: existing ? { bookingId: existing.id } : { providerId: provider.id } });
       return;
     }
     if (!provider.isPositiveStatus) {
       Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
       return;
     }
-    if (provider.category === "Parking Lots") {
-      const existing = await getActiveParkingBookingForCustomer(provider.id);
-      router.push({ pathname: existing ? "/(v_owner)/parking-booking/parking-detail" : "/(v_owner)/parking-booking/book-parking", params: existing ? { bookingId: existing.id } : { providerId: provider.id } });
-      return;
-    }
+    if (!(await checkBookingAccess())) return;
     router.push({ pathname: provider.category === "Auto Shops" ? "/(v_owner)/shop-booking/book-shop" : provider.category === "Towing" ? "../towing-booking/book-towing" : "../mechanic-booking/book-mechanic", params: { providerId: provider.id } });
   };
 
@@ -155,18 +220,10 @@ export function ProviderDetailCard({
     return () => { active = false; };
   }, [provider.category, provider.id]);
 
-  useEffect(() => {
-    if (provider.category !== "Parking Lots") { setParkingCapacity(null); return; }
-    return subscribeToParkingListing(provider.id, setParkingCapacity);
-  }, [provider.category, provider.id]);
-
   return (
       <View style={styles.card}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Header: avatar, name, rating/distance, close button */}
+      {/* Keep provider identity visible while the details below scroll. */}
+      <View style={styles.fixedHeader}>
         <View style={styles.headerRow}>
           <View style={[styles.avatar, { backgroundColor: provider.color }]}>
             <Text style={styles.avatarText}>{provider.initials}</Text>
@@ -188,11 +245,16 @@ export function ProviderDetailCard({
             <StatusPill category={provider.category} isPositive={provider.isPositiveStatus} />
           </View>
 
-          <Pressable style={styles.closeButton} onPress={onClose}>
+          <Pressable style={styles.closeButton} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close provider details">
             <Ionicons name="close" size={20} color={colors.textMuted} />
           </Pressable>
         </View>
+      </View>
 
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* Category / service delivery type */}
         <View style={styles.tagsRow}>
           <View style={styles.tag}>
@@ -210,7 +272,7 @@ export function ProviderDetailCard({
         <Text style={styles.description}>{provider.description}</Text>
 
         {(provider.category === "Auto Shops" || provider.category === "Parking Lots") && provider.photoUrls && provider.photoUrls.length > 0 && <>
-          <Text style={styles.sectionLabel}>{provider.category === "Parking Lots" ? "Parking Lot Photos" : "Shop Photos"}</Text>
+          <Text style={styles.sectionLabel}>{provider.category === "Parking Lots" ? "Home Garage Photos" : "Shop Photos"}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
             {provider.photoUrls.map((url) => <Image key={url} source={{ uri: url }} style={styles.shopPhoto} />)}
           </ScrollView>
@@ -230,7 +292,7 @@ export function ProviderDetailCard({
         {/* Vehicle Types */}
         {provider.vehicleTypes.length > 0 && (
           <>
-            <Text style={styles.sectionLabel}>Vehicle Types</Text>
+            <Text style={styles.sectionLabel}>Vehicles Served</Text>
             <View style={styles.vehicleTypesRow}>
               {provider.vehicleTypes.map((type) => (
                 <View key={type} style={styles.vehicleTypePill}>
@@ -248,17 +310,17 @@ export function ProviderDetailCard({
 
         {/* Hours */}
         <Text style={styles.sectionLabel}>Hours</Text>
-        {provider.category !== "Parking Lots" && <View style={styles.hoursRow}>
+        <View style={styles.hoursRow}>
           <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
           <Text style={styles.hoursText}>{provider.hours}</Text>
-        </View>}
+        </View>
 
         <View style={styles.hoursRow}>
           <Ionicons name="flash-outline" size={14} color={colors.textSecondary} />
           <Text style={styles.hoursText}>
-            {provider.emergencyServiceAvailable
-              ? "Emergency service available"
-              : "Emergency service not available"}
+            {provider.category === "Parking Lots"
+              ? provider.emergencyServiceAvailable ? "Emergency repair service available at this garage" : "Emergency repair service not available"
+              : provider.emergencyServiceAvailable ? "Emergency service available" : "Emergency service not available"}
           </Text>
         </View>
 
@@ -267,7 +329,10 @@ export function ProviderDetailCard({
           <Text style={styles.priceLabel}>
             {provider.category === "Towing" ? "Base Price" : "Starting price"}
           </Text>
-          <Text style={styles.priceValue}>
+          <Text style={[
+            styles.priceValue,
+            provider.startingPrice === "Contact for price" && styles.priceValueContact,
+          ]}>
             {provider.category === "Towing"
               ? isLoadingTowingPrice
                 ? "Loading..."
@@ -278,17 +343,6 @@ export function ProviderDetailCard({
           </Text>
         </View>
 
-        {provider.category === "Parking Lots" && (
-          <View style={styles.parkingCapacity}>
-            <Ionicons name="car-outline" size={18} color={colors.primary} />
-            <Text style={styles.parkingCapacityText}>
-              {parkingCapacity
-                ? `${parkingCapacity.availableSlots} / ${parkingCapacity.totalSlots} slots available`
-                : "Parking capacity not configured"}
-            </Text>
-          </View>
-        )}
-
         {/* Reviews */}
         <Text style={styles.sectionLabel}>Reviews</Text>
         <View style={styles.reviewsSummaryRow}>
@@ -297,7 +351,7 @@ export function ProviderDetailCard({
           <Text style={styles.reviewsSummaryCount}>{provider.reviewCount} reviews</Text>
         </View>
         <View style={styles.reviewsList}>
-          {provider.reviews.map((review) => (
+          {provider.reviews.slice(0, 2).map((review) => (
             <View key={review.id} style={styles.reviewCard}>
               <Text style={styles.reviewStars}>{renderStars(review.rating)}</Text>
               <Text style={styles.reviewComment}>&ldquo;{review.comment}&rdquo;</Text>
@@ -309,8 +363,24 @@ export function ProviderDetailCard({
             </View>
           ))}
         </View>
+        {provider.reviews.length > 2 && (
+          <Pressable
+            style={styles.seeMoreReviews}
+            accessibilityRole="button"
+            onPress={() => router.push({
+              pathname: "/(v_owner)/provider-reviews",
+              params: { providerId: provider.id, providerName: provider.name, rating: String(provider.rating), reviewCount: String(provider.reviewCount) },
+            })}
+          >
+            <Text style={styles.seeMoreReviewsText}>See more reviews</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+          </Pressable>
+        )}
 
-        {/* Actions */}
+      </ScrollView>
+
+      {/* Keep directions and contact/booking actions reachable while details scroll. */}
+      <View style={styles.fixedActions}>
         {(provider.category === "Auto Shops" || provider.category === "Parking Lots") && (
           <Pressable style={styles.directionsButton} onPress={() => void openDirections()} accessibilityRole="button" accessibilityLabel={`Get directions to ${provider.name}`}>
             <Ionicons name="navigate-outline" size={18} color={colors.primary} />
@@ -328,27 +398,91 @@ export function ProviderDetailCard({
             </Pressable>
             {showBookButton && (
               <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
-              <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Reserve Parking" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
+                <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Book Service" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
               </Pressable>
             )}
           </View>
         ) : (
-          <Text style={styles.unavailable}>
-            {!provider.isPositiveStatus
-              ? hasActiveRequest
-                ? "This provider is offline. Your existing request is still active."
-                : "Contact and booking are unavailable while this provider is offline."
-              : hasActiveRequest
-                ? "Contact details are unavailable, but you can still view your request status."
-                : "Contact details are not available yet. You can still book a service request."}
-          </Text>
+          <>
+            <Text style={styles.unavailable}>
+              {!provider.isPositiveStatus
+                ? hasActiveRequest
+                  ? "This provider is offline. Your existing request is still active."
+                  : "Contact and booking are unavailable while this provider is offline."
+                : hasActiveRequest
+                  ? "Contact details are unavailable, but you can still view your request status."
+                  : "Contact details are not available yet. You can still book a service request."}
+            </Text>
+            {showBookButton && (
+              <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
+                <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Book Service" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
+              </Pressable>
+            )}
+          </>
         )}
-        {showBookButton && (!provider.isPositiveStatus || !provider.phone) && (
-          <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
-            <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : "Book Service"}</Text>
-          </Pressable>
-        )}
-      </ScrollView>
+      </View>
+      <Modal
+        visible={showVerificationPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowVerificationPrompt(false)}
+      >
+        <View style={styles.verificationBackdrop}>
+          <View style={styles.verificationModal}>
+            <View style={styles.verificationHero}>
+              <View style={styles.verificationIconWrap}>
+                <Ionicons name="shield-checkmark" size={32} color={colors.primary} />
+              </View>
+              <View style={styles.verificationBadge}>
+                <Ionicons name="lock-closed" size={11} color={colors.primary} />
+                <Text style={styles.verificationBadgeText}>ACCOUNT SECURITY</Text>
+              </View>
+            </View>
+            <Text style={styles.verificationTitle}>Owner verification required</Text>
+            <Text style={styles.verificationDescription}>
+              {provider.category === "Auto Shops"
+                ? "Complete vehicle owner verification before opening this shop or sending a service request."
+                : "Verify your identity to book services and help keep every request trusted and secure."}
+            </Text>
+            <Pressable
+              style={styles.verificationSteps}
+              onPress={() => {
+                setShowVerificationPrompt(false);
+                router.push("/(v_owner)/verification");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Open vehicle owner verification"
+            >
+              <View style={styles.verificationStepIcon}>
+                <Ionicons name="id-card-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={styles.verificationStepCopy}>
+                <Text style={styles.verificationStepTitle}>Complete your owner profile</Text>
+                <Text style={styles.verificationStepText}>Submit your details and ID for review.</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={16} color={colors.textMuted} />
+            </Pressable>
+            <Pressable
+              style={styles.verificationPrimaryButton}
+              onPress={() => {
+                setShowVerificationPrompt(false);
+                router.push("/(v_owner)/verification");
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.verificationPrimaryText}>Go to verification</Text>
+              <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+            </Pressable>
+            <Pressable
+              style={styles.verificationDismissButton}
+              onPress={() => setShowVerificationPrompt(false)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.verificationDismissText}>Maybe later</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -358,10 +492,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  fixedHeader: {
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
   scrollContent: {
     paddingHorizontal: 18,
     paddingTop: 8,
-    paddingBottom: 28,
+    paddingBottom: 12,
   },
 
   headerRow: {
@@ -475,8 +616,7 @@ const styles = StyleSheet.create({
   },
   priceLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
   priceValue: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary, marginTop: 3 },
-  parkingCapacity: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 16, marginTop: -7, marginBottom: 20 },
-  parkingCapacityText: { fontSize: 15, lineHeight: 21, fontWeight: "700", color: colors.textPrimary },
+  priceValueContact: { fontSize: 13, lineHeight: 18, fontWeight: "600", color: colors.textSecondary },
 
   reviewsSummaryRow: {
     flexDirection: "row",
@@ -488,6 +628,8 @@ const styles = StyleSheet.create({
   reviewsSummaryCount: { fontSize: 14, color: colors.textSecondary },
 
   reviewsList: { gap: 12, marginBottom: 22 },
+  seeMoreReviews: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 12, marginTop: -14, marginBottom: 14 },
+  seeMoreReviewsText: { color: colors.primary, fontSize: 14, fontWeight: "800" },
   reviewCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -506,9 +648,97 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginTop: 8,
+    marginTop: 0,
+  },
+  fixedActions: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 16,
+    backgroundColor: colors.background,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   unavailable: { color: colors.textSecondary, textAlign: "center", fontSize: 14, lineHeight: 21, paddingVertical: 17, paddingHorizontal: 15, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 15 },
+  verificationBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 22,
+    backgroundColor: "rgba(4,8,12,0.78)",
+  },
+  verificationModal: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 26,
+    padding: 24,
+    overflow: "hidden",
+  },
+  verificationHero: {
+    minHeight: 118,
+    marginBottom: 20,
+    borderRadius: 19,
+    backgroundColor: "#25191E",
+    borderWidth: 1,
+    borderColor: "#48232B",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 18,
+  },
+  verificationIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#3B2027",
+    borderWidth: 1,
+    borderColor: "#63313C",
+  },
+  verificationBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: "#351D24",
+    borderWidth: 1,
+    borderColor: "#63313C",
+  },
+  verificationBadgeText: { color: "#F7A4AE", fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
+  verificationTitle: { color: colors.textPrimary, fontSize: 24, lineHeight: 30, fontWeight: "800" },
+  verificationDescription: { color: colors.textSecondary, fontSize: 15, lineHeight: 22, marginTop: 9, marginBottom: 20 },
+  verificationSteps: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 13,
+    marginBottom: 20,
+  },
+  verificationStepIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#352127" },
+  verificationStepCopy: { flex: 1, gap: 3 },
+  verificationStepTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: "700" },
+  verificationStepText: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
+  verificationPrimaryButton: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+    backgroundColor: colors.primary,
+    borderRadius: 15,
+  },
+  verificationPrimaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+  verificationDismissButton: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 5 },
+  verificationDismissText: { color: colors.textSecondary, fontSize: 14, fontWeight: "600" },
   directionsButton: {
     minHeight: 54,
     borderRadius: 14,
@@ -546,12 +776,14 @@ const styles = StyleSheet.create({
   },
   messageButtonText: { fontSize: 15, fontWeight: "800", color: colors.primary },
   bookButton: {
-    flex: 1.4,
+    flex: 1.7,
+    minWidth: 0,
     alignItems: "center",
     justifyContent: "center",
     height: 54,
+    paddingHorizontal: 8,
     borderRadius: 14,
     backgroundColor: colors.primary,
   },
-  bookButtonText: { fontSize: 15, fontWeight: "800", color: "#FFFFFF" },
+  bookButtonText: { fontSize: 14, fontWeight: "800", color: "#FFFFFF", textAlign: "center", lineHeight: 18, flexShrink: 1 },
 });

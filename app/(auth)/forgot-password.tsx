@@ -19,7 +19,7 @@ export default function ForgotPasswordScreen() {
     try {
       await resetPassword(address);
       Alert.alert("Check your email", "If an account uses this address, Firebase will send a password reset link.", [
-        { text: "Back to sign in", onPress: () => router.back() },
+        { text: "Back to sign in", onPress: () => router.canGoBack() ? router.back() : router.replace("/(auth)/login") },
       ]);
     } catch (error) {
       Alert.alert("Could not send reset link", (error as Error).message);
@@ -31,7 +31,7 @@ export default function ForgotPasswordScreen() {
   return (
     <SafeAreaView style={s.safe}>
       <KeyboardAvoidingView style={s.content} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityRole="button" style={s.back}>
+        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace("/(auth)/login")} accessibilityRole="button" style={s.back}>
           <Text style={s.backText}>‹  Back</Text>
         </TouchableOpacity>
         <View style={s.form}>

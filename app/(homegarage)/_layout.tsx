@@ -12,7 +12,10 @@ export default function HomeGarageLayout() {
   if (userProfile.role !== "homegarage") return <Redirect href="/" />;
   return <Tabs screenOptions={{ headerShown: false, tabBarActiveTintColor: C.active, tabBarInactiveTintColor: C.inactive, tabBarStyle: { backgroundColor: C.bg, borderTopWidth: 0, height: 64, paddingTop: 8, paddingBottom: 9 }, tabBarLabelStyle: { fontSize: 12, fontWeight: "600" } }}>
     <Tabs.Screen name="index" options={{ title: "Home", tabBarIcon: ({ color, size }) => <Feather name="home" size={size ?? 20} color={color} /> }} />
-    <Tabs.Screen name="parking-sessions" options={{ title: "Bookings", tabBarIcon: ({ color, size }) => <Feather name="clipboard" size={size ?? 20} color={color} /> }} />
+    <Tabs.Screen name="repair-requests" options={{ title: "Bookings", tabBarIcon: ({ color, size }) => <Feather name="clipboard" size={size ?? 20} color={color} /> }} />
+    <Tabs.Screen name="parking-sessions" options={{ href: null }} />
+    <Tabs.Screen name="repair-request-detail" options={{ href: null }} />
+    <Tabs.Screen name="notifications" options={{ href: null }} />
     <Tabs.Screen name="requests" options={{ href: null }} />
     <Tabs.Screen name="parking-session-detail" options={{ href: null }} />
     <Tabs.Screen name="earnings" options={{ href: null }} />
@@ -20,5 +23,6 @@ export default function HomeGarageLayout() {
     <Tabs.Screen name="profile" options={{ title: "Profile", tabBarIcon: ({ color, size }) => <Feather name="user" size={size ?? 20} color={color} /> }} />
     <Tabs.Screen name="public-listing" options={{ href: null }} />
     <Tabs.Screen name="verification" options={{ href: null }} />
+    <Tabs.Screen name="account-updates" options={{ href: null }} />
   </Tabs>;
 }

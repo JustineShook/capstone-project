@@ -46,6 +46,8 @@ export default function NotificationsScreen() {
       router.push({ pathname: "/(v_owner)/mechanic-booking/booking-detail", params: { bookingId: item.bookingId } });
     } else if (item.bookingType === "towing-company") {
       router.push({ pathname: "/(v_owner)/towing-booking/booking-detail", params: { bookingId: item.bookingId } });
+    } else if (item.bookingType === "homegarage") {
+      router.push({ pathname: "/(v_owner)/homegarage-booking/booking-detail", params: { bookingId: item.bookingId } });
     } else {
       router.push({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: item.bookingId } });
     }
@@ -92,7 +94,7 @@ export default function NotificationsScreen() {
             >
               <View style={styles.iconWrap}>
                 <Ionicons
-                  name={item.bookingType === "towing-company" ? "car-sport-outline" : item.bookingType === "shop-owner" ? "build-outline" : "construct-outline"}
+                  name={item.bookingType === "towing-company" ? "car-sport-outline" : item.bookingType === "shop-owner" ? "build-outline" : item.bookingType === "homegarage" ? "home-outline" : "construct-outline"}
                   size={20}
                   color={colors.primary}
                 />

@@ -11,6 +11,7 @@ import {
   ScrollView,
   StatusBar,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -42,6 +43,7 @@ import { styles } from "../../components/owner/ownerMapStyles";
 export default function OwnerDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<ProviderCategory>("All");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [providers, setProviders] = useState<MockProvider[]>([]);
   const [shops, setShops] = useState<MockProvider[]>([]);
   const [shopError, setShopError] = useState<string | null>(null);
@@ -75,10 +77,19 @@ export default function OwnerDashboard() {
   );
 
   const allProviders = [...providers, ...shops];
-  const filteredProviders =
+  const categoryProviders =
     selectedCategory === "All"
       ? allProviders
       : allProviders.filter((p) => p.category === selectedCategory);
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const filteredProviders = categoryProviders.filter((provider) => {
+    if (!normalizedSearch) return true;
+    const searchableText = [provider.name, provider.category, getServiceLabel(provider.category),
+      provider.description, provider.hours, ...provider.services]
+      .join(" ")
+      .toLocaleLowerCase();
+    return searchableText.includes(normalizedSearch);
+  });
 
   useEffect(() => {
     if (selectedProviderId && !filteredProviders.some((p) => p.id === selectedProviderId)) {
@@ -255,14 +266,26 @@ export default function OwnerDashboard() {
       {/* Top overlay: header, search, location — floats over the map */}
       <SafeAreaView style={styles.topOverlay} edges={["top"]}>
 
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-          <Text style={styles.searchPlaceholder}>Find a towing provider, auto shop, mechanic...</Text>
-        </View>
-
-        <View style={styles.locationRow}>
-          <Ionicons name="location-outline" size={14} color={colors.primary} />
-          <Text style={styles.locationText}>{MOCK_LOCATION_LABEL}</Text>
+        <View style={styles.searchControls}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search providers or services"
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="search"
+              accessibilityLabel="Search providers and services"
+            />
+            {searchQuery.length > 0 && <Pressable onPress={() => setSearchQuery("")} accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8}>
+              <Ionicons name="close-circle" size={19} color={colors.textMuted} />
+            </Pressable>}
+          </View>
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={14} color={colors.primary} />
+            <Text style={styles.locationText}>{userLocation ? "Your current location" : MOCK_LOCATION_LABEL}</Text>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -343,21 +366,16 @@ export default function OwnerDashboard() {
               contentContainerStyle={styles.categoryRow}
             >
               {CATEGORIES.map((cat) => {
-                const isActive = cat.label === selectedCategory;
+                const isActive = cat.value === selectedCategory;
                 return (
                   <Pressable
-                    key={cat.label}
+                    key={cat.value}
                     style={[styles.categoryChip, isActive && styles.categoryChipActive]}
                     onPress={() => {
-                      setSelectedCategory(cat.label);
+                      setSelectedCategory(cat.value);
                       selectProvider(null);
                     }}
                   >
-                    <Ionicons
-                      name={cat.icon}
-                      size={19}
-                      color={isActive ? colors.white : colors.primary}
-                    />
                     <Text
                       style={[styles.categoryChipText, isActive && styles.categoryChipTextActive]}
                     >
@@ -375,8 +393,15 @@ export default function OwnerDashboard() {
             </View>
 
             {(selectedCategory === "Auto Shops" || selectedCategory === "All") && shopError && <Text style={styles.listingMetaTextMuted}>{shopError}</Text>}
-            {selectedCategory === "Auto Shops" && !shopError && shops.length === 0 && <Text style={styles.listingMetaTextMuted}>No approved shops are currently open for emergency requests.</Text>}
-            {selectedCategory !== "Auto Shops" && filteredProviders.length === 0 && <Text style={styles.listingMetaTextMuted}>No providers are available right now.</Text>}
+              {!shopError && filteredProviders.length === 0 && (
+                <Text style={styles.listingMetaTextMuted}>
+                  {normalizedSearch
+                    ? "No providers match your search."
+                    : selectedCategory === "Auto Shops"
+                      ? "No approved shops are currently open for emergency requests."
+                      : "No providers are available right now."}
+                </Text>
+              )}
 
             <View style={styles.listingList}>
               {filteredProviders.map((provider) => {
@@ -419,7 +444,6 @@ export default function OwnerDashboard() {
                       </View>
 
                       <View style={styles.listingBottomRow}>
-                        <Text style={styles.listingPrice}>Starts at {provider.startingPrice}</Text>
                         <View style={styles.onsiteBadge}>
                           <Ionicons name={badge.icon} size={10} color={colors.primary} />
                           <Text style={styles.onsiteBadgeText}>{badge.text}</Text>

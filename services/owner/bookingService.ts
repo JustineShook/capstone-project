@@ -1,7 +1,7 @@
 import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, Timestamp, updateDoc, where } from "firebase/firestore";
 import { BookingRequest, BookingStatus } from "../../types/owner/booking";
 import { auth, db } from "../firebase";
-import { getOwnerVerificationProfile } from "../ownerVerificationProfileService";
+import { getOwnerVerificationProfile, requireVerifiedOwner } from "../ownerVerificationProfileService";
 import { addBookingStatusNotification } from "../customerNotificationService";
 import { writeMechanicNotification } from "../mechanicNotificationService";
 
@@ -15,6 +15,7 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
   const user = requireUser();
   const active = await getActiveMechanicBooking(input.providerId, user.uid);
   if (active) return active;
+  await requireVerifiedOwner(user.uid);
   const ownerProfile = await getOwnerVerificationProfile(user.uid);
   const address = ownerProfile?.personal.address?.trim() ?? "";
   const city = ownerProfile?.personal.cityMunicipality?.trim() ?? "";

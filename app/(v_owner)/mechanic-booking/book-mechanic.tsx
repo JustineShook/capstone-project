@@ -4,6 +4,8 @@ import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -14,7 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { createBooking } from "../../../services/owner/bookingService";
+import { createBooking, getActiveMechanicBooking } from "../../../services/owner/bookingService";
 
 import { colors } from "../../../constants/owner/theme";
 import { MockProvider } from "../../../data/owner/mockProviders";
@@ -47,10 +49,24 @@ export default function BookMechanicScreen() {
   const { providerId } = useLocalSearchParams<{ providerId: string }>();
   const [provider, setProvider] = useState<MockProvider | null>(null);
   const [providerError, setProviderError] = useState("");
+  const [checkingExistingBooking, setCheckingExistingBooking] = useState(true);
 
   useEffect(() => {
-    if (!providerId) { setProviderError("No provider was selected."); return; }
+    if (!providerId) { setProviderError("No provider was selected."); setCheckingExistingBooking(false); return; }
+    let active = true;
+    let redirecting = false;
+    setCheckingExistingBooking(true);
+    void getActiveMechanicBooking(providerId).then((booking) => {
+      if (active && booking) {
+        redirecting = true;
+        router.replace({ pathname: "/(v_owner)/mechanic-booking/booking-detail", params: { bookingId: booking.id } });
+      }
+    }).catch(() => {
+      // Submission performs the same check before creating a new booking.
+    }).finally(() => { if (active && !redirecting) setCheckingExistingBooking(false); });
+
     getPublicProviderListing(providerId).then((listing) => {
+      if (!active) return;
       if (!listing || listing.role !== "onsite-mechanic") { setProviderError("This mechanic is no longer available."); return; }
       setProvider({ id: listing.providerId, name: listing.businessName, category: listing.category,
         rating: listing.ratingSummary.average, reviewCount: listing.ratingSummary.count, distanceKm: 0,
@@ -59,7 +75,8 @@ export default function BookMechanicScreen() {
         color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
         description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
         emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: listing.contactPhone ?? "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
-    }).catch(() => setProviderError("Unable to load this provider."));
+    }).catch(() => { if (active) setProviderError("Unable to load this provider."); });
+    return () => { active = false; };
   }, [providerId]);
 
   const [vehicles, setVehicles] = useState<SavedVehicle[]>([]);
@@ -108,34 +125,41 @@ export default function BookMechanicScreen() {
   const handleConfirm = async () => {
   if (!canConfirm || !selectedVehicle || !provider || submitting) return;
   setSubmitting(true);
-
-  const permission = await Location.requestForegroundPermissionsAsync();
-  if (permission.status !== "granted") throw new Error("Location permission is required to send an onsite request.");
-  const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-
-  const booking = await createBooking({
-    providerId: provider.id,
-    providerName: provider.name,
-    providerPhone: provider.phone,
-    vehicleId: selectedVehicle.vehicleId,
-    vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
-    vehicleYear: selectedVehicle.year,
-    vehiclePlate: selectedVehicle.plateNumber,
-    latitude: currentLocation.coords.latitude,
-    longitude: currentLocation.coords.longitude,
-    problem: selectedProblem ?? "Other / Unknown Problem",
-    notes,
-    startingPrice: provider.startingPrice,
-  });
-
-  router.push({
-    pathname: "/mechanic-booking/booking-confirmation",
-    params: {
-      bookingId: booking.id,
-    },
-  });
-
+  try {
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== "granted") {
+      throw new Error("Location permission is required to send an onsite request.");
+    }
+    const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    const booking = await createBooking({
+      providerId: provider.id,
+      providerName: provider.name,
+      providerPhone: provider.phone,
+      vehicleId: selectedVehicle.vehicleId,
+      vehicle: `${selectedVehicle.make} ${selectedVehicle.model}`,
+      vehicleYear: selectedVehicle.year,
+      vehiclePlate: selectedVehicle.plateNumber,
+      latitude: currentLocation.coords.latitude,
+      longitude: currentLocation.coords.longitude,
+      problem: selectedProblem ?? "Other / Unknown Problem",
+      notes,
+      startingPrice: provider.startingPrice,
+    });
+    router.replace({
+      pathname: "/(v_owner)/mechanic-booking/booking-detail",
+      params: { bookingId: booking.id },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Please check your connection and try again.";
+    Alert.alert("Booking could not be sent", message);
+  } finally {
+    setSubmitting(false);
+  }
 };
+
+  if (checkingExistingBooking) {
+    return <SafeAreaView style={styles.root}><View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}><ActivityIndicator color={colors.primary} /><Text style={styles.validationText}>Checking your existing request...</Text></View></SafeAreaView>;
+  }
 
   if (!provider) {
     return <SafeAreaView style={styles.root}><View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Text style={styles.validationText}>{providerError || "Loading provider…"}</Text></View></SafeAreaView>;

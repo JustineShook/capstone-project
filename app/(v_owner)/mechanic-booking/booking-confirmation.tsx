@@ -6,8 +6,9 @@ import { ActivityIndicator, Pressable, ScrollView, StatusBar, StyleSheet, Text, 
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
+import { ServiceProgress } from "../../../components/owner/ServiceProgress";
 import { getBookingById } from "../../../services/owner/bookingService";
-import { BookingRequest, getBookingStatusLabel } from "../../../types/owner/booking";
+import { BOOKING_STATUS_FLOW, BookingRequest, getBookingStatusLabel, getBookingStatusShortLabel } from "../../../types/owner/booking";
 
 export default function BookingConfirmationScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -91,6 +92,13 @@ export default function BookingConfirmationScreen() {
             <Text style={styles.statusText}>{getBookingStatusLabel(booking.status)}</Text>
           </View>
         </View>
+        <View style={styles.progressWrap}>
+          <ServiceProgress
+            steps={BOOKING_STATUS_FLOW.map((status) => ({ key: status, label: getBookingStatusShortLabel(status) }))}
+            currentStep={BOOKING_STATUS_FLOW.indexOf(booking.status)}
+            terminalLabel={["cancelled", "rejected"].includes(booking.status) ? getBookingStatusLabel(booking.status) : undefined}
+          />
+        </View>
       </ScrollView>
 
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
@@ -143,6 +151,7 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
+  progressWrap: { width: "100%", marginBottom: 12 },
   cardLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 },
   cardValue: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
   cardSubvalue: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },

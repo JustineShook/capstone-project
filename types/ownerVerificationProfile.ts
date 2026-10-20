@@ -13,6 +13,8 @@ export interface OwnerVerificationProfile {
     idType: string;
     idNumber: string;
     validIdUrl: string;
+    validIdBackUrl?: string;
+    facePhotoUrl?: string;
     profilePhotoUrl: string;
   };
   vehicleDocuments: {

@@ -4,6 +4,7 @@ import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Keyboard,
   Modal,
   Platform,
@@ -427,7 +428,7 @@ export default function BookTowingScreen() {
   const handleConfirm = async () => {
     if (!canConfirm || submitting || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates || !destinationCoordinates || !distanceEstimate || (!pricingEstimate && !usesDispatcherPricing) || !pricingConfig) return;
     setSubmitting(true);
-
+    try {
     const booking = await createTowingBooking({
       providerId: provider.id,
       providerName: provider.name,
@@ -458,12 +459,18 @@ export default function BookTowingScreen() {
       startingPrice: pricingEstimate ? `₱${pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}` : "Price on assessment",
     });
 
-    router.push({
-      pathname: "../towing-booking/booking-confirmation",
+    router.replace({
+      pathname: "/(v_owner)/towing-booking/booking-detail",
       params: {
         bookingId: booking.id,
       },
     });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please check your connection and try again.";
+      Alert.alert("Towing request could not be sent", message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!provider) {

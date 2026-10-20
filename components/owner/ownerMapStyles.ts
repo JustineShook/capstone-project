@@ -63,6 +63,7 @@ export const styles = StyleSheet.create({
     borderColor: colors.white,
   },
 
+  searchControls: { gap: 8, alignItems: "flex-start" },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -71,7 +72,6 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 16,
     minHeight: 54,
     gap: 8,
-    marginBottom: 8,
     shadowColor: "#000",
     shadowOpacity: 0.12,
     shadowRadius: 6,
@@ -110,7 +110,13 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.busy,
   },
-  searchPlaceholder: { color: colors.textMuted, fontSize: 15, lineHeight: 21, flex: 1 },
+  searchInput: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: 15,
+    lineHeight: 21,
+    paddingVertical: 0,
+  },
 
   locationRow: {
     flexDirection: "row",
@@ -234,7 +240,7 @@ export const styles = StyleSheet.create({
     marginTop: 28,
   },
 
-  sectionTitle: { fontSize: 16, lineHeight: 22, fontWeight: "800", color: colors.textPrimary, marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.6 },
+  sectionTitle: { fontSize: 16, lineHeight: 22, fontWeight: "700", color: colors.textPrimary, marginBottom: 12 },
   listingHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -249,7 +255,7 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.border,
     borderRadius: 999,
     minHeight: 46,
     paddingHorizontal: 16,
@@ -257,8 +263,8 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   categoryChipActive: { backgroundColor: colors.primary },
-  categoryChipText: { fontSize: 14, lineHeight: 19, fontWeight: "700", color: colors.primary },
-  categoryChipTextActive: { color: colors.white },
+  categoryChipText: { fontSize: 14, lineHeight: 19, fontWeight: "600", color: colors.textSecondary },
+  categoryChipTextActive: { color: "#FFFFFF" },
 
   // ---- Nearby Providers: horizontal marketplace-style cards ----
   listingList: { flexDirection: "column" },
@@ -291,10 +297,10 @@ export const styles = StyleSheet.create({
   },
   listingName: { flex: 1, fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary },
   listingServiceRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 7 },
-  listingServiceText: { fontSize: 15, lineHeight: 21, fontWeight: "700", color: colors.primary },
+  listingServiceText: { fontSize: 15, lineHeight: 21, fontWeight: "600", color: colors.textSecondary },
   listingMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 7, marginTop: 9 },
-  listingMetaText: { fontSize: 14, lineHeight: 19, fontWeight: "700", color: colors.textSecondary },
-  listingMetaTextMuted: { fontSize: 14, lineHeight: 19, color: colors.textMuted },
+  listingMetaText: { fontSize: 14, lineHeight: 19, fontWeight: "500", color: colors.textSecondary },
+  listingMetaTextMuted: { fontSize: 14, lineHeight: 19, color: colors.textSecondary },
   listingMetaDot: { fontSize: 14, color: colors.textMuted, marginHorizontal: 1 },
   listingMetaSpacer: { width: 4 },
   listingBottomRow: {
@@ -315,5 +321,5 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
-  onsiteBadgeText: { fontSize: 12, lineHeight: 16, fontWeight: "700", color: colors.primary },
+  onsiteBadgeText: { fontSize: 12, lineHeight: 16, fontWeight: "600", color: colors.textSecondary },
 });

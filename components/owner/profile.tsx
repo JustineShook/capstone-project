@@ -7,12 +7,13 @@ import {
   Alert,
   Image,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { getUserProfile, logout } from "../../services/auth";
 import { auth } from "../../services/firebase";
@@ -22,9 +23,11 @@ import type { OwnerVerificationProfile } from "../../types/ownerVerificationProf
 
 const COLORS = {
   primary: "#F52239",
-  darkRed: "#C9152A",
+  darkRed: "#FF8995",
   white: "#F4F6F8",
   background: "#0C1015",
+  surface: "#151C23",
+  surfaceAlt: "#1C252E",
   textPrimary: "#F4F6F8",
   textSecondary: "#AAB5C0",
   border: "#28313A",
@@ -37,7 +40,7 @@ function formatRole(role: UserRole): string {
     case "admin":
       return "Admin";
     case "onsite-mechanic":
-      return "Onsite Mechanic";
+      return "Indie Mechanic";
     case "shop-owner":
       return "Shop Owner";
     case "towing-company":
@@ -63,6 +66,7 @@ function ProfileRow({ icon, label, value, onPress, isLast }: RowProps) {
       style={[styles.row, isLast && styles.rowLast]}
       activeOpacity={onPress ? 0.6 : 1}
       onPress={onPress}
+      accessibilityRole={onPress ? "button" : undefined}
     >
       <View style={styles.rowLeft}>
         <View style={styles.rowIconWrap}>
@@ -73,7 +77,7 @@ function ProfileRow({ icon, label, value, onPress, isLast }: RowProps) {
           {value ? <Text style={styles.rowValue}>{value}</Text> : null}
         </View>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={COLORS.textSecondary} />
+      {onPress ? <Ionicons name="chevron-forward" size={18} color={COLORS.textSecondary} /> : <View style={styles.rowEndSpacer} />}
     </Wrapper>
   );
 }
@@ -82,8 +86,16 @@ function SectionLabel({ text }: { text: string }) {
   return <Text style={styles.sectionLabel}>{text}</Text>;
 }
 
+function Shortcut({ icon, title, onPress }: { icon: keyof typeof Ionicons.glyphMap; title: string; onPress: () => void }) {
+  return <TouchableOpacity style={styles.shortcut} onPress={onPress} activeOpacity={0.75} accessibilityRole="button">
+    <View style={styles.shortcutIcon}><Ionicons name={icon} size={21} color={COLORS.textPrimary} /></View>
+    <Text style={styles.shortcutTitle} numberOfLines={1}>{title}</Text>
+  </TouchableOpacity>;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -174,6 +186,7 @@ export default function ProfileScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={COLORS.primary} size="large" />
         </View>
@@ -183,32 +196,54 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 20 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Profile Card */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatarWrap}>
-            {profilePhotoUrl ? (
-              <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} />
-            ) : (
-              <Ionicons name="person" size={40} color={COLORS.white} />
-            )}
-          </View>
-          <Text style={styles.profileName}>{displayName}</Text>
-          <Text style={styles.profileEmail}>{email}</Text>
+        <View style={styles.header}>
+          <View style={styles.brandRow}><Text style={styles.brandMark}>V</Text><Text style={styles.brandText}>Ve<Text style={styles.brandRed}>Resc</Text></Text></View>
+          <TouchableOpacity style={styles.headerAction} onPress={() => router.push("/(v_owner)/notifications")} accessibilityRole="button" accessibilityLabel="Notifications">
+            <Ionicons name="notifications-outline" size={21} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+        {/* Profile summary */}
+        <View style={styles.profileCard}>
+          <View style={styles.identityContent}>
+            <View style={styles.avatarWrap}>
+              {profilePhotoUrl ? <Image source={{ uri: profilePhotoUrl }} style={styles.avatarImage} /> : <Ionicons name="person" size={36} color={COLORS.primary} />}
+            </View>
+            <View style={styles.identityInfo}>
+              <Text style={styles.identityEyebrow}>VEHICLE OWNER</Text>
+              <Text style={styles.profileName} numberOfLines={2}>{displayName}</Text>
+              <Text style={styles.profileEmail} numberOfLines={1}>{email}</Text>
+              <View style={styles.identityMetaRow}>
+                <View style={styles.roleBadge}><Text style={styles.roleBadgeText}>{roleLabel}</Text></View>
+                <TouchableOpacity style={styles.verificationPill} onPress={() => router.push("/(v_owner)/verification")} accessibilityRole="button">
+                  <View style={[styles.verificationDot, verificationStatus === "VERIFIED" && styles.verificationDotActive]} />
+                  <Text style={styles.verificationText} numberOfLines={1}>{verificationLabel}</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={styles.editProfileButton} activeOpacity={0.82} onPress={() => router.push("/(v_owner)/personal-information")} accessibilityRole="button">
+                <Ionicons name="create-outline" size={15} color={COLORS.white} />
+                <Text style={styles.editProfileText}>Edit Profile</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
         </View>
 
+        <View style={styles.shortcuts}>
+          <Shortcut icon="car-outline" title="My Vehicles" onPress={() => router.push("/(v_owner)/vehicle")} />
+          <Shortcut icon="time-outline" title="Service History" onPress={() => router.push("/(v_owner)/history")} />
+          <Shortcut icon="shield-checkmark-outline" title="Verification" onPress={() => router.push("/(v_owner)/verification")} />
+        </View>
+
         {/* Account Section */}
-        <SectionLabel text="Account" />
+        <View style={styles.sectionHeading}><SectionLabel text="Account" /><Text style={styles.sectionHint}>Your personal and contact information</Text></View>
         <View style={styles.card}>
           <ProfileRow
             icon="person-outline"
@@ -246,7 +281,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* My VeResc Section */}
-        <SectionLabel text="My VeResc" />
+        <View style={styles.sectionHeading}><SectionLabel text="My VeResc" /><Text style={styles.sectionHint}>Your vehicles and service activity</Text></View>
         <View style={styles.card}>
           <ProfileRow
             icon="car-outline"
@@ -262,7 +297,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Settings Section */}
-        <SectionLabel text="Settings" />
+        <View style={styles.sectionHeading}><SectionLabel text="Settings" /><Text style={styles.sectionHint}>Manage your account preferences</Text></View>
         <View style={styles.card}>
           <ProfileRow
             icon="notifications-outline"
@@ -282,6 +317,17 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {(verificationStatus === "INCOMPLETE" || verificationStatus === "REJECTED") && (
+          <TouchableOpacity
+            style={styles.verifyButton}
+            onPress={() => router.push("/(v_owner)/verification")}
+            accessibilityRole="button"
+          >
+            <Ionicons name="shield-checkmark-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.verifyButtonText}>{verificationStatus === "REJECTED" ? "Correct & Resubmit" : "Complete Verification"}</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Log Out */}
         <TouchableOpacity
           style={[styles.logoutButton, signingOut && styles.logoutButtonDisabled]}
@@ -290,13 +336,13 @@ export default function ProfileScreen() {
           disabled={signingOut}
         >
           {signingOut ? (
-            <ActivityIndicator color={COLORS.white} />
+            <ActivityIndicator color={COLORS.primary} />
           ) : (
             <>
               <Ionicons
                 name="log-out-outline"
                 size={18}
-                color={COLORS.white}
+                color={COLORS.primary}
                 style={{ marginRight: 8 }}
               />
               <Text style={styles.logoutText}>Log Out</Text>
@@ -318,67 +364,71 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-  },
+  contentContainer: { paddingHorizontal: 16, paddingTop: 5, paddingBottom: 30, flexGrow: 1 },
+  header: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 3, marginBottom: 8 },
+  brandRow: { flexDirection: "row", alignItems: "center" },
+  brandMark: { color: COLORS.primary, fontSize: 34, lineHeight: 39, fontWeight: "900", fontStyle: "italic", marginRight: 5 },
+  brandText: { color: COLORS.textPrimary, fontSize: 21, fontWeight: "900" },
+  brandRed: { color: COLORS.primary },
+  headerAction: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border },
   loadingWrap: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  pageTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: COLORS.textPrimary,
-    marginTop: 8,
-    marginBottom: 16,
-  },
-
   // Profile card
   profileCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    paddingVertical: 28,
+    backgroundColor: COLORS.primary,
+    borderRadius: 20,
+    paddingVertical: 19,
     paddingHorizontal: 16,
-    alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 14,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: "#FF5365",
+    overflow: "hidden",
   },
+  identityContent: { flexDirection: "row", alignItems: "center" },
+  identityInfo: { flex: 1, marginLeft: 14 },
+  identityEyebrow: { color: "#FFD7DC", fontSize: 10, fontWeight: "900", letterSpacing: 1.1, marginBottom: 3 },
   avatarWrap: {
     width: 76,
     height: 76,
-    borderRadius: 38,
-    backgroundColor: COLORS.primary,
+    borderRadius: 24,
+    backgroundColor: "#F4F0EF",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 14,
     overflow: "hidden",
   },
   avatarImage: { width: "100%", height: "100%" },
   profileName: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: COLORS.textPrimary,
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
   profileEmail: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
+    fontSize: 12,
+    color: "#FFE4E7",
     marginTop: 4,
   },
+  identityMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 7, marginTop: 8 },
   roleBadge: {
-    marginTop: 14,
-    backgroundColor: "#3A2025",
-    paddingHorizontal: 14,
+    backgroundColor: "rgba(40,10,16,0.35)",
+    paddingHorizontal: 9,
     paddingVertical: 6,
-    borderRadius: 20,
+    borderRadius: 9,
   },
   roleBadgeText: {
     fontSize: 12,
     fontWeight: "600",
-    color: COLORS.darkRed,
+    color: "#FFFFFF",
   },
+  verificationPill: { flexDirection: "row", alignItems: "center", gap: 6, maxWidth: 180, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 9, backgroundColor: "rgba(40,10,16,0.35)" },
+  verificationDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#FFD27B" },
+  verificationDotActive: { backgroundColor: "#62D5A5" },
+  verificationText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
+  editProfileButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: "rgba(40,10,16,0.35)", borderWidth: 1, borderColor: "rgba(255,255,255,0.52)", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, marginTop: 9 },
+  editProfileText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
   errorText: {
     marginTop: 10,
     fontSize: 12,
@@ -388,20 +438,21 @@ const styles = StyleSheet.create({
 
   // Section labels
   sectionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.textSecondary,
-    marginBottom: 8,
-    marginLeft: 4,
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: "900",
+    color: COLORS.textPrimary,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
   },
+  sectionHeading: { marginTop: 10, marginBottom: 10, marginLeft: 2 },
+  sectionHint: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 2 },
 
   // Rectangular grouped card
   card: {
-    backgroundColor: COLORS.white,
-    borderRadius: 14,
-    marginBottom: 24,
+    backgroundColor: COLORS.surface,
+    borderRadius: 17,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
     overflow: "hidden",
@@ -412,8 +463,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    minHeight: 62,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -423,19 +475,20 @@ const styles = StyleSheet.create({
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
   rowIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#3A2025",
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: COLORS.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
   },
   rowLabel: {
-    fontSize: 14.5,
-    fontWeight: "500",
+    fontSize: 14,
+    fontWeight: "700",
     color: COLORS.textPrimary,
   },
   rowValue: {
@@ -443,22 +496,32 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
+  rowEndSpacer: { width: 18 },
 
   // Log out button
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: COLORS.primary,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: COLORS.primary,
     borderRadius: 14,
-    paddingVertical: 15,
+    minHeight: 54,
+    marginTop: 2,
   },
   logoutButtonDisabled: {
     opacity: 0.7,
   },
   logoutText: {
-    color: COLORS.white,
+    color: COLORS.primary,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "800",
   },
+  shortcuts: { flexDirection: "row", gap: 10, marginBottom: 3 },
+  shortcut: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, minHeight: 96, borderRadius: 17, paddingHorizontal: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
+  shortcutIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surfaceAlt, alignItems: "center", justifyContent: "center" },
+  shortcutTitle: { color: COLORS.textPrimary, fontSize: 11, lineHeight: 15, fontWeight: "700", textAlign: "center" },
+  verifyButton: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9, marginTop: 2, marginBottom: 12, backgroundColor: COLORS.primary, borderRadius: 12 },
+  verifyButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
 });

@@ -65,7 +65,7 @@ export async function updatePublicProviderListing(
     operatingHours: input.operatingHours,
     emergencyServiceAvailable: input.emergencyServiceAvailable,
     ...((role === "shop-owner" || role === "homegarage") && input.photoUrls ? { photoUrls: [...input.photoUrls] } : {}),
-    ...(role === "shop-owner" && input.hoursType ? { hoursType: input.hoursType, is24Hours: input.is24Hours === true, weeklyHours: input.weeklyHours ?? [] } : {}),
+    ...((role === "onsite-mechanic" || role === "shop-owner") && input.hoursType ? { hoursType: input.hoursType, is24Hours: input.is24Hours === true, weeklyHours: input.weeklyHours ?? [] } : {}),
     ...(role === "homegarage" && input.totalSlots ? { totalSlots: input.totalSlots, availableSlots: input.availableSlots ?? input.totalSlots } : {}),
   };
 
@@ -75,13 +75,59 @@ export async function updatePublicProviderListing(
       if (profile?.uid !== uid || profile.role !== "shop-owner" || profile.verified !== true) {
         throw new Error("Your shop must be approved before publishing a listing.");
       }
-      transaction.set(publicProviderListingRef(uid), {
+      const listingRef = publicProviderListingRef(uid);
+      const currentListing = await transaction.get(listingRef);
+      const shopListing = {
         ...listing,
-        businessName: profile.businessName,
         location: { latitude: profile.latitude, longitude: profile.longitude },
         availability: profile.status === "open" ? "available" : "offline",
         emergencyServiceAvailable: true,
-      });
+      };
+
+      if (currentListing.exists()) {
+        // Existing listing updates are deliberately limited by Firestore rules
+        // to provider-editable fields. Preserve system-owned compatibility,
+        // identity, rating and visibility fields from the stored document.
+        const {
+          businessName,
+          location,
+          availability,
+          serviceAreaLabel,
+          description,
+          contactPhone,
+          services,
+          vehicleTypes,
+          operatingHours,
+          startingPrice,
+          emergencyServiceAvailable,
+          photoUrls,
+          hoursType,
+          is24Hours,
+          weeklyHours,
+        } = shopListing;
+        const providerEditableFields: Partial<ProviderListing> = {
+          businessName,
+          location,
+          availability,
+          serviceAreaLabel,
+          description,
+          services,
+          vehicleTypes,
+          operatingHours,
+          startingPrice,
+          emergencyServiceAvailable,
+          photoUrls,
+          hoursType,
+          is24Hours,
+          weeklyHours,
+        };
+        // updateDoc rejects undefined values. Older shop listings may not yet
+        // have a public contact number, so omit it until the owner supplies one.
+        if (contactPhone) providerEditableFields.contactPhone = contactPhone;
+        transaction.update(listingRef, providerEditableFields);
+      } else {
+        transaction.set(listingRef, shopListing);
+      }
     });
     return;
   }

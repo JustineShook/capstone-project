@@ -1,8 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { auth } from "../../services/firebase";
 
 import {
   markMechanicNotificationRead,
@@ -21,18 +23,40 @@ export default function MechanicNotificationsScreen() {
   const [items, setItems] = useState<MechanicNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
 
-  useEffect(() => subscribeToMechanicNotifications(
-    (notifications) => {
-      setItems(notifications);
-      setLoading(false);
-      setError("");
-    },
-    (listenerError) => {
-      setError(listenerError.message || "Could not load notifications.");
-      setLoading(false);
-    },
-  ), []);
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    let stopNotifications: (() => void) | undefined;
+    const stopAuth = onAuthStateChanged(auth, (user) => {
+      stopNotifications?.();
+      if (!user) {
+        setItems([]);
+        setError("You are signed out. Sign in again to load mechanic notifications.");
+        setLoading(false);
+        return;
+      }
+      stopNotifications = subscribeToMechanicNotifications(
+        (notifications) => {
+          setItems(notifications);
+          setLoading(false);
+          setError("");
+        },
+        (listenerError) => {
+          const code = (listenerError as Error & { code?: string }).code;
+          setError(code === "permission-denied"
+            ? "Firebase denied access to this notification list. Publish the current firestore.rules to the Firebase project used by this app, then retry."
+            : `${code ? `${code}: ` : ""}${listenerError.message || "Could not load notifications. Check your connection and retry."}`);
+          setLoading(false);
+        },
+      );
+    });
+    return () => {
+      stopAuth();
+      stopNotifications?.();
+    };
+  }, [retry]);
 
   const openNotification = async (item: MechanicNotification) => {
     if (!item.isRead) {
@@ -61,6 +85,9 @@ export default function MechanicNotificationsScreen() {
           <Feather name="wifi-off" size={30} color={COLORS.muted} />
           <Text style={styles.emptyTitle}>Notifications unavailable</Text>
           <Text style={styles.emptyText}>{error}</Text>
+          <Pressable style={styles.retryButton} onPress={() => setRetry((value) => value + 1)} accessibilityRole="button">
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
         </View>
       ) : (
         <FlatList
@@ -113,6 +140,8 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 58, height: 58, borderRadius: 19, backgroundColor: COLORS.card, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   emptyTitle: { color: COLORS.text, fontSize: 18, fontWeight: "800", textAlign: "center" },
   emptyText: { color: COLORS.muted, fontSize: 14, lineHeight: 21, textAlign: "center" },
+  retryButton: { marginTop: 8, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 10, backgroundColor: COLORS.red },
+  retryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   card: { flexDirection: "row", alignItems: "center", gap: 11, padding: 14, borderRadius: 15, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
   unreadCard: { borderColor: COLORS.red },
   iconWrap: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#281B20", alignItems: "center", justifyContent: "center" },

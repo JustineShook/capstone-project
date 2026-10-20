@@ -3,6 +3,7 @@ import { collection, doc, getDocs, limit, onSnapshot, query, runTransaction, ser
 import { auth, db } from "./firebase";
 import type { ParkingBooking } from "../types/parkingBooking";
 import type { SavedVehicle } from "../types/owner/vehicle";
+import { requireVerifiedOwner } from "./ownerVerificationProfileService";
 
 const LISTINGS = "providerListings";
 const BOOKINGS = "parkingBookings";
@@ -30,8 +31,8 @@ export function subscribeToMyParkingProviderListing(callback: (value: { availabi
   const user = requireUser();
   return onSnapshot(doc(db, LISTINGS, user.uid), (snap) => {
     const data = snap.data();
-    callback(data?.role === "homegarage" && Number.isInteger(data.totalSlots)
-      ? { availability: data.availability, totalSlots: data.totalSlots } : null);
+    callback(data?.role === "homegarage"
+      ? { availability: data.availability, totalSlots: Number.isInteger(data.totalSlots) ? data.totalSlots : 0 } : null);
   });
 }
 
@@ -45,7 +46,7 @@ export async function setParkingAvailability(available: boolean) {
   await runTransaction(db, async (tx) => {
     const ref = doc(db, LISTINGS, user.uid);
     const snap = await tx.get(ref);
-    if (!snap.exists() || snap.data().role !== "homegarage") throw new Error("Create your public parking listing first.");
+    if (!snap.exists() || snap.data().role !== "homegarage") throw new Error("Create your Home Garage public listing first.");
     tx.update(ref, { availability: available ? "available" : "offline" });
   });
 }
@@ -74,6 +75,7 @@ export async function reserveParking(providerId: string, providerName: string, v
   const user = requireUser();
   const existing = await getActiveParkingBookingForCustomer(providerId, user.uid);
   if (existing) return { bookingId: existing.id, recovered: true };
+  await requireVerifiedOwner(user.uid);
   const listingRef = doc(db, LISTINGS, providerId);
   const bookingRef = doc(collection(db, BOOKINGS));
   const candidates = await getDocs(query(collection(db, SLOTS), where("providerId", "==", providerId), where("status", "==", "available"), limit(1)));

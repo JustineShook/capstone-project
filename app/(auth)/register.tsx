@@ -14,15 +14,15 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getDashboardRoute, register } from "../../services/auth";
+import { logout, register } from "../../services/auth";
 import { REGISTERABLE_ROLES, type UserRole } from "../../types/user";
 
 const SELECTABLE_ROLES: { label: string; value: UserRole }[] = [
   { label: "Vehicle Owner", value: "owner" },
   { label: "Onsite Mechanic", value: "onsite-mechanic" },
-  { label: "Auto Shop", value: "shop-owner" },
+  { label: "Shop owner", value: "shop-owner" },
   { label: "Towing Company", value: "towing-company" },
-  { label: "Parking Space", value: "homegarage" },
+  { label: "Home Garage", value: "homegarage" },
 ];
 
 export default function RegisterScreen() {
@@ -61,12 +61,8 @@ export default function RegisterScreen() {
         displayName: displayName.trim(),
         role,
       });
-      const route = getDashboardRoute(profile.role);
-      if (!route) {
-        setError("Account created, but your role isn't recognized. Please contact support.");
-        return;
-      }
-      router.replace(route as any);
+      await logout();
+      router.replace("/(auth)/login");
     } catch (err) {
       setError((err as Error).message);
     } finally {
