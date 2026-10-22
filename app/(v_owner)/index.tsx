@@ -243,7 +243,6 @@ export default function OwnerDashboard() {
       {/* Fullscreen map — fills the entire screen behind everything, stays visible
           and interactive even while a provider's details are expanded below */}
       <WebView
-        key={selectedCategory}
         ref={webViewRef}
         source={{ html: mapHtml }}
         style={styles.fullscreenMap}
@@ -373,7 +372,7 @@ export default function OwnerDashboard() {
                     style={[styles.categoryChip, isActive && styles.categoryChipActive]}
                     onPress={() => {
                       setSelectedCategory(cat.value);
-                      selectProvider(null);
+                      setSelectedProviderId(null);
                     }}
                   >
                     <Text
