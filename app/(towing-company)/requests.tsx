@@ -1,10 +1,12 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { ImageBackground, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ImageBackground, Linking, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeToTowingRequests } from "../../services/owner/towingService";
 import type { TowingBookingRequest } from "../../types/owner/towing";
+import { formatBookingTimingLabel } from "../../utils/bookingTiming";
+import { buildTowingContactUrl } from "../../utils/towingContact";
 
 const C = { canvas: "#08090B", card: "#151D24", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#2C3944" };
 type Filter = "NEW" | "ONGOING";
@@ -34,6 +36,20 @@ export default function TowingRequestsScreen() {
   const active = useMemo(() => bookings.filter((booking) => ACTIVE_STATUSES.includes(booking.status)), [bookings]);
   const visible = filter === "NEW" ? pending : active;
   const open = (id: string) => router.push({ pathname: "/(towing-company)/request-details", params: { id } });
+  const contactOwner = (booking: TowingBookingRequest) => {
+    const phone = booking.customerPhone?.trim();
+    if (!phone) { Alert.alert("Contact number unavailable", "Contact number unavailable."); return; }
+    const openContact = (scheme: "tel" | "sms") => {
+      const url = buildTowingContactUrl(scheme, phone);
+      if (!url) { Alert.alert("Contact number unavailable", "Contact number unavailable."); return; }
+      void Linking.openURL(url).catch(() => Alert.alert("Unable to open contact app", "Please try again or contact the Vehicle Owner another way."));
+    };
+    Alert.alert("Contact Vehicle Owner", booking.customerName || "Vehicle Owner", [
+      { text: "Call", onPress: () => openContact("tel") },
+      { text: "Text Message", onPress: () => openContact("sms") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
 
   return (
     <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
@@ -63,10 +79,11 @@ export default function TowingRequestsScreen() {
               <View style={s.locationCell}><View style={s.locationHeading}><Feather name="flag" size={16} color="#D1D2D4" /><Text style={s.locationLabel}>Drop-off</Text></View><Text style={s.locationText} numberOfLines={2}>{booking.destination}</Text></View>
             </View>
             <View style={s.details}>
+              <Text style={s.detailText}>{formatBookingTimingLabel(booking)}</Text>
               <Detail icon="navigation" text={`${booking.providerToPickupDistanceKm || 0} km to pickup`} />
               <Detail icon="message-square" text={booking.vehicleCondition || booking.towingType || "Towing request"} />
             </View>
-            <TouchableOpacity style={s.viewButton} onPress={() => open(booking.id)} activeOpacity={0.82}><Text style={s.viewButtonText}>View Request</Text><Feather name="chevron-right" size={19} color="#FFFFFF" /></TouchableOpacity>
+            <View style={s.bookingActions}><TouchableOpacity style={[s.viewButton, s.viewButtonFlex]} onPress={() => open(booking.id)} activeOpacity={0.82}><Text style={s.viewButtonText}>View Request</Text><Feather name="chevron-right" size={19} color="#FFFFFF" /></TouchableOpacity><TouchableOpacity style={s.contactButton} onPress={() => contactOwner(booking)} activeOpacity={0.82} accessibilityRole="button" accessibilityLabel="Contact Vehicle Owner"><Feather name="phone" size={20} color="#FFFFFF" /></TouchableOpacity></View>
           </View>
         ))}
       </ScrollView>
@@ -94,6 +111,6 @@ const s = StyleSheet.create({
   filters: { minHeight: 62, flexDirection: "row", gap: 9, marginBottom: 10, paddingTop: 9 }, filterButton: { flex: 1, height: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#172029", borderWidth: 1, borderColor: "#2C3944", borderRadius: 13 }, filterIcon: { width: 22, height: 22, alignItems: "center", justifyContent: "center", position: "relative" }, filterIconActive: {}, filterDot: { position: "absolute", top: -1, right: -3, width: 7, height: 7, borderRadius: 4, backgroundColor: C.red }, filterDotActive: { backgroundColor: "#FFFFFF" }, filterLabel: { color: C.muted, fontSize: 14, lineHeight: 20 }, filterLabelActive: { color: "#FFFFFF", fontWeight: "700" }, filterUnderline: { display: "none" }, filterUnderlineActive: { display: "none" },
   card: { borderRadius: 17, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, padding: 16, marginBottom: 13 }, customerRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 12 }, avatar: { width: 48, height: 48, borderRadius: 16, backgroundColor: "#293A48", alignItems: "center", justifyContent: "center" }, customerCopy: { flex: 1 }, customerName: { color: C.text, fontSize: 17, lineHeight: 23, fontWeight: "700" }, vehicle: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 2 }, status: { backgroundColor: "#3B2D1C", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7 }, statusText: { color: "#FFD691", fontSize: 12, lineHeight: 16, fontWeight: "800" }, activeStatus: { backgroundColor: "#143828" }, activeStatusText: { color: "#91E8B6" },
   locationGrid: { flexDirection: "column", borderTopWidth: 1, borderTopColor: "#292A2D", marginTop: 12, paddingTop: 13, gap: 12 }, locationCell: { flex: 1, paddingHorizontal: 4 }, locationHeading: { flexDirection: "row", alignItems: "center", gap: 8 }, locationLabel: { color: C.muted, fontSize: 13, lineHeight: 18 }, locationText: { color: C.text, fontSize: 14, lineHeight: 20, marginLeft: 25, marginTop: 4 },
-  details: { gap: 8, marginTop: 12 }, detailRow: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 9 }, detailText: { color: "#FFFFFF", fontSize: 14, lineHeight: 20, flex: 1 }, viewButton: { minHeight: 46, borderRadius: 10, backgroundColor: C.red, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 13 }, viewButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  details: { gap: 8, marginTop: 12 }, detailRow: { minHeight: 26, flexDirection: "row", alignItems: "center", gap: 9 }, detailText: { color: "#FFFFFF", fontSize: 14, lineHeight: 20, flex: 1 }, bookingActions: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 13 }, viewButton: { minHeight: 46, borderRadius: 10, backgroundColor: C.red, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, viewButtonFlex: { flex: 1 }, contactButton: { width: 48, height: 46, borderRadius: 10, backgroundColor: "#293A48", alignItems: "center", justifyContent: "center" }, viewButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   empty: { minHeight: 250, borderRadius: 18, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, paddingVertical: 25, gap: 12 }, emptyIcon: { width: 68, height: 68, borderRadius: 22, backgroundColor: "#263541", alignItems: "center", justifyContent: "center", marginBottom: 4 }, emptyTitle: { color: C.text, fontSize: 20, fontWeight: "800", textAlign: "center" }, emptyText: { color: C.muted, fontSize: 14, lineHeight: 21, textAlign: "center" }, emptyAccent: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 5, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#173127" }, emptyAccentText: { color: "#A3E9BF", fontSize: 11, fontWeight: "700" },
 });

@@ -22,6 +22,7 @@ function verifiedPrice(value: string | undefined) {
  */
 export default function ShopPublicListing() {
   const [initialListing, setInitialListing] = useState<Partial<PublicProviderListingInput> | null>();
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const uid = auth.currentUser?.uid;
@@ -30,7 +31,7 @@ export default function ShopPublicListing() {
     void (async () => {
       try {
         let providerSnapshot = await getDoc(doc(db, "providers", uid));
-        const verification = await getShopVerificationProfile(uid).catch(() => null);
+        const verification = await getShopVerificationProfile(uid);
         if (!providerSnapshot.exists() || !verification) { if (active) setInitialListing(null); return; }
         let provider = providerSnapshot.data() as ProviderProfile;
         if (provider.uid !== uid || provider.role !== "shop-owner") { if (active) setInitialListing(null); return; }
@@ -44,28 +45,31 @@ export default function ShopPublicListing() {
         }
         if (!provider.verified) { if (active) setInitialListing(null); return; }
 
-        const existing = await getPublicProviderListing(uid).catch(() => null);
+        const existing = await getPublicProviderListing(uid);
         if (!active) return;
         setInitialListing({
           businessName: existing?.businessName || provider.businessName,
-          contactPhone: provider.phone,
+          contactPhone: existing?.contactPhone || provider.phone,
           location: existing?.location ?? { latitude: provider.latitude, longitude: provider.longitude },
           availability: existing?.availability ?? (provider.status === "open" ? "available" : "offline"),
           description: existing?.description ?? "",
           services: existing?.services ?? [],
           vehicleTypes: existing?.vehicleTypes ?? [],
-          serviceAreaLabel: existing?.serviceAreaLabel || verification.business.address || provider.address,
+          serviceAreaLabel: existing?.serviceAreaLabel ?? "",
           operatingHours: existing?.operatingHours || verification.business.operatingHours || "",
           startingPrice: existing ? existing.startingPrice : verifiedPrice(verification.business.startingPrice),
           emergencyServiceAvailable: existing?.emergencyServiceAvailable ?? true,
+          acceptsScheduledBookings: existing?.acceptsScheduledBookings === true,
+          photoUrls: existing?.photoUrls ?? verification.shopPhotos ?? [],
         });
-      } catch {
-        if (active) setInitialListing(null);
+      } catch (error) {
+        if (active) setLoadError(error instanceof Error ? error.message : String(error));
       }
     })();
     return () => { active = false; };
   }, []);
 
+  if (loadError) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115" /><Text style={styles.error}>Could not load your Auto Shop listing: {loadError}</Text></View>;
   if (initialListing === undefined) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115" /><ActivityIndicator color="#F51F3B" /></View>;
   if (initialListing === null) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115" /><Text style={styles.error}>An administrator-approved Auto Shop profile is required.</Text></View>;
 

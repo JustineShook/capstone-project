@@ -6,6 +6,10 @@ import type { SavedVehicle } from "../types/owner/vehicle";
 import type { HomeGarageBooking, HomeGarageBookingStatus } from "../types/homeGarageBooking";
 import { addBookingStatusNotification, addHomeGaragePriceNotification } from "./customerNotificationService";
 import { writeHomeGarageProviderNotification } from "./homeGarageNotificationService";
+import type { BookingTimingInput } from "../types/bookingTiming";
+import { timingFields, validateBookingTiming } from "../utils/bookingTiming";
+import { claimScheduledReservation, releaseScheduledReservation } from "./scheduledBookingReservationService";
+import { isValidFinalPrice } from "../utils/finalPrice";
 
 function requireUser() {
   const user = auth.currentUser;
@@ -16,7 +20,7 @@ function requireUser() {
 function fromDoc(id: string, data: Record<string, unknown>): HomeGarageBooking {
   const toIso = (value: unknown) => value instanceof Timestamp ? value.toDate().toISOString() : "";
   return { ...(data as Omit<HomeGarageBooking, "id" | "createdAt" | "updatedAt">), id,
-    createdAt: toIso(data.createdAt), updatedAt: toIso(data.updatedAt) };
+    createdAt: toIso(data.createdAt), updatedAt: toIso(data.updatedAt), completedAt: toIso(data.completedAt) || undefined };
 }
 
 export function subscribeToMyHomeGarageBookings(callback: (items: HomeGarageBooking[]) => void, onError: (error: Error) => void) {
@@ -64,7 +68,7 @@ export function subscribeToHomeGarageBooking(id: string, callback: (item: HomeGa
   }, onError);
 }
 
-export async function createHomeGarageBooking(providerId: string, vehicle: SavedVehicle, problemText: string, notesText: string): Promise<string> {
+export async function createHomeGarageBooking(providerId: string, vehicle: SavedVehicle, problemText: string, notesText: string, timing: BookingTimingInput = { timingMode: "now", urgency: "standard" }): Promise<string> {
   const user = requireUser();
   await requireVerifiedOwner(user.uid);
   const ownerProfile = await getOwnerVerificationProfile(user.uid);
@@ -94,9 +98,11 @@ export async function createHomeGarageBooking(providerId: string, vehicle: Saved
     const account = (await transaction.get(doc(db, "users", user.uid))).data();
     if (account?.role !== "owner") throw new Error("Sign in as a Vehicle Owner to request a repair.");
     if (!listing || listing.role !== "homegarage" || listing.category !== "Parking Lots"
-      || listing.visibility !== "active" || listing.availability !== "available" || listing.providerId !== providerId) {
-      throw new Error("This Home Garage is not accepting service requests right now.");
+      || listing.visibility !== "active" || listing.providerId !== providerId) {
+      throw new Error("This Home Garage is not publicly available.");
     }
+    validateBookingTiming(timing, listing.emergencyServiceAvailable === true, listing.acceptsScheduledBookings === true);
+    if (timing.timingMode === "now" && listing.availability !== "available") throw new Error("This Home Garage is unavailable now. Choose a scheduled time if enabled.");
     if (!savedVehicle || savedVehicle.vehicleId !== vehicle.vehicleId) throw new Error("This vehicle is no longer saved. Select another vehicle.");
     transaction.set(bookingRef, {
       bookingType: "homegarage", customerId: user.uid,
@@ -107,6 +113,7 @@ export async function createHomeGarageBooking(providerId: string, vehicle: Saved
       vehicleYear: savedVehicle.year, vehiclePlate: savedVehicle.plateNumber,
       problem, notes, garageLatitude: listing.location.latitude, garageLongitude: listing.location.longitude,
       serviceAreaLabel: listing.serviceAreaLabel,
+      ...timingFields(timing),
       startingPrice: listing.startingPrice == null ? "Price on assessment" : `₱${listing.startingPrice.toLocaleString("en-PH")}`,
       status: "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
@@ -152,21 +159,35 @@ export async function startHomeGarageRepair(id: string) {
     const snapshot = await transaction.get(reference);
     const booking = snapshot.data();
     if (!snapshot.exists() || booking?.bookingType !== "homegarage" || booking.providerId !== user.uid) throw new Error("Home Garage request not found.");
-    if (booking.status !== "accepted" || typeof booking.assessmentPrice !== "number") throw new Error("Save the assessed service price before starting the repair.");
-    transaction.update(reference, { status: "in_progress", updatedAt: serverTimestamp() });
+    if (booking.status !== "accepted") throw new Error("Only an accepted repair can be marked as arrived.");
+    transaction.update(reference, { status: "vehicle_arrived", updatedAt: serverTimestamp() });
   });
 }
 
-export async function completeHomeGarageRepair(id: string, finalPrice: number) {
-  const amount = validateRecordedPrice(finalPrice);
+export async function updateHomeGarageRepairProgress(id: string, status: "diagnosing" | "repairing") {
   const user = requireUser();
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "bookings", id);
     const snapshot = await transaction.get(reference);
     const booking = snapshot.data();
     if (!snapshot.exists() || booking?.bookingType !== "homegarage" || booking.providerId !== user.uid) throw new Error("Home Garage request not found.");
-    if (booking.status !== "in_progress") throw new Error("Only an in-progress repair can be completed.");
-    transaction.update(reference, { status: "completed", finalPrice: amount, updatedAt: serverTimestamp() });
+    const expected = status === "diagnosing" ? "vehicle_arrived" : "diagnosing";
+    if (booking.status !== expected) throw new Error("This repair has changed. Refresh and try again.");
+    transaction.update(reference, { status, updatedAt: serverTimestamp() });
+  });
+}
+
+export async function completeHomeGarageRepair(id: string, finalPrice: number) {
+  if (!isValidFinalPrice(finalPrice)) throw new Error("Enter a valid final price with up to two decimal places.");
+  const amount = finalPrice;
+  const user = requireUser();
+  await runTransaction(db, async (transaction) => {
+    const reference = doc(db, "bookings", id);
+    const snapshot = await transaction.get(reference);
+    const booking = snapshot.data();
+    if (!snapshot.exists() || booking?.bookingType !== "homegarage" || booking.providerId !== user.uid) throw new Error("Home Garage request not found.");
+    if (!(booking.status === "repairing" || booking.status === "in_progress")) throw new Error("Only a repairing job can be completed.");
+    transaction.update(reference, { status: "completed", finalPrice: amount, completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId,
       bookingType: "homegarage", providerId: user.uid, providerName: booking.providerName, status: "completed",
       message: `${booking.providerName} completed your repair. Final service price: ₱${amount.toLocaleString("en-PH")}.` });
@@ -184,11 +205,15 @@ export async function updateHomeGarageBookingStatus(id: string, status: "accepte
     const booking = snapshot.data();
     if (!snapshot.exists() || booking?.bookingType !== "homegarage") throw new Error("Home Garage request not found.");
     if (status === "cancelled") {
-      if (booking.customerId !== user.uid || booking.status !== "pending") throw new Error("Only a pending request can be cancelled by its customer.");
+      if (booking.customerId !== user.uid || !["pending", "accepted"].includes(booking.status)) throw new Error("After the Home Garage starts the repair, contact the provider to request cancellation.");
+      await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
     } else {
       if (booking.providerId !== user.uid) throw new Error("You are not assigned to this repair request.");
       const allowed: HomeGarageBookingStatus[] = booking.status === "pending" ? ["accepted", "rejected"] : [];
       if (!allowed.includes(status)) throw new Error("This request status has changed. Refresh and try again.");
+      if (status === "accepted" && booking.timingMode === "scheduled" && booking.scheduledAt instanceof Timestamp) {
+        await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
+      }
     }
     transaction.update(reference, { status, updatedAt: serverTimestamp() });
     if (status === "cancelled") {

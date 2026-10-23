@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,6 +19,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { createBooking, getActiveMechanicBooking } from "../../../services/owner/bookingService";
+import { BookingTimingActions, timingActionStyles } from "../../../components/owner/BookingTimingActions";
+import type { BookingTimingInput } from "../../../types/bookingTiming";
+import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
 
 import { colors } from "../../../constants/owner/theme";
 import { MockProvider } from "../../../data/owner/mockProviders";
@@ -46,7 +51,7 @@ const PROBLEM_CATEGORIES = [
 ];
 
 export default function BookMechanicScreen() {
-  const { providerId } = useLocalSearchParams<{ providerId: string }>();
+  const { providerId, initialTimingMode } = useLocalSearchParams<{ providerId: string; initialTimingMode?: "now" | "scheduled" }>();
   const [provider, setProvider] = useState<MockProvider | null>(null);
   const [providerError, setProviderError] = useState("");
   const [checkingExistingBooking, setCheckingExistingBooking] = useState(true);
@@ -74,7 +79,8 @@ export default function BookMechanicScreen() {
         isPositiveStatus: listing.availability === "available", initials: listing.businessName.slice(0, 2).toUpperCase(),
         color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
         description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
-        emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: listing.contactPhone ?? "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
+        emergencyServiceAvailable: listing.emergencyServiceAvailable, acceptsScheduledBookings: listing.acceptsScheduledBookings === true,
+        phone: listing.contactPhone ?? "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
     }).catch(() => { if (active) setProviderError("Unable to load this provider."); });
     return () => { active = false; };
   }, [providerId]);
@@ -103,14 +109,31 @@ export default function BookMechanicScreen() {
   const [isProblemModalVisible, setProblemModalVisible] = useState(false);
 
   const [notes, setNotes] = useState("");
+  const [timing, setTiming] = useState<BookingTimingInput | null>(() => initialTimingMode === "scheduled"
+    ? { timingMode: "scheduled", urgency: "standard" }
+    : initialTimingMode === "now" ? { timingMode: "now", urgency: "standard" } : null);
   const [submitting, setSubmitting] = useState(false);
+  const [reviewVisible, setReviewVisible] = useState(false);
 
   const selectedVehicle = vehicles.find((vehicle) => vehicle.vehicleId === selectedVehicleId) ?? null;
   const isSelectedVehicleCompatible = selectedVehicle
     ? provider?.vehicleTypes.includes(selectedVehicle.type) ?? true
     : true;
 
-  const canConfirm = !!selectedVehicle;
+  const timingAllowed = timing?.timingMode === "scheduled"
+    ? provider?.acceptsScheduledBookings === true
+    : timing?.urgency === "emergency"
+      ? provider?.emergencyServiceAvailable === true && provider.isPositiveStatus
+      : false;
+  const emergencyAvailable = provider?.emergencyServiceAvailable === true && provider.isPositiveStatus;
+  const providerUnavailable = !emergencyAvailable && provider?.acceptsScheduledBookings !== true;
+  const emergencyUnavailableMessage = provider?.emergencyServiceAvailable === true && !provider.isPositiveStatus
+    ? "Emergency unavailable: this mechanic is not available right now."
+    : undefined;
+  const standardNowMessage = providerUnavailable ? undefined
+    : "Now from discovery remains a standard Now selection. Choose a supported option explicitly to continue; it will not be changed to Emergency for you.";
+  const requiredFieldsValid = !!selectedVehicle;
+  const canConfirm = requiredFieldsValid && timingAllowed && isBookingTimingReady(timing);
 
   const handleSelectVehicle = (vehicleId: string) => {
     setSelectedVehicleId(vehicleId);
@@ -144,7 +167,9 @@ export default function BookMechanicScreen() {
       problem: selectedProblem ?? "Other / Unknown Problem",
       notes,
       startingPrice: provider.startingPrice,
+      timing: timing ?? undefined,
     });
+    setReviewVisible(false);
     router.replace({
       pathname: "/(v_owner)/mechanic-booking/booking-detail",
       params: { bookingId: booking.id },
@@ -181,7 +206,8 @@ export default function BookMechanicScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}>
         {/* Provider summary */}
         <View style={styles.providerCard}>
           <View style={[styles.avatar, { backgroundColor: provider.color }]}>
@@ -275,23 +301,39 @@ export default function BookMechanicScreen() {
         />
       </ScrollView>
 
-      {/* Confirm bar */}
-      <SafeAreaView edges={["bottom"]} style={styles.footer}>
+      <SafeAreaView edges={["bottom"]} style={[styles.footer, timingActionStyles.safeFooter]}>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Starting price</Text>
           <Text style={styles.priceValue}>Starts at {provider.startingPrice}</Text>
         </View>
-        {!canConfirm && <Text style={styles.validationText}>Please select a vehicle.</Text>}
-        <Pressable
-          style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
-          onPress={handleConfirm}
-          disabled={!canConfirm || submitting}
-        >
-          <Text style={[styles.confirmButtonText, !canConfirm && styles.confirmButtonTextDisabled]}>
-            {submitting ? "Sending..." : "Confirm Booking"}
-          </Text>
-        </Pressable>
+        <BookingTimingActions value={timing} emergencyAvailable={emergencyAvailable}
+          acceptsScheduled={provider.acceptsScheduledBookings === true} requiredFieldsValid={requiredFieldsValid}
+          reviewDisabled={submitting || !timingAllowed} hideUnsupportedSchedule standardNowMessage={standardNowMessage}
+          emergencyUnavailableMessage={emergencyUnavailableMessage}
+          unavailableMessage={providerUnavailable ? "This mechanic is unavailable for new bookings because no available Emergency service or Schedule is enabled." : undefined}
+          onChange={setTiming}
+          onEmergency={() => { const next = { timingMode: "now" as const, urgency: "emergency" as const }; setTiming(next); if (requiredFieldsValid) setReviewVisible(true); }}
+          onReview={() => setReviewVisible(true)}
+          validationMessage={!selectedVehicle ? "Please select a vehicle." : timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid future hour." : undefined} />
       </SafeAreaView>
+      </KeyboardAvoidingView>
+
+      <Modal visible={reviewVisible} transparent animationType="slide" onRequestClose={() => !submitting && setReviewVisible(false)}>
+        <View style={styles.modalOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
+          <Text style={styles.reviewTitle}>Review Booking</Text>
+          <ScrollView contentContainerStyle={{ gap: 12 }}>
+            <Text style={styles.reviewText}>Provider · {provider.name}</Text>
+            <Text style={styles.reviewText}>Vehicle · {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} · ${selectedVehicle.plateNumber}` : "Select a vehicle"}</Text>
+            <Text style={styles.reviewText}>Problem · {selectedProblem ?? "Other / Unknown Problem"}</Text>
+            {notes.trim() ? <Text style={styles.reviewText}>Notes · {notes}</Text> : null}
+            <Text style={styles.reviewText}>Timing · {timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid hour" : timing ? formatBookingTimingLabel(timing) : "Choose a timing option"}</Text>
+            {timing?.urgency === "emergency" ? <Text style={styles.reviewMuted}>Acceptance and response time are not guaranteed.</Text> : null}
+            {timing?.timingMode === "scheduled" ? <Text style={styles.reviewMuted}>Subject to provider confirmation. This reserves a start window, not service duration.</Text> : null}
+          </ScrollView>
+          <Pressable disabled={!canConfirm || submitting} style={[styles.confirmButton, (!canConfirm || submitting) && styles.confirmButtonDisabled]} onPress={() => void handleConfirm()}><Text style={styles.confirmButtonText}>{submitting ? "Sending..." : "Confirm Booking"}</Text></Pressable>
+          <Pressable disabled={submitting} onPress={() => setReviewVisible(false)} style={styles.reviewCancel}><Text style={styles.validationText}>Back to edit</Text></Pressable>
+        </SafeAreaView></View>
+      </Modal>
 
       {/* Change Vehicle modal */}
       <Modal
@@ -472,6 +514,11 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   confirmButtonTextDisabled: { color: colors.textMuted },
+  reviewSheet: { maxHeight: "82%", backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, gap: 12 },
+  reviewTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "800" },
+  reviewText: { color: colors.textPrimary, fontSize: 14, lineHeight: 21 },
+  reviewMuted: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  reviewCancel: { minHeight: 36, alignItems: "center", justifyContent: "center" },
 
   // Shared bottom-sheet modal (Vehicle + Problem)
   modalOverlay: {

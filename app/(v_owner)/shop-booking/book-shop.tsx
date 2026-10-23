@@ -7,20 +7,23 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ShopBookingScreen, styles as s } from "../../../components/owner/ShopBookingScreen";
 import { useMyLocation } from "../../../hooks/useMyLocation";
 import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
-import { getPublicProviderListing } from "../../../services/publicProviderListingService";
+import { subscribeToBookableShopListing } from "../../../services/publicProviderListingService";
 import { createShopBooking } from "../../../services/shopOwnerService";
 import type { SavedVehicle } from "../../../types/owner/vehicle";
-import { isBookableShopListing, type ProviderListing } from "../../../types/providerListing";
+import type { ProviderListing } from "../../../types/providerListing";
+import { BookingTimingActions } from "../../../components/owner/BookingTimingActions";
+import type { BookingTimingInput } from "../../../types/bookingTiming";
+import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
 
 const C = { background: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", line: "#28313A", red: "#F52239" };
 
 export default function BookShopScreen() {
-  const { providerId } = useLocalSearchParams<{ providerId?: string | string[] }>();
+  const { providerId, initialTimingMode } = useLocalSearchParams<{ providerId?: string | string[]; initialTimingMode?: "now" | "scheduled" }>();
   const id = Array.isArray(providerId) ? providerId[0] : providerId;
-  return <ShopBookingForm key={id} providerId={id} />;
+  return <ShopBookingForm key={id} providerId={id} initialTimingMode={initialTimingMode} />;
 }
 
-function ShopBookingForm({ providerId }: { providerId?: string }) {
+function ShopBookingForm({ providerId, initialTimingMode }: { providerId?: string; initialTimingMode?: "now" | "scheduled" }) {
   const router = useRouter();
   const focused = useIsFocused();
   const [provider, setProvider] = useState<ProviderListing | null>(null);
@@ -32,6 +35,7 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
   const [vehicleId, setVehicleId] = useState("");
   const [problem, setProblem] = useState("");
   const [notes, setNotes] = useState("");
+  const [timing, setTiming] = useState<BookingTimingInput>(() => ({ timingMode: initialTimingMode === "scheduled" ? "scheduled" : "now", urgency: "standard" }));
   const [modal, setModal] = useState<"vehicle" | "review" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,18 +47,21 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
 
   useEffect(() => {
     if (!focused) return;
-    let active = true;
     setLoading(true); setProviderError(null);
     if (!providerId) { setProviderError("No shop selected. Choose an Auto Shop from Home."); setLoading(false); return; }
-    getPublicProviderListing(providerId).then((listing) => {
-      if (!active) return;
-      if (!isBookableShopListing(listing) || listing.providerId !== providerId) {
+    return subscribeToBookableShopListing(providerId, (listing) => {
+      if (!listing) {
         setProvider(null); setProviderError("This shop is no longer available. Choose another Auto Shop.");
-      } else setProvider(listing);
-    }).catch(() => { if (active) { setProvider(null); setProviderError("Unable to load this shop. It may no longer be publicly available."); } })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [providerId, attempt, focused]);
+      } else {
+        setProvider(listing); setProviderError(null);
+      }
+      setLoading(false);
+    }, () => {
+      setProvider(null);
+      setProviderError("Unable to load this shop. It may no longer be publicly available.");
+      setLoading(false);
+    }, initialTimingMode === "scheduled");
+  }, [providerId, attempt, focused, initialTimingMode]);
 
   useEffect(() => {
     setVehicleLoading(true); setVehicleError(null);
@@ -66,15 +73,18 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
     } catch (cause) { setVehicleError((cause as Error).message); setVehicleLoading(false); }
   }, [attempt]);
 
-  const canSubmit = Boolean(provider && vehicle && problem.trim() && !loading && !providerError && !vehicleLoading && !vehicleError
+  const requiredFieldsValid = Boolean(provider && vehicle && problem.trim() && !loading && !providerError && !vehicleLoading && !vehicleError
     && location.location && !location.error && !location.loading);
+  const timingAllowed = timing.timingMode === "scheduled" ? provider?.acceptsScheduledBookings === true
+    : timing.urgency === "emergency" ? provider?.emergencyServiceAvailable === true : true;
+  const canSubmit = Boolean(requiredFieldsValid && timingAllowed && isBookingTimingReady(timing));
   async function submit() {
     if (lock.current || !canSubmit || !provider || !vehicle || !location.location) return;
     lock.current = true; setSaving(true); setError(null);
     try {
       const id = submittedId.current ?? await createShopBooking({ providerId: provider.providerId, providerName: provider.businessName,
         vehicleId: vehicle.vehicleId, vehicle: `${vehicle.make} ${vehicle.model}`, vehicleYear: vehicle.year, vehiclePlate: vehicle.plateNumber,
-        problem, notes, latitude: location.location.lat, longitude: location.location.lng, startingPrice: "Price on assessment" });
+        problem, notes, latitude: location.location.lat, longitude: location.location.lng, startingPrice: "Price on assessment", timing });
       submittedId.current = id;
       setModal(null);
       router.replace({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: id } });
@@ -82,7 +92,12 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
     finally { lock.current = false; setSaving(false); }
   }
 
-  return <ShopBookingScreen title="Request Auto Shop Service">
+  return <ShopBookingScreen title="Request Auto Shop Service" footer={provider && !loading ? <BookingTimingActions value={timing}
+    emergencyAvailable={provider.emergencyServiceAvailable === true} acceptsScheduled={provider.acceptsScheduledBookings === true}
+    requiredFieldsValid={requiredFieldsValid} reviewDisabled={saving} onChange={setTiming}
+    onEmergency={() => { const next = { timingMode: "now" as const, urgency: "emergency" as const }; setTiming(next); setError(null); if (requiredFieldsValid) setModal("review"); }}
+    onReview={() => { setError(null); setModal("review"); }}
+    validationMessage={!vehicle ? "Select a vehicle." : !problem.trim() ? "Describe the service problem." : !location.location ? location.error || "Waiting for your location." : timing.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid future hour." : undefined} /> : undefined}>
     <RequestLoadState loading={loading} error={providerError} retry={() => setAttempt((value) => value + 1)} />
     {providerError && <RequestButton title="Choose Another Shop" secondary onPress={() => router.replace("/(v_owner)")} />}
     {provider && !loading && !providerError && <>
@@ -106,8 +121,9 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
       <TextInput accessibilityLabel="Additional notes" style={s.input} value={notes} onChangeText={setNotes} maxLength={1000} multiline placeholder="Any other information for the shop" placeholderTextColor={C.muted} />
       <Text style={s.label}>Your Location</Text><Text style={s.sectionSubtitle}>Shared with the shop with your request.</Text>
       <View style={s.addressCard}><Ionicons name="location-outline" size={20} color={C.red} /><View style={{ flex: 1, gap: 4 }}><Text style={s.addressLabel}>Current location</Text><Text style={s.addressValue}>{location.loading ? "Finding your location�" : location.error || (location.location ? `${location.location.lat.toFixed(6)}, ${location.location.lng.toFixed(6)}` : "Location not available")}</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh location" disabled={location.loading} onPress={() => void location.refresh()}><Ionicons name="refresh-outline" size={20} color={C.red} /></TouchableOpacity></View>
+
       {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
-      <RequestButton title="Review Request" disabled={!canSubmit || saving} onPress={() => { setError(null); setModal("review"); }} />
+
     </>}
     <Modal visible={modal !== null} transparent animationType="slide" onRequestClose={() => { if (!saving) setModal(null); }}>
       <View style={s.modalOverlay}><SafeAreaView style={s.modalSheet} edges={["bottom"]}>
@@ -119,8 +135,9 @@ function ShopBookingForm({ providerId }: { providerId?: string }) {
           </Pressable>) : <>
             <RequestInfo label="Shop" value={provider?.businessName ?? ""} /><RequestInfo label="Vehicle" value={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}` : "Vehicle no longer available"} />
             <RequestInfo label="Problem" value={problem} />{notes.trim() && <RequestInfo label="Notes" value={notes} />}
-            <Text style={s.muted}>The shop will review your request and accept or reject it. This does not reserve a date or time. Bring the vehicle only after acceptance. Agree on the final repair cost with the shop after its assessment.</Text>
-            {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
+            <RequestInfo label="Timing" value={formatBookingTimingLabel(timing)} />
+            <Text style={s.muted}>The shop will review your request. Scheduled times are subject to provider confirmation and reserve a start window, not service duration. Bring the vehicle only after acceptance. Agree on the final repair cost with the shop after its assessment.</Text>
+      {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
             <RequestButton title={saving ? "Sending…" : "Confirm Request"} disabled={!canSubmit || saving} onPress={() => void submit()} />
           </>}
         </ScrollView>

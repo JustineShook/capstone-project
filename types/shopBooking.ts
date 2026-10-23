@@ -1,13 +1,15 @@
 import type { BookingRequest } from "./owner/booking";
+import type { BookingTimingFields } from "./bookingTiming";
 
 export const SHOP_STATUS_FLOW = [
   "pending", "accepted", "vehicle_arrived", "diagnosing", "repairing", "completed",
 ] as const;
 
 export type ShopBookingStatus = typeof SHOP_STATUS_FLOW[number] | "rejected" | "cancelled";
-export type ShopBookingRequest = Omit<BookingRequest, "bookingType" | "status"> & {
+export type ShopBookingRequest = Omit<BookingRequest, "bookingType" | "status"> & BookingTimingFields & {
   bookingType: "shop-owner";
   status: ShopBookingStatus;
+  finalPrice?: number;
   completionNote?: string;
   // Public shop location captured at booking time, available even if a listing is removed.
   shopLatitude?: number;

@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
 import { ServiceProgress } from "../../../components/owner/ServiceProgress";
+import { BookingTimingBanner } from "../../../components/owner/BookingTimingBanner";
 import { getBookingById } from "../../../services/owner/bookingService";
 import { BOOKING_STATUS_FLOW, BookingRequest, getBookingStatusLabel, getBookingStatusShortLabel } from "../../../types/owner/booking";
 
@@ -62,6 +63,9 @@ export default function BookingConfirmationScreen() {
         <Text style={styles.subtitle}>
           Your service request has been sent to {provider?.name ?? "the provider"}.
         </Text>
+        <View style={styles.card}>
+          <BookingTimingBanner booking={booking} />
+        </View>
 
         {vehicle && (
           <View style={styles.card}>

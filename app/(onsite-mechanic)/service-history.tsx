@@ -11,8 +11,7 @@ const C = { canvas: "#08090B", card: "#191A1D", text: "#ECE8E6", muted: "#B4AFAD
 type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
 function isCancelled(status: BookingRequest["status"]) { return status === "cancelled" || status === "rejected"; }
 function historyDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
-function amount(value: string) { return Number(value.replace(/[^\d.]/g, "")) || 0; }
-function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value); }
+function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
 
 export default function MechanicHistoryScreen() {
   const router = useRouter();
@@ -33,7 +32,7 @@ export default function MechanicHistoryScreen() {
       return matchesFilter && matchesSearch;
     });
   }, [history, filter, search]);
-  const completedEarnings = history.filter((booking) => booking.status === "completed").reduce((sum, booking) => sum + amount(booking.startingPrice), 0);
+  const completedEarnings = history.filter((booking) => booking.status === "completed" && typeof booking.finalPrice === "number").reduce((sum, booking) => sum + booking.finalPrice!, 0);
 
   return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
     <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
@@ -49,11 +48,11 @@ export default function MechanicHistoryScreen() {
       <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : "Cancelled"}</Text></TouchableOpacity>)}</View>
       {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name={search ? "search" : "clock"} size={27} color="#FF8995" /></View><Text style={s.emptyTitle}>{search ? "No matches this time" : "Your story starts here"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or service." : "Finished and cancelled services will be collected here so you can look back anytime."}</Text><View style={s.emptyAccent}><Feather name="archive" size={14} color="#76C9FF" /><Text style={s.emptyAccentText}>History stays organized in one place</Text></View></View> : visible.map((booking) => <View key={booking.id} style={s.card}>
         <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={21} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{booking.status === "completed" ? "Completed" : "Cancelled"}</Text></View></View>
-        <View style={s.infoRow}><Feather name="calendar" size={19} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.updatedAt || booking.createdAt)}</Text></View>
+        <View style={s.infoRow}><Feather name="calendar" size={19} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.completedAt || booking.updatedAt || booking.createdAt)}</Text></View>
         <View style={s.infoRow}><Feather name="tool" size={19} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={2}>{booking.problem || "Mechanic service"}</Text></View>
         <View style={s.infoRow}><Feather name="map-pin" size={19} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={2}>{booking.customerAddress || "Customer location"}</Text></View>
         {booking.status === "cancelled" ? <View style={s.cancelledNote}><Feather name="info" size={16} color="#FF8995" /><Text style={s.cancelledNoteText}>The customer cancelled this service. No further action is needed.</Text></View> : null}
-        {booking.status === "completed" ? <View style={s.amountRow}><Text style={s.amountLabel}>Service amount</Text><Text style={s.amountValue}>{booking.startingPrice}</Text></View> : null}
+        {booking.status === "completed" ? <View style={s.amountRow}><Text style={s.amountLabel}>Final Price</Text><Text style={s.amountValue}>{typeof booking.finalPrice === "number" ? peso(booking.finalPrice) : "Final price not recorded"}</Text></View> : null}
         <TouchableOpacity style={s.detailsButton} onPress={() => router.push({ pathname: "/(onsite-mechanic)/request-details", params: { id: booking.id } })} activeOpacity={0.75}><Text style={s.detailsText}>View Details</Text><Feather name="chevron-right" size={19} color="#FFFFFF" /></TouchableOpacity>
       </View>)}
     </ScrollView>

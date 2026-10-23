@@ -3,28 +3,34 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator, Alert, BackHandler, Linking, Pressable, ScrollView, StatusBar,
-  StyleSheet, Text, TextInput, TouchableOpacity, View,
+  StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CancelRequestModal } from "./CancelRequestModal";
+import { FinalPriceCompletionModal } from "../provider/FinalPriceCompletionModal";
+import { BookingTimingBanner } from "./BookingTimingBanner";
 import { CustomerRating } from "./CustomerRating";
 import { ServiceProgress } from "./ServiceProgress";
 import { colors } from "../../constants/owner/theme";
 import { getPublicProviderListing } from "../../services/publicProviderListingService";
 import {
   completeHomeGarageRepair, saveHomeGarageAssessmentPrice, startHomeGarageRepair,
-  subscribeToHomeGarageBooking, updateHomeGarageBookingStatus,
+  subscribeToHomeGarageBooking, updateHomeGarageBookingStatus, updateHomeGarageRepairProgress,
 } from "../../services/homeGarageBookingService";
 import type { HomeGarageBooking, HomeGarageBookingStatus } from "../../types/homeGarageBooking";
+import { formatPesoAmount } from "../../utils/finalPrice";
 
 const FLOW: { key: HomeGarageBookingStatus; label: string }[] = [
   { key: "pending", label: "Pending" },
   { key: "accepted", label: "Accepted" },
-  { key: "in_progress", label: "In Progress" },
+  { key: "vehicle_arrived", label: "Vehicle Arrived" },
+  { key: "diagnosing", label: "Diagnosing" },
+  { key: "repairing", label: "Repairing" },
   { key: "completed", label: "Completed" },
 ];
 const LABELS: Record<HomeGarageBookingStatus, string> = {
-  pending: "Waiting for Home Garage", accepted: "Request Accepted", in_progress: "Repair In Progress",
+  pending: "Waiting for Home Garage", accepted: "Request Accepted", vehicle_arrived: "Vehicle Arrived",
+  diagnosing: "Diagnosing", repairing: "Repairing", in_progress: "In Progress (legacy)",
   rejected: "Request Declined", completed: "Repair Completed", cancelled: "Request Cancelled",
 };
 
@@ -48,7 +54,7 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
   const [mapError, setMapError] = useState("");
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
   const [assessmentPriceInput, setAssessmentPriceInput] = useState("");
-  const [finalPriceInput, setFinalPriceInput] = useState("");
+  const [completionFormVisible, setCompletionFormVisible] = useState(false);
   const returnToHistory = useCallback(() => router.replace("/(v_owner)/history"), [router]);
 
   useFocusEffect(useCallback(() => {
@@ -62,7 +68,6 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
     return subscribeToHomeGarageBooking(id, (item) => {
       setBooking(item);
       setAssessmentPriceInput(item?.assessmentPrice != null ? String(item.assessmentPrice) : "");
-      setFinalPriceInput(item?.finalPrice != null ? String(item.finalPrice) : item?.assessmentPrice != null ? String(item.assessmentPrice) : "");
       setLoading(false);
     }, (cause) => { setError(cause.message); setLoading(false); });
   }, [id]);
@@ -102,11 +107,18 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
     finally { setBusy(false); }
   }
 
-  function confirmFinalPrice() {
-    const price = parsePrice(finalPriceInput);
-    if (price == null) { Alert.alert("Final price required", "Enter a valid final service price with up to two decimal places."); return; }
-    Alert.alert("Confirm final price", `Record ${formatPrice(price)} and mark this repair completed?`, [
-      { text: "Review price", style: "cancel" },
+  async function progressRepair(status: "diagnosing" | "repairing") {
+    if (!id || busy) return;
+    setBusy(true);
+    try { await updateHomeGarageRepairProgress(id, status); }
+    catch (cause) { Alert.alert("Repair status not updated", cause instanceof Error ? cause.message : "Please try again."); }
+    finally { setBusy(false); }
+  }
+
+  function reviewFinalPrice(price: number) {
+    setCompletionFormVisible(false);
+    Alert.alert("Confirm repair completion", `Final Price: ${formatPesoAmount(price)}\n\nThis records the service charge only. It does not mark the booking paid or process a payment.`, [
+      { text: "Review amount", style: "cancel", onPress: () => setCompletionFormVisible(true) },
       { text: "Confirm & Complete", onPress: () => { void finishRepair(price); } },
     ]);
   }
@@ -143,7 +155,7 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
   if (loading) return <View style={s.loadingRoot}><StatusBar barStyle="light-content" backgroundColor={colors.background} /><ActivityIndicator color={colors.primary} /></View>;
   if (!booking) return <View style={s.loadingRoot}><StatusBar barStyle="light-content" backgroundColor={colors.background} /><Text style={s.notFoundText}>{error || "This request could not be found."}</Text><Pressable onPress={providerMode ? () => router.back() : returnToHistory} style={s.retryButton}><Text style={s.retryText}>Go Back</Text></Pressable></View>;
 
-  const currentStep = FLOW.findIndex((step) => step.key === booking.status);
+  const currentStep = booking.status === "in_progress" ? -1 : FLOW.findIndex((step) => step.key === booking.status);
   const isTerminalStatus = booking.status === "cancelled" || booking.status === "rejected";
   const vehicleSummary = `${booking.vehicleYear} ${booking.vehicle}${booking.vehiclePlate ? ` · ${booking.vehiclePlate}` : ""}`;
   const garageCoordinates = Number.isFinite(booking.garageLatitude) && Number.isFinite(booking.garageLongitude)
@@ -176,8 +188,12 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             <Pressable style={s.actionButton} onPress={() => void (providerMode ? contactCustomer("sms") : contactProvider("sms"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Message customer" : "Message Home Garage"}><Ionicons name="chatbubble" size={16} color={colors.white} /></Pressable>
           </View>
         </View>
-        <ServiceProgress steps={FLOW} currentStep={currentStep} terminalLabel={isTerminalStatus ? LABELS[booking.status] : undefined} />
-        {!providerMode && booking.status === "pending" && <Pressable style={[s.cancelRequestButton, busy && s.cancelRequestButtonDisabled]} onPress={() => setShowCancelConfirmation(true)} disabled={busy} accessibilityRole="button" accessibilityLabel="Cancel Home Garage request"><Text style={s.cancelRequestButtonText}>Cancel Request</Text></Pressable>}
+        {booking.status === "in_progress"
+          ? <View style={s.detailCard}><Text style={s.detailCardTitle}>Legacy service progress</Text><Text style={s.priceHint}>This existing booking keeps its original In Progress status. The provider can finish it through the final-price confirmation.</Text></View>
+          : <ServiceProgress steps={FLOW} currentStep={currentStep} terminalLabel={isTerminalStatus ? LABELS[booking.status] : undefined} />}
+        <BookingTimingBanner booking={booking} />
+        {!providerMode && ["pending", "accepted"].includes(booking.status) && <Pressable style={[s.cancelRequestButton, busy && s.cancelRequestButtonDisabled]} onPress={() => setShowCancelConfirmation(true)} disabled={busy} accessibilityRole="button" accessibilityLabel="Cancel Home Garage request"><Text style={s.cancelRequestButtonText}>Cancel Request</Text></Pressable>}
+        {!providerMode && !["pending", "accepted"].includes(booking.status) && booking.status !== "completed" && !isTerminalStatus && <Text style={s.priceHint}>After the provider marks Vehicle Arrived, contact the Home Garage to request cancellation.</Text>}
       </View>
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
@@ -200,19 +216,14 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             {booking.notes ? <DetailRow icon="document-text-outline" label="Notes" value={booking.notes} /> : null}
             <DetailRow icon="cash-outline" label="Starting Price" value={booking.startingPrice || "Price on assessment"} last={booking.assessmentPrice == null && booking.finalPrice == null} />
             {booking.assessmentPrice != null ? <DetailRow icon="calculator-outline" label="Assessed Price" value={formatPrice(booking.assessmentPrice)} last={booking.finalPrice == null} /> : null}
-            {booking.finalPrice != null ? <DetailRow icon="cash-outline" label="Final Price" value={formatPrice(booking.finalPrice)} last /> : null}
+            {booking.status === "completed" ? <DetailRow icon="cash-outline" label="Final Price" value={typeof booking.finalPrice === "number" ? formatPrice(booking.finalPrice) : "Final price not recorded"} last /> : null}
           </View>
           {booking.status === "accepted" && <View style={s.detailCard}>
             <Text style={s.detailCardTitle}>Service Assessment</Text>
-            <Text style={s.priceHint}>Enter and save the assessed service price before starting the repair.</Text>
+            <Text style={s.priceHint}>Assessment is optional and stays separate from the final service price.</Text>
             <TextInput accessibilityLabel="Assessed service price" value={assessmentPriceInput} onChangeText={setAssessmentPriceInput} keyboardType="decimal-pad" placeholder="Enter amount in PHP" placeholderTextColor={colors.textMuted} style={s.priceInput} />
             <Pressable style={[s.providerSecondaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void saveAssessment()}><Text style={s.providerSecondaryText}>{busy ? "Saving…" : "Save Assessed Price"}</Text></Pressable>
             {booking.assessmentPrice != null && <Text style={s.savedPrice}>Saved assessment: {formatPrice(booking.assessmentPrice)}</Text>}
-          </View>}
-          {booking.status === "in_progress" && <View style={s.detailCard}>
-            <Text style={s.detailCardTitle}>Final Service Price</Text>
-            {booking.assessmentPrice != null && <Text style={s.priceHint}>Assessed price: {formatPrice(booking.assessmentPrice)}. Confirm it or enter the final amount.</Text>}
-            <TextInput accessibilityLabel="Final service price" value={finalPriceInput} onChangeText={setFinalPriceInput} keyboardType="decimal-pad" placeholder="Enter final amount in PHP" placeholderTextColor={colors.textMuted} style={s.priceInput} />
           </View>}
           <View style={s.detailCard}>
             <Text style={s.detailCardTitle}>Booking Information</Text>
@@ -224,8 +235,10 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             <Pressable style={[s.providerSecondaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void update("rejected")}><Text style={s.providerSecondaryText}>Decline</Text></Pressable>
             <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void update("accepted")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Accept Request"}</Text></Pressable>
           </View>}
-          {booking.status === "accepted" && <Pressable style={[s.providerPrimaryButton, (busy || booking.assessmentPrice == null) && s.cancelRequestButtonDisabled]} disabled={busy || booking.assessmentPrice == null} onPress={() => void startRepair()}><Text style={s.cancelRequestButtonText}>{busy ? "Starting…" : "Start Repair"}</Text></Pressable>}
-          {booking.status === "in_progress" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={confirmFinalPrice}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Confirm Final Price & Complete"}</Text></Pressable>}
+          {booking.status === "accepted" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void startRepair()}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Mark Vehicle Arrived"}</Text></Pressable>}
+          {booking.status === "vehicle_arrived" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void progressRepair("diagnosing")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Start Diagnosing"}</Text></Pressable>}
+          {booking.status === "diagnosing" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void progressRepair("repairing")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Start Repairing"}</Text></Pressable>}
+          {(booking.status === "repairing" || booking.status === "in_progress") && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => setCompletionFormVisible(true)}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Complete Service"}</Text></Pressable>}
         </> : <>
           {booking.status === "completed" && <CustomerRating bookingId={booking.id} bookingType="homegarage" providerName={booking.providerName} variant="towing" />}
           <View style={s.detailCard}>
@@ -247,7 +260,7 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             {booking.completionNote ? <DetailRow icon="chatbox-ellipses-outline" label="Garage Note" value={booking.completionNote} /> : null}
             <DetailRow icon="cash-outline" label="Starting Price" value={booking.startingPrice || "Price on assessment"} last={booking.assessmentPrice == null && booking.finalPrice == null} />
             {booking.assessmentPrice != null ? <DetailRow icon="calculator-outline" label="Assessed Price" value={formatPrice(booking.assessmentPrice)} last={booking.finalPrice == null} /> : null}
-            {booking.finalPrice != null ? <DetailRow icon="cash-outline" label="Final Price" value={formatPrice(booking.finalPrice)} last /> : null}
+            {booking.status === "completed" ? <DetailRow icon="cash-outline" label="Final Price" value={typeof booking.finalPrice === "number" ? formatPrice(booking.finalPrice) : "Final price not recorded"} last /> : null}
           </View>
           <View style={s.detailCard}>
             <Text style={s.detailCardTitle}>Location Details</Text>
@@ -267,7 +280,8 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
         </>}
       </ScrollView>
 
-      {!providerMode && <CancelRequestModal visible={showCancelConfirmation} serviceName="Home Garage" explanation="You can cancel while the Home Garage has not started the repair." isCancelling={busy} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => void update("cancelled")} />}
+      {!providerMode && <CancelRequestModal visible={showCancelConfirmation} serviceName="Home Garage repair" explanation="You can cancel before the provider marks Vehicle Arrived. After that, contact the provider to request cancellation." isCancelling={busy} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => void update("cancelled")} />}
+      {providerMode && <FinalPriceCompletionModal visible={completionFormVisible} estimatedPrice={booking.assessmentPrice} referencePriceLabel="Assessed Price" saving={busy} onCancel={() => setCompletionFormVisible(false)} onReview={reviewFinalPrice} />}
     </View>
   );
 }

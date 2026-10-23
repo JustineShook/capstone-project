@@ -57,10 +57,12 @@ async function canBookAsOwner(onVerificationRequired: () => void): Promise<boole
 export function ProviderDetailCard({
   provider,
   distanceKm,
+  timingMode = "now",
   onClose,
 }: {
   provider: MockProvider;
   distanceKm?: number;
+  timingMode?: "now" | "scheduled";
   onClose: () => void;
 }) {
   const badge = getCategoryBadge(provider.category);
@@ -68,15 +70,23 @@ export function ProviderDetailCard({
   const [hasActiveTowingBooking, setHasActiveTowingBooking] = useState(false);
   const [hasActiveHomeGarageBooking, setHasActiveHomeGarageBooking] = useState(false);
   const hasActiveRequest = hasActiveMechanicBooking || hasActiveTowingBooking || hasActiveHomeGarageBooking;
+  const eligibleForTiming = timingMode === "scheduled"
+    ? provider.acceptsScheduledBookings === true
+    : provider.isPositiveStatus
+      && (provider.category !== "Onsite Mechanics" || provider.emergencyServiceAvailable === true);
+  const mechanicHasBookingOption = provider.category === "Onsite Mechanics"
+    && (provider.emergencyServiceAvailable === true || provider.acceptsScheduledBookings === true);
+  const canOpenMechanicBooking = timingMode === "scheduled"
+    ? provider.acceptsScheduledBookings === true
+    : provider.isPositiveStatus && mechanicHasBookingOption;
   const showBookButton = supportsBooking(provider.category)
     && (provider.category === "Onsite Mechanics"
-      ? (provider.isPositiveStatus || hasActiveMechanicBooking)
+      ? (canOpenMechanicBooking || hasActiveMechanicBooking)
       : provider.category === "Towing"
-        ? (provider.isPositiveStatus || hasActiveTowingBooking)
+        ? (eligibleForTiming || hasActiveTowingBooking)
         : provider.category === "Parking Lots"
-          ? (provider.isPositiveStatus || hasActiveHomeGarageBooking)
-        : provider.isPositiveStatus)
-    && (provider.category !== "Auto Shops" || provider.emergencyServiceAvailable === true);
+          ? (eligibleForTiming || hasActiveHomeGarageBooking)
+        : eligibleForTiming);
   const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
   const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
   const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
@@ -141,12 +151,12 @@ export function ProviderDetailCard({
         router.push({ pathname: "/(v_owner)/mechanic-booking/booking-detail", params: { bookingId: existing.id } });
         return;
       }
-      if (!provider.isPositiveStatus) {
+      if (!canOpenMechanicBooking) {
         Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
         return;
       }
       if (!(await checkBookingAccess())) return;
-      router.push({ pathname: "/(v_owner)/mechanic-booking/book-mechanic", params: { providerId: provider.id } });
+      router.push({ pathname: "/(v_owner)/mechanic-booking/book-mechanic", params: { providerId: provider.id, initialTimingMode: timingMode } });
       return;
     }
     if (provider.category === "Towing") {
@@ -155,12 +165,12 @@ export function ProviderDetailCard({
         router.push({ pathname: "/(v_owner)/towing-booking/booking-detail", params: { bookingId: existing.id } });
         return;
       }
-      if (!provider.isPositiveStatus) {
+      if (!eligibleForTiming) {
         Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
         return;
       }
       if (!(await checkBookingAccess())) return;
-      router.push({ pathname: "/(v_owner)/towing-booking/book-towing", params: { providerId: provider.id } });
+      router.push({ pathname: "/(v_owner)/towing-booking/book-towing", params: { providerId: provider.id, initialTimingMode: timingMode } });
       return;
     }
     if (provider.category === "Auto Shops") {
@@ -169,25 +179,25 @@ export function ProviderDetailCard({
         router.push({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: existing.id } });
         return;
       }
-      if (!provider.isPositiveStatus) {
+      if (!eligibleForTiming) {
         Alert.alert("Shop unavailable", "This shop is closed or unavailable right now.");
         return;
       }
       if (!(await checkBookingAccess())) return;
-      router.push({ pathname: "/(v_owner)/shop-booking/book-shop", params: { providerId: provider.id } });
+      router.push({ pathname: "/(v_owner)/shop-booking/book-shop", params: { providerId: provider.id, initialTimingMode: timingMode } });
       return;
     }
     if (provider.category === "Parking Lots") {
       const existing = await getActiveHomeGarageBooking(provider.id);
-      if (!existing && !provider.isPositiveStatus) {
+      if (!existing && !eligibleForTiming) {
         Alert.alert("Home Garage unavailable", "This Home Garage is offline or unavailable right now.");
         return;
       }
       if (!existing && !(await checkBookingAccess())) return;
-      router.push({ pathname: existing ? "/(v_owner)/homegarage-booking/booking-detail" : "/(v_owner)/homegarage-booking/book-homegarage", params: existing ? { bookingId: existing.id } : { providerId: provider.id } });
+      router.push({ pathname: existing ? "/(v_owner)/homegarage-booking/booking-detail" : "/(v_owner)/homegarage-booking/book-homegarage", params: existing ? { bookingId: existing.id } : { providerId: provider.id, initialTimingMode: timingMode } });
       return;
     }
-    if (!provider.isPositiveStatus) {
+    if (!eligibleForTiming) {
       Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
       return;
     }
@@ -381,6 +391,9 @@ export function ProviderDetailCard({
 
       {/* Keep directions and contact/booking actions reachable while details scroll. */}
       <View style={styles.fixedActions}>
+        {provider.category === "Onsite Mechanics" && !mechanicHasBookingOption && !hasActiveMechanicBooking && (
+          <Text style={styles.unavailable}>Unavailable for new bookings: Emergency is off and Schedule is disabled.</Text>
+        )}
         {(provider.category === "Auto Shops" || provider.category === "Parking Lots") && (
           <Pressable style={styles.directionsButton} onPress={() => void openDirections()} accessibilityRole="button" accessibilityLabel={`Get directions to ${provider.name}`}>
             <Ionicons name="navigate-outline" size={18} color={colors.primary} />
@@ -398,7 +411,7 @@ export function ProviderDetailCard({
             </Pressable>
             {showBookButton && (
               <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
-                <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Book Service" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
+                <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Book Service" : provider.category === "Auto Shops" ? "Request Service" : provider.category === "Onsite Mechanics" && timingMode === "now" ? "Booking" : "Book Service"}</Text>
               </Pressable>
             )}
           </View>
@@ -415,7 +428,7 @@ export function ProviderDetailCard({
             </Text>
             {showBookButton && (
               <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
-                <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Book Service" : provider.category === "Auto Shops" ? "Request Service" : "Book Service"}</Text>
+                <Text style={styles.bookButtonText}>{hasActiveRequest ? "View Request Status" : provider.category === "Parking Lots" ? "Book Service" : provider.category === "Auto Shops" ? "Request Service" : provider.category === "Onsite Mechanics" && timingMode === "now" ? "Booking" : "Book Service"}</Text>
               </Pressable>
             )}
           </>

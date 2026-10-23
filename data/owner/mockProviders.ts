@@ -133,6 +133,7 @@ export interface MockProvider {
   services: string[];
   hours: string;
   emergencyServiceAvailable?: boolean;
+  acceptsScheduledBookings?: boolean;
   phone: string;
   vehicleTypes: VehicleType[];
   reviews: ProviderReview[];

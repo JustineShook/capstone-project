@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const C = { background: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", border: "#28313A", red: "#F52239" };
 
-export function ShopBookingScreen({ title, children, scrollable = true, onBack }: { title: string; children: ReactNode; scrollable?: boolean; onBack?: () => void }) {
+export function ShopBookingScreen({ title, children, footer, scrollable = true, onBack }: { title: string; children: ReactNode; footer?: ReactNode; scrollable?: boolean; onBack?: () => void }) {
   const router = useRouter();
   return <SafeAreaView style={styles.root} edges={["top"]}>
     <StatusBar barStyle="light-content" backgroundColor={C.background} />
@@ -17,6 +17,7 @@ export function ShopBookingScreen({ title, children, scrollable = true, onBack }
     </View>
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       {scrollable ? <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}>{children}</ScrollView> : <View style={styles.fixedContent}>{children}</View>}
+      {footer ? <SafeAreaView edges={["bottom"]} style={styles.footer}>{footer}</SafeAreaView> : null}
     </KeyboardAvoidingView>
   </SafeAreaView>;
 }
@@ -26,6 +27,7 @@ export const styles = StyleSheet.create({
   header: { paddingHorizontal: 17, paddingVertical: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.background },
   headerTitle: { fontSize: 19, fontWeight: "700", color: C.text },
   content: { padding: 18, paddingBottom: 40, gap: 12 },
+  footer: { backgroundColor: C.background, borderTopWidth: 1, borderTopColor: C.border },
   fixedContent: { flex: 1, minHeight: 0, padding: 16, gap: 12 },
   card: { borderWidth: 1, borderColor: C.border, backgroundColor: C.card, borderRadius: 14, padding: 16, gap: 11 },
   providerCard: { flexDirection: "row", alignItems: "center", gap: 14, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, borderRadius: 14, padding: 16 },

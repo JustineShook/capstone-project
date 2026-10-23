@@ -11,6 +11,7 @@ type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
 function isCancelled(status: HomeGarageBooking["status"]) { return status === "cancelled" || status === "rejected"; }
 function dateLabel(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
 function recordedPrice(item: HomeGarageBooking) {
+  if (item.status === "completed" && item.finalPrice == null) return "Final price not recorded";
   if (item.finalPrice != null) return `Final service price: ₱${item.finalPrice.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (item.assessmentPrice != null) return `Assessed price: ₱${item.assessmentPrice.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return "";
@@ -58,7 +59,7 @@ export default function HomeGarageHistory() {
 
       {loading ? <View style={s.empty}><ActivityIndicator size="large" color={C.red} /><Text style={s.emptyTitle}>Loading repair history…</Text></View> : error ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="alert-circle" size={28} color={C.red} /></View><Text style={s.emptyTitle}>{error}</Text></View> : visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={28} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No repair history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or repair." : "Completed and cancelled repair requests will appear here."}</Text></View> : visible.map((item) => <View key={item.id} style={s.card}>
         <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color={C.text} /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{item.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{item.vehicleYear} {item.vehicle} · {item.vehiclePlate}</Text></View></View><View style={[s.status, item.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{item.status === "completed" ? "Completed" : item.status === "rejected" ? "Declined" : "Cancelled"}</Text></View></View>
-        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{dateLabel(item.updatedAt || item.createdAt)}</Text></View>
+        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{dateLabel(item.completedAt || item.updatedAt || item.createdAt)}</Text></View>
         {recordedPrice(item) ? <View style={s.infoRow}><Feather name="dollar-sign" size={18} color="#D6D2D0" /><Text style={s.infoText}>{recordedPrice(item)}</Text></View> : null}
         <View style={s.infoRow}><Feather name="map-pin" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={1}>{item.serviceAreaLabel || "Home garage service"}</Text></View>
         <View style={s.infoRow}><Feather name="tool" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={2}>{item.problem}</Text></View>

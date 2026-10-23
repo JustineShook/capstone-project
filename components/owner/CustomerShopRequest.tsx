@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Linking, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { colors } from "../../constants/owner/theme";
 import { useCustomerShopBooking } from "../../hooks/useCustomerShopBooking";
 import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
@@ -9,6 +9,9 @@ import { CustomerRating } from "./CustomerRating";
 import { ServiceProgress } from "./ServiceProgress";
 import { Button, formatTime, Info, LoadState, StatusBadge } from "../shop-owner/ShopUI";
 import { ShopBookingScreen, styles as s } from "./ShopBookingScreen";
+import { BookingTimingBanner } from "./BookingTimingBanner";
+import { CancelRequestModal } from "./CancelRequestModal";
+import { cancelShopBookingAsCustomer } from "../../services/shopOwnerService";
 
 export function CustomerShopRequest({ confirmation = false, title, onBack }: { confirmation?: boolean; title?: string; onBack?: () => void }) {
   const router = useRouter();
@@ -16,6 +19,8 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
   const id = Array.isArray(bookingId) ? bookingId[0] : bookingId;
   const { booking, loading, error, retry } = useCustomerShopBooking(id);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
   const step = booking ? SHOP_STATUS_FLOW.findIndex((status) => status === booking.status) : -1;
   const openShopMap = async () => {
     if (!booking) return;
@@ -29,13 +34,14 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
       {confirmation && <View style={d.confirmation}><View style={d.confirmIcon}><Ionicons name="checkmark" size={24} color="#F4F6F8" /></View><View style={{ flex: 1 }}><Text style={d.confirmTitle}>Request sent</Text><Text style={d.confirmText}>The shop will review your service request.</Text></View></View>}
       <View style={d.statusCard}><View style={d.statusTop}><View style={d.shopIcon}><Ionicons name="storefront-outline" size={24} color={colors.primary} /></View><View style={{ flex: 1, gap: 4 }}><Text style={d.shopName}>{booking.providerName}</Text><Text style={d.sectionHint}>Auto shop service request</Text></View><StatusBadge status={booking.status} /></View>
         <Text accessibilityLiveRegion="polite" style={d.statusMessage}>{booking.status === "rejected" ? "The shop rejected this request. Please choose another available shop."
-          : booking.status === "pending" ? "Waiting for the shop to accept your request. No appointment time is reserved; bring your vehicle only after acceptance."
-          : booking.status === "accepted" ? "The shop accepted your request. Bring your vehicle to the shop; contact the shop if you need to confirm when to arrive."
+          : booking.status === "pending" ? "Waiting for the shop to accept your request."
+          : booking.status === "accepted" ? booking.timingMode === "scheduled" ? "The shop confirmed your requested appointment start." : "The shop accepted your request. Contact the shop to confirm when to arrive."
           : booking.status === "completed" ? "Your service is completed."
           : booking.status === "cancelled" ? "This request was cancelled."
           : `Your service is now ${SHOP_STATUS_LABELS[booking.status]?.toLowerCase() ?? booking.status}.`}</Text>
         {booking.status === "completed" && booking.completionNote?.trim() ? <View style={d.completionNote}><Text style={d.completionLabel}>NOTE FROM THE SHOP</Text><Text style={d.completionText}>{booking.completionNote}</Text></View> : null}
       </View>
+      <BookingTimingBanner booking={booking} />
       {!confirmation && step >= 0 && <ServiceProgress steps={SHOP_STATUS_FLOW.map((status) => ({ key: status, label: SHOP_STATUS_LABELS[status] }))} currentStep={step} />}
       <View style={s.card}><Text style={d.sectionTitle}>Vehicle and service</Text><View style={d.vehicleSummary}><Ionicons name="car-sport-outline" size={22} color={colors.primary} /><Text style={d.vehicleName}>{booking.vehicleYear} {booking.vehicle}</Text></View><Info label="Plate number" value={booking.vehiclePlate} />
         <Info label="Problem" value={booking.problem} />{booking.notes ? <Info label="Notes" value={booking.notes} /> : null}
@@ -49,6 +55,9 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
       </View>
       <View style={s.card}><Text style={d.sectionTitle}>Request details</Text><Info label="Customer" value={booking.customerName} /><Info label="Email" value={booking.customerEmail} /><Info label="Request ID" value={booking.id} /><Info label="Requested" value={formatTime(booking.createdAt)} /><Info label="Last updated" value={formatTime(booking.updatedAt)} /></View>
       {booking.status === "completed" && <CustomerRating bookingId={booking.id} bookingType="shop" providerName={booking.providerName} />}
+      {["pending", "accepted"].includes(booking.status) && <Button title={isCancelling ? "Cancelling…" : "Cancel Request"} secondary onPress={() => setShowCancelConfirmation(true)} />}
+      {["vehicle_arrived", "diagnosing", "repairing"].includes(booking.status) && <Text style={d.sectionHint}>The provider confirmed Vehicle arrived. Contact the shop to request cancellation.</Text>}
+      <CancelRequestModal visible={showCancelConfirmation} serviceName="Auto Shop service" explanation="You can cancel before the provider confirms Vehicle arrived. After that, contact the shop to request cancellation." isCancelling={isCancelling} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => { if (!booking) return; setIsCancelling(true); void cancelShopBookingAsCustomer(booking.id).then(() => setShowCancelConfirmation(false)).catch((error) => Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.")).finally(() => setIsCancelling(false)); }} />
       {confirmation && <Button title="View Request Status" onPress={() => router.replace({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: booking.id } })} />}
       {(booking.status === "rejected" || booking.status === "cancelled") && <Button title="Find Another Shop" onPress={() => router.replace("/(v_owner)")} />}
     </>}

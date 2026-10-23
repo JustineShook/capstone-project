@@ -11,7 +11,7 @@ interface Input {
   status: string; event: "new_request" | "provider_update" | "customer_cancelled";
 }
 
-const labels: Record<string, string> = { pending: "Pending", accepted: "Accepted", rejected: "Declined", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled", assessed: "Price Assessed" };
+const labels: Record<string, string> = { pending: "Pending", accepted: "Accepted", vehicle_arrived: "Vehicle Arrived", diagnosing: "Diagnosing", repairing: "Repairing", rejected: "Declined", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled", assessed: "Price Assessed" };
 
 export function writeHomeGarageProviderNotification(transaction: Transaction, input: Input) {
   const isNew = input.event === "new_request";

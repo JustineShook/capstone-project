@@ -1,16 +1,20 @@
 import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, Timestamp, where } from "firebase/firestore";
 import { TowingBookingRequest, TowingStatus } from "../../types/owner/towing";
 import { auth, db } from "../firebase";
-import { requireVerifiedOwner } from "../ownerVerificationProfileService";
+import { getOwnerVerificationProfile, requireVerifiedOwner } from "../ownerVerificationProfileService";
 import { addBookingStatusNotification } from "../customerNotificationService";
 import { writeTowingNotification } from "../towingNotificationService";
+import type { BookingTimingInput } from "../../types/bookingTiming";
+import { timingFields, validateBookingTiming } from "../../utils/bookingTiming";
+import { claimScheduledReservation, releaseScheduledReservation } from "../scheduledBookingReservationService";
+import { isValidFinalPrice } from "../../utils/finalPrice";
 
 const BOOKINGS_COLLECTION = "bookings";
-export interface CreateTowingBookingInput { providerId: string; providerName: string; vehicleId: string; vehicle: string; vehicleYear: number; vehiclePlate: string; latitude: number; longitude: number; providerLatitude: number; providerLongitude: number; destinationLatitude: number; destinationLongitude: number; providerToPickupDistanceKm: number; pickupToDestinationDistanceKm: number; totalDistanceKm: number; basePrice: number; pricePerKm: number; distanceCharge: number; estimatedTotalPrice: number; pricingMode: "fixed" | "dispatcher"; dispatcherPhone: string; pickupLocation: string; destination: string; towingType: string; vehicleCondition: string; notes: string; startingPrice: string; }
+export interface CreateTowingBookingInput { providerId: string; providerName: string; vehicleId: string; vehicle: string; vehicleYear: number; vehiclePlate: string; latitude: number; longitude: number; providerLatitude: number; providerLongitude: number; destinationLatitude: number; destinationLongitude: number; providerToPickupDistanceKm: number; pickupToDestinationDistanceKm: number; totalDistanceKm: number; basePrice: number; pricePerKm: number; distanceCharge: number; estimatedTotalPrice: number; pricingMode: "fixed" | "dispatcher"; dispatcherPhone: string; pickupLocation: string; destination: string; towingType: string; vehicleCondition: string; notes: string; startingPrice: string; timing?: BookingTimingInput; }
 function requireUser() { const user = auth.currentUser; if (!user) throw new Error("You must be signed in to use bookings."); return user; }
 function asIso(value: unknown) { return value instanceof Timestamp ? value.toDate().toISOString() : new Date().toISOString(); }
-function fromDocument(id: string, data: Record<string, unknown>): TowingBookingRequest { return { ...(data as Omit<TowingBookingRequest, "id" | "createdAt" | "updatedAt">), id, createdAt: asIso(data.createdAt), updatedAt: asIso(data.updatedAt) }; }
-export async function createTowingBooking(input: CreateTowingBookingInput): Promise<TowingBookingRequest> { const user = requireUser(); const active=await getActiveTowingBooking(input.providerId,user.uid);if(active)return active; await requireVerifiedOwner(user.uid); const payload = { bookingType: "towing-company" as const, customerId: user.uid, customerName: user.displayName?.trim() || user.email?.split("@")[0] || "Customer", customerEmail: user.email ?? "", ...input, startingPrice: input.pricingMode === "dispatcher" ? "Contact dispatcher for pricing" : input.startingPrice, status: "pending" as const, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }; const reference = doc(collection(db, BOOKINGS_COLLECTION)); await runTransaction(db, async (transaction) => { transaction.set(reference, payload); writeTowingNotification(transaction, { bookingId: reference.id, providerId: input.providerId, customerId: user.uid, customerName: payload.customerName, vehicle: payload.vehicle, pickupLocation: payload.pickupLocation, destination: payload.destination, status: "pending", event: "new_request" }); }); return { ...payload, id: reference.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; }
+function fromDocument(id: string, data: Record<string, unknown>): TowingBookingRequest { return { ...(data as Omit<TowingBookingRequest, "id" | "createdAt" | "updatedAt">), ...(data.completedAt ? { completedAt: asIso(data.completedAt) } : {}), id, createdAt: asIso(data.createdAt), updatedAt: asIso(data.updatedAt) }; }
+export async function createTowingBooking(input: CreateTowingBookingInput): Promise<TowingBookingRequest> { const user = requireUser(); const active=await getActiveTowingBooking(input.providerId,user.uid);if(active)return active; await requireVerifiedOwner(user.uid); const ownerProfile = await getOwnerVerificationProfile(user.uid); const customerPhone = ownerProfile?.personal?.phone; if (!customerPhone?.trim()) throw new Error("Add a phone number to your verified owner profile before requesting a tow."); const timing = input.timing ?? { timingMode: "now" as const, urgency: "standard" as const }; const { timing: _timing, ...bookingInput } = input; const payload = { bookingType: "towing-company" as const, customerId: user.uid, customerName: user.displayName?.trim() || user.email?.split("@")[0] || "Customer", customerEmail: user.email ?? "", customerPhone, ...bookingInput, ...timingFields(timing), startingPrice: input.pricingMode === "dispatcher" ? "Contact dispatcher for pricing" : input.startingPrice, status: "pending" as const, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }; const reference = doc(collection(db, BOOKINGS_COLLECTION)); await runTransaction(db, async (transaction) => { const listing = (await transaction.get(doc(db, "providerListings", input.providerId))).data(); if (!listing || listing.providerId !== input.providerId || listing.role !== "towing-company" || listing.visibility !== "active") throw new Error("This towing provider is not publicly available."); validateBookingTiming(timing, listing.emergencyServiceAvailable === true, listing.acceptsScheduledBookings === true); if (timing.timingMode === "now" && listing.availability !== "available") throw new Error("This towing provider is unavailable right now. Choose a scheduled time if enabled."); transaction.set(reference, payload); writeTowingNotification(transaction, { bookingId: reference.id, providerId: input.providerId, customerId: user.uid, customerName: payload.customerName, vehicle: payload.vehicle, pickupLocation: payload.pickupLocation, destination: payload.destination, status: "pending", event: "new_request" }); }); return { ...payload, id: reference.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }; }
 export async function getActiveTowingBooking(providerId:string,customerId=requireUser().uid):Promise<TowingBookingRequest|null>{const snap=await getDocs(query(collection(db,BOOKINGS_COLLECTION),where("customerId","==",customerId)));return snap.docs.map(item=>fromDocument(item.id,item.data())).filter(item=>item.bookingType==="towing-company"&&item.providerId===providerId&&!['completed','cancelled','rejected'].includes(item.status)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]??null;}
 export function subscribeToActiveTowingBooking(providerId: string, callback: (booking: TowingBookingRequest | null) => void) { const user = requireUser(); const q = query(collection(db, BOOKINGS_COLLECTION), where("customerId", "==", user.uid)); return onSnapshot(q, (snapshot) => { const booking = snapshot.docs.map((item) => fromDocument(item.id, item.data())).filter((item) => item.bookingType === "towing-company" && item.providerId === providerId && !["completed", "cancelled", "rejected"].includes(item.status)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null; callback(booking); }); }
 export async function getTowingBookingById(id: string) { requireUser(); const snapshot = await getDoc(doc(db, BOOKINGS_COLLECTION, id)); return snapshot.exists() ? fromDocument(snapshot.id, snapshot.data()) : undefined; }
@@ -25,6 +29,16 @@ const ALLOWED_TRANSITIONS: Partial<Record<TowingStatus, TowingStatus[]>> = {
 };
 
 export async function updateTowingBookingStatus(id: string, status: TowingStatus) {
+  if (status === "completed") throw new Error("Enter a final price to complete this tow.");
+  await updateTowingBooking(id, status);
+}
+
+export async function completeTowingBooking(id: string, finalPrice: number) {
+  if (!isValidFinalPrice(finalPrice)) throw new Error("Enter a valid final price with up to two decimal places.");
+  await updateTowingBooking(id, "completed", finalPrice);
+}
+
+async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?: number) {
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -33,8 +47,18 @@ export async function updateTowingBookingStatus(id: string, status: TowingStatus
     const booking = snapshot.data() as TowingBookingRequest;
     if (booking.providerId !== user.uid || booking.bookingType !== "towing-company") throw new Error("You are not assigned to this booking.");
     if (!ALLOWED_TRANSITIONS[booking.status]?.includes(status)) throw new Error(`Invalid booking transition: ${booking.status} → ${status}.`);
-    transaction.update(reference, { status, updatedAt: serverTimestamp() });
-    addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId, bookingType: "towing-company", providerId: user.uid, providerName: booking.providerName, status });
+    if (status === "accepted" && booking.timingMode === "scheduled" && booking.scheduledAt instanceof Timestamp) {
+      await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
+    }
+    const completedAt = status === "completed" ? serverTimestamp() : undefined;
+    transaction.update(reference, status === "completed"
+      ? { status, finalPrice, completedAt, updatedAt: completedAt }
+      : { status, updatedAt: serverTimestamp() });
+    addBookingStatusNotification(transaction, {
+      bookingId: id, customerId: booking.customerId, bookingType: "towing-company",
+      providerId: user.uid, providerName: booking.providerName, status,
+      ...(status === "completed" ? { message: `${booking.providerName} completed the tow. Final price recorded: ₱${finalPrice!.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` } : {}),
+    });
     writeTowingNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId, customerName: booking.customerName, vehicle: booking.vehicle, pickupLocation: booking.pickupLocation, destination: booking.destination, status, event: "provider_status" });
   });
 }
@@ -53,6 +77,7 @@ export async function cancelTowingBookingAsCustomer(id: string) {
     if (booking.status !== "pending" && booking.status !== "accepted") {
       throw new Error("This request can no longer be cancelled because the tow truck may already be on the way.");
     }
+    await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
     transaction.update(reference, { status: "cancelled", updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, {
       bookingId: id,

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -19,10 +20,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import WebView, { WebViewMessageEvent } from "react-native-webview";
 import { createTowingBooking } from "../../../services/owner/towingService";
+import { getOwnerVerificationProfile } from "../../../services/ownerVerificationProfileService";
+import type { OwnerVerificationProfile } from "../../../types/ownerVerificationProfile";
+import { auth } from "../../../services/firebase";
 import { getTowingPricing } from "../../../services/towingPricingService";
 import type { TowingPricingConfig } from "../../../types/towingPricing";
 import { haversineDistanceKm } from "../../../utils/geo";
 import { buildDestinationMapHtml } from "../../../utils/owner/buildDestinationMapHtml";
+import { BookingTimingActions, timingActionStyles } from "../../../components/owner/BookingTimingActions";
+import type { BookingTimingInput } from "../../../types/bookingTiming";
+import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
 
 import { colors } from "../../../constants/owner/theme";
 import { MockProvider } from "../../../data/owner/mockProviders";
@@ -54,7 +61,7 @@ function photonLabel(properties: PhotonFeature["properties"]) {
 }
 
 export default function BookTowingScreen() {
-  const { providerId } = useLocalSearchParams<{ providerId: string }>();
+  const { providerId, initialTimingMode } = useLocalSearchParams<{ providerId: string; initialTimingMode?: "now" | "scheduled" }>();
   const [provider, setProvider] = useState<MockProvider | null>(null);
   const [providerError, setProviderError] = useState("");
   const [pricingConfig, setPricingConfig] = useState<TowingPricingConfig | null>(null);
@@ -69,7 +76,8 @@ export default function BookTowingScreen() {
         isPositiveStatus: listing.availability === "available", initials: listing.businessName.slice(0, 2).toUpperCase(),
         color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
         description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
-        emergencyServiceAvailable: listing.emergencyServiceAvailable, phone: "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
+        emergencyServiceAvailable: listing.emergencyServiceAvailable, acceptsScheduledBookings: listing.acceptsScheduledBookings === true,
+        phone: "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
     }).catch(() => setProviderError("Unable to load this provider."));
     getTowingPricing(providerId).then(setPricingConfig).catch(() => setProviderError("Unable to load this provider's towing pricing."));
   }, [providerId]);
@@ -106,7 +114,29 @@ export default function BookTowingScreen() {
   const [isConditionModalVisible, setConditionModalVisible] = useState(false);
 
   const [notes, setNotes] = useState("");
+  const [timing, setTiming] = useState<BookingTimingInput | null>(() => initialTimingMode === "scheduled"
+    ? { timingMode: "scheduled", urgency: "standard" }
+    : initialTimingMode === "now" ? { timingMode: "now", urgency: "standard" } : null);
   const [submitting, setSubmitting] = useState(false);
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const [ownerPhone, setOwnerPhone] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      setProfileLoaded(true);
+      return () => { active = false; };
+    }
+    getOwnerVerificationProfile(uid)
+      .then((profile: OwnerVerificationProfile | null) => {
+        if (active) setOwnerPhone(profile?.personal?.phone ?? null);
+      })
+      .catch(() => { if (active) setOwnerPhone(null); })
+      .finally(() => { if (active) setProfileLoaded(true); });
+    return () => { active = false; };
+  }, []);
 
   // --- Pickup GPS state --------------------------------------------------
   const [isLocating, setIsLocating] = useState(false);
@@ -163,7 +193,12 @@ export default function BookTowingScreen() {
   }, [distanceEstimate, pricingConfig]);
   const usesDispatcherPricing = pricingConfig?.pricingMode === "dispatcher";
 
-  const canConfirm =
+  const timingAllowed = timing?.timingMode === "scheduled"
+    ? provider?.acceptsScheduledBookings === true
+    : timing?.urgency === "emergency"
+      ? provider?.emergencyServiceAvailable === true
+      : timing?.urgency === "standard" && initialTimingMode === "now";
+  const requiredFieldsValid =
     !!selectedVehicle &&
     !!pickupCoordinates &&
     !!destinationCoordinates &&
@@ -172,6 +207,7 @@ export default function BookTowingScreen() {
     destination.trim().length > 0 &&
     !!selectedTowingType &&
     !!selectedCondition;
+  const canConfirm = requiredFieldsValid && timingAllowed && isBookingTimingReady(timing);
 
   const handleSelectVehicle = (vehicleId: string) => {
     setSelectedVehicleId(vehicleId);
@@ -427,6 +463,14 @@ export default function BookTowingScreen() {
 
   const handleConfirm = async () => {
     if (!canConfirm || submitting || !selectedVehicle || !selectedTowingType || !selectedCondition || !provider || !pickupCoordinates || !destinationCoordinates || !distanceEstimate || (!pricingEstimate && !usesDispatcherPricing) || !pricingConfig) return;
+    if (!ownerPhone?.trim()) {
+      setReviewVisible(false);
+      Alert.alert("Complete your owner profile", "Add a phone number to your verified owner profile before submitting this towing request.", [
+        { text: "Not now", style: "cancel" },
+        { text: "Open profile", onPress: () => router.push("/(v_owner)/profile") },
+      ]);
+      return;
+    }
     setSubmitting(true);
     try {
     const booking = await createTowingBooking({
@@ -457,7 +501,9 @@ export default function BookTowingScreen() {
       vehicleCondition: selectedCondition,
       notes,
       startingPrice: pricingEstimate ? `₱${pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}` : "Price on assessment",
+      timing: timing ?? undefined,
     });
+    setReviewVisible(false);
 
     router.replace({
       pathname: "/(v_owner)/towing-booking/booking-detail",
@@ -493,6 +539,7 @@ export default function BookTowingScreen() {
         </View>
       </SafeAreaView>
 
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -724,30 +771,43 @@ export default function BookTowingScreen() {
       </ScrollView>
 
       {/* Confirm bar */}
-      <SafeAreaView edges={["bottom"]} style={styles.footer}>
-        {usesDispatcherPricing ? <View style={styles.priceRow}><Text style={styles.priceLabel}>Pricing</Text><Text style={styles.priceValue}>{pricingConfig?.dispatcherPhone || "Contact dispatcher"}</Text></View> : <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Base towing fee</Text>
-          <Text style={styles.priceValue}>{pricingConfig ? `₱${pricingConfig.basePrice.toLocaleString("en-PH")}` : "Not configured"}</Text>
-        </View>}
-        {!usesDispatcherPricing && pricingEstimate && <>
-          <View style={styles.priceRow}><Text style={styles.priceLabel}>Estimated distance</Text><Text style={styles.priceValue}>{pricingEstimate.totalDistanceKm.toFixed(2)} km</Text></View>
-          <View style={styles.priceRow}><Text style={styles.priceLabel}>Rate</Text><Text style={styles.priceValue}>₱{pricingEstimate.pricePerKm.toLocaleString("en-PH")}/km</Text></View>
-          <View style={styles.priceRow}><Text style={styles.priceLabel}>Distance charge</Text><Text style={styles.priceValue}>₱{pricingEstimate.distanceCharge.toLocaleString("en-PH")}</Text></View>
-          <View style={styles.priceRow}><Text style={styles.priceLabel}>Estimated total</Text><Text style={styles.priceValue}>₱{pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}</Text></View>
-        </>}
-        {!canConfirm && (
-          <Text style={styles.validationText}>{!pricingConfig ? "This provider has not configured towing pricing yet." : "Please fill in all fields and select a mapped destination."}</Text>
-        )}
-        <Pressable
-          style={[styles.confirmButton, !canConfirm && styles.confirmButtonDisabled]}
-          onPress={handleConfirm}
-          disabled={!canConfirm || submitting}
-        >
-          <Text style={[styles.confirmButtonText, !canConfirm && styles.confirmButtonTextDisabled]}>
-            {submitting ? "Sending..." : "Confirm Towing"}
-          </Text>
-        </Pressable>
+      <SafeAreaView edges={["bottom"]} style={[styles.footer, timingActionStyles.safeFooter]}>
+        <View style={styles.priceRow}><Text style={styles.priceLabel}>{usesDispatcherPricing ? "Pricing" : "Estimated total"}</Text><Text style={styles.priceValue}>{usesDispatcherPricing ? pricingConfig?.dispatcherPhone || "Contact dispatcher" : pricingEstimate ? `₱${pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}` : pricingConfig ? `₱${pricingConfig.basePrice.toLocaleString("en-PH")}` : "Not configured"}</Text></View>
+        <BookingTimingActions value={timing} emergencyAvailable={provider?.emergencyServiceAvailable === true}
+          acceptsScheduled={provider?.acceptsScheduledBookings === true} requiredFieldsValid={requiredFieldsValid}
+          reviewDisabled={submitting} onChange={setTiming}
+          onEmergency={() => { const next = { timingMode: "now" as const, urgency: "emergency" as const }; setTiming(next); if (requiredFieldsValid) setReviewVisible(true); }}
+          onReview={() => setReviewVisible(true)}
+          validationMessage={!requiredFieldsValid ? (!selectedVehicle ? "Select a vehicle and complete pickup, destination, towing type, condition, and pricing details." : "Complete all towing details and choose a mapped destination.") : timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid future hour." : !timingAllowed ? "Select an available timing option." : undefined} />
       </SafeAreaView>
+      </KeyboardAvoidingView>
+
+      <Modal visible={reviewVisible} transparent animationType="slide" onRequestClose={() => !submitting && setReviewVisible(false)}>
+        <View style={styles.modalOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
+          <Text style={styles.reviewTitle}>Review Booking</Text>
+          <ScrollView contentContainerStyle={{ gap: 11 }}>
+            <View style={styles.contactReviewBlock}>
+              <Text style={styles.reviewText}>Contact number · {profileLoaded ? ownerPhone?.trim() ? ownerPhone : "Add a phone number to your profile" : "Loading your verified profile…"}</Text>
+              <Text style={styles.reviewMuted}>Shared with this provider so they can contact you about this booking.</Text>
+            </View>
+            <Text style={styles.reviewText}>Provider · {provider.name}</Text>
+            <Text style={styles.reviewText}>Vehicle · {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} · ${selectedVehicle.plateNumber}` : "Select a vehicle"}</Text>
+            <Text style={styles.reviewText}>Pickup · {pickupLocation || "Choose pickup"}</Text>
+            <Text style={styles.reviewText}>Destination · {destination || "Choose destination"}</Text>
+            <Text style={styles.reviewText}>Towing type · {selectedTowingType ?? "Not selected"}</Text>
+            <Text style={styles.reviewText}>Vehicle condition · {selectedCondition ?? "Not selected"}</Text>
+            {notes.trim() ? <Text style={styles.reviewText}>Notes · {notes}</Text> : null}
+            <Text style={styles.reviewText}>Timing · {timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid hour" : timing ? formatBookingTimingLabel(timing) : "Choose a timing option"}</Text>
+            {timing?.urgency === "emergency" ? <Text style={styles.reviewMuted}>Acceptance and response time are not guaranteed.</Text> : null}
+            {timing?.timingMode === "scheduled" ? <Text style={styles.reviewMuted}>Subject to provider confirmation. This reserves a start window, not service duration.</Text> : null}
+            {!usesDispatcherPricing && pricingEstimate ? <Text style={styles.reviewText}>Estimated total · ₱{pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}</Text> : null}
+            {!usesDispatcherPricing && pricingEstimate ? <Text style={styles.reviewText}>Distance · {pricingEstimate.totalDistanceKm.toFixed(2)} km at ₱{pricingEstimate.pricePerKm.toLocaleString("en-PH")}/km (₱{pricingEstimate.distanceCharge.toLocaleString("en-PH")} distance charge)</Text> : null}
+            {usesDispatcherPricing ? <Text style={styles.reviewText}>Contact dispatcher · {pricingConfig?.dispatcherPhone || "Contact dispatcher for pricing"}</Text> : null}
+          </ScrollView>
+          <Pressable disabled={!canConfirm || submitting || !profileLoaded} style={[styles.confirmButton, (!canConfirm || submitting || !profileLoaded) && styles.confirmButtonDisabled]} onPress={() => void handleConfirm()}><Text style={styles.confirmButtonText}>{submitting ? "Sending..." : "Confirm Towing"}</Text></Pressable>
+          <Pressable disabled={submitting} onPress={() => setReviewVisible(false)} style={styles.reviewCancel}><Text style={styles.validationText}>Back to edit</Text></Pressable>
+        </SafeAreaView></View>
+      </Modal>
 
       {/* Change Vehicle modal */}
       <Modal
@@ -1044,6 +1104,12 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   confirmButtonTextDisabled: { color: colors.textMuted },
+  reviewSheet: { maxHeight: "82%", backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, gap: 12 },
+  reviewTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "800" },
+  contactReviewBlock: { gap: 3, padding: 11, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  reviewText: { color: colors.textPrimary, fontSize: 14, lineHeight: 21 },
+  reviewMuted: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  reviewCancel: { minHeight: 36, alignItems: "center", justifyContent: "center" },
 
   // Shared bottom-sheet modal (Vehicle + Towing Type + Condition)
   modalOverlay: {

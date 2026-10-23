@@ -3,9 +3,11 @@ import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
+import { BookingTimingBanner } from "../owner/BookingTimingBanner";
 import { isActiveShopService, SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
 import { formatLocation, RequestActions, RequestList } from "./ShopRequests";
 import { Button, C, formatTime, Info, LoadState, s, ShopScreen, StatusBadge } from "./ShopUI";
+import { formatPesoAmount } from "../../utils/finalPrice";
 
 export default function ShopRequestDetails({ active = false }: { active?: boolean }) {
   const { id: parameter } = useLocalSearchParams<{ id?: string | string[] }>();
@@ -34,6 +36,7 @@ export default function ShopRequestDetails({ active = false }: { active?: boolea
         <View style={d.summaryRule} />
         <View style={d.summaryMeta}><View style={d.metaItem}><Text style={d.metaLabel}>REQUESTED</Text><Text style={d.metaValue}>{formatTime(request.createdAt)}</Text></View><View style={d.metaDivider} /><View style={d.metaItem}><Text style={d.metaLabel}>{request.status === "completed" ? "COMPLETED" : "LAST UPDATED"}</Text><Text style={d.metaValue}>{formatTime(request.updatedAt)}</Text></View></View>
       </View>
+      {request && <BookingTimingBanner booking={request} />}
       {currentIndex >= 0 && <View style={d.progressCard}>
         <View style={d.progressHeading}><View style={d.progressIcon}><Feather name="activity" size={16} color={C.primary} /></View><View style={d.progressCopy}><Text style={d.progressTitle}>Service progress</Text><Text style={d.progressSubtitle}>Step {currentIndex + 1} of {SHOP_STATUS_FLOW.length}</Text></View><StatusBadge status={request.status} /></View>
         <View style={d.progressTrack}><View style={[d.progressFill, { width: `${Math.round(((request.status === "completed" ? SHOP_STATUS_FLOW.length : currentIndex + 1) / SHOP_STATUS_FLOW.length) * 100)}%` }]} /></View>
@@ -41,7 +44,7 @@ export default function ShopRequestDetails({ active = false }: { active?: boolea
       <ScrollView style={d.dataScroll} contentContainerStyle={d.dataContent} showsVerticalScrollIndicator={false}>
         <View style={s.card}><Text style={d.cardTitle}>Customer</Text><Info label="Name" value={request.customerName} /><Info label="Email" value={request.customerEmail} /></View>
         <View style={s.card}><Text style={d.cardTitle}>Vehicle</Text><Info label="Vehicle" value={request.vehicle} /><Info label="Year" value={String(request.vehicleYear)} /><Info label="Plate number" value={request.vehiclePlate} /></View>
-        <View style={s.card}><Text style={d.cardTitle}>Service request</Text><Info label="Problem / service requested" value={request.problem} /><Info label="Additional notes" value={request.notes} /><Info label="Starting price (not a final bill)" value={request.startingPrice} /></View>
+        <View style={s.card}><Text style={d.cardTitle}>Service request</Text><Info label="Problem / service requested" value={request.problem} /><Info label="Additional notes" value={request.notes} /><Info label="Starting price (not a final bill)" value={request.startingPrice} />{request.status === "completed" ? <Info label="Final Price" value={typeof request.finalPrice === "number" ? formatPesoAmount(request.finalPrice) : "Final price not recorded"} /> : null}{request.completionNote ? <Info label="Completion note" value={request.completionNote} /> : null}</View>
         <View style={s.card}><Text style={d.cardTitle}>Location</Text><Info label="Customer location" value={formatLocation(request)} />
           {Number.isFinite(request.latitude) && Number.isFinite(request.longitude) && <Button title="View Customer Location" secondary onPress={() => void openMap()} />}
           {linkError && <Text accessibilityRole="alert" style={s.error}>{linkError}</Text>}

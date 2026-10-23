@@ -1,19 +1,32 @@
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 
 import type { MockProvider, ProviderCategory } from "../../data/owner/mockProviders";
-import { isBookableShopListing, type ProviderListing } from "../../types/providerListing";
+import type { ProviderListing } from "../../types/providerListing";
 import { db } from "../firebase";
 import { getProviderReviewSummary, type ProviderReviewSummary } from "./ratingService";
 
 const LISTINGS_COLLECTION = "providerListings";
 
-/** Live shop availability; only currently open shops are discoverable. */
-export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) => void, onError: (error: Error) => void) {
+/** Live shops; schedule discovery includes offline shops that opted in. */
+export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) => void, onError: (error: Error) => void, scheduled = false) {
   let generation = 0;
   const stop = onSnapshot(query(collection(db, LISTINGS_COLLECTION), where("visibility", "==", "active"),
-    where("role", "==", "shop-owner"), where("availability", "==", "available")), (snapshot) => {
+    where("role", "==", "shop-owner"), ...(scheduled ? [where("acceptsScheduledBookings", "==", true)] : [where("availability", "==", "available")])), (snapshot) => {
     const currentGeneration = ++generation;
     const listings = snapshot.docs.map((item) => item.data()).filter(isActiveListing);
+    if (listings.length === 0) {
+      callback([]);
+      return;
+    }
+
+    // Publish the newest listing fields immediately. Review totals are loaded
+    // separately and can take longer than the public listing snapshot.
+    callback(listings.map((listing) => toMapProvider(listing, {
+      average: listing.ratingSummary.average,
+      count: listing.ratingSummary.count,
+      reviews: [],
+    })));
+
     void Promise.all(listings.map(async (listing) => {
       let reviewSummary: ProviderReviewSummary = { average: 0, count: 0, reviews: [] };
       try {
@@ -24,6 +37,8 @@ export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) =>
       }
       return toMapProvider(listing, reviewSummary);
     })).then((shops) => {
+      // Review requests from an older listing snapshot must never restore its
+      // stale business details over the latest listener result.
       if (generation === currentGeneration) callback(shops);
     });
   }, onError);
@@ -33,19 +48,21 @@ export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) =>
   };
 }
 
-/** Live listings for all other provider types; offline providers leave the map immediately. */
-export function subscribeToCustomerMapProviders(callback: (providers: MockProvider[]) => void, onError: (error: Error) => void) {
+/** Schedule mode queries only providers who opted in, regardless of current availability. */
+export function subscribeToCustomerMapProviders(callback: (providers: MockProvider[]) => void, onError: (error: Error) => void, scheduled = false) {
   let generation = 0;
   const stop = onSnapshot(query(
     collection(db, LISTINGS_COLLECTION),
     where("visibility", "==", "active"),
-    where("availability", "==", "available")
+    ...(scheduled ? [where("acceptsScheduledBookings", "==", true)] : [where("availability", "==", "available")])
   ), (snapshot) => {
     const currentGeneration = ++generation;
     const listings = snapshot.docs
       .map((document) => document.data())
       .filter(isActiveListing)
-      .filter((listing) => listing.availability === "available");
+      .filter((listing) => scheduled
+        ? listing.acceptsScheduledBookings === true
+        : listing.availability === "available");
 
     if (listings.length === 0) {
       callback([]);
@@ -101,7 +118,9 @@ function isActiveListing(value: unknown): value is ProviderListing {
     && ((listing.role === "onsite-mechanic" && listing.category === "Onsite Mechanics")
       || (listing.role === "towing-company" && listing.category === "Towing")
       || (listing.role === "homegarage" && listing.category === "Parking Lots")
-      || isBookableShopListing(listing as ProviderListing))
+      || (listing.role === "shop-owner" && listing.category === "Auto Shops"
+        && listing.emergencyServiceAvailable === true
+        && (listing.availability === "available" || listing.acceptsScheduledBookings === true)))
     && typeof listing.providerId === "string"
     && typeof listing.businessName === "string"
     && typeof listing.location?.latitude === "number"
@@ -144,6 +163,7 @@ function toMapProvider(listing: ProviderListing, reviewSummary: ProviderReviewSu
     services,
     hours: listing.operatingHours ?? "Hours not provided",
     emergencyServiceAvailable: listing.emergencyServiceAvailable,
+    acceptsScheduledBookings: listing.acceptsScheduledBookings === true,
     // Provider listing phone numbers are explicitly published by providers.
     phone: listing.contactPhone ?? "",
     vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"],
@@ -153,6 +173,6 @@ function toMapProvider(listing: ProviderListing, reviewSummary: ProviderReviewSu
 }
 
 /**
- * Customer map access is constrained by the Firestore query to listings that
- * are active and currently available. Private profile collections are never read.
+ * Customer map queries select active listings that are available now or have
+ * explicitly enabled scheduling. Private profile collections are never read.
  */

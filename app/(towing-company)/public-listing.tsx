@@ -34,6 +34,7 @@ export default function TowingPublicListingScreen() {
         operatingHours: existing?.operatingHours || profile.company.operatingHours,
         startingPrice: existing?.startingPrice ?? null,
         emergencyServiceAvailable: existing?.emergencyServiceAvailable ?? profile.services.emergencyServiceAvailable,
+        acceptsScheduledBookings: existing?.acceptsScheduledBookings === true,
       });
     }).catch(() => setInitialListing(null));
   }, []);

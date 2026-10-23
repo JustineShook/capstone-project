@@ -12,7 +12,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return signedIn()
-        && request.auth.token.admin == true;
+        && request.auth.token.get("admin", false) == true;
     }
 
     function listingHiddenAfterReview(uid) {
@@ -272,7 +272,7 @@ service cloud.firestore {
           "providerId", "role", "category", "businessName", "location",
           "availability", "visibility", "ratingSummary", "services",
           "vehicleTypes", "serviceAreaLabel", "description", "contactPhone", "startingPrice", "operatingHours",
-          "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
+          "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
         ])
         && request.resource.data.location.keys().hasOnly(["latitude", "longitude"])
         && request.resource.data.ratingSummary.keys().hasOnly(["average", "count"]);
@@ -322,9 +322,25 @@ service cloud.firestore {
             && request.resource.data.startingPrice >= 0
             && request.resource.data.startingPrice <= 1000000))
         && request.resource.data.emergencyServiceAvailable is bool
+        && (!request.resource.data.keys().hasAny(["acceptsScheduledBookings"])
+          || request.resource.data.acceptsScheduledBookings is bool)
         && (!request.resource.data.keys().hasAny(["photoUrls"])
           || (request.resource.data.photoUrls is list
             && request.resource.data.photoUrls.size() <= 3))
+        && (request.resource.data.role != "shop-owner"
+          || ((!request.resource.data.keys().hasAny(["hoursType", "is24Hours", "weeklyHours"]))
+            || (request.resource.data.hoursType in ["24_7", "same_daily", "weekly"]
+              && request.resource.data.is24Hours is bool
+              && request.resource.data.is24Hours == (request.resource.data.hoursType == "24_7")
+              && request.resource.data.weeklyHours is list
+              && request.resource.data.weeklyHours.size() == 7
+              && request.resource.data.weeklyHours[0].day == "Monday"
+              && request.resource.data.weeklyHours[1].day == "Tuesday"
+              && request.resource.data.weeklyHours[2].day == "Wednesday"
+              && request.resource.data.weeklyHours[3].day == "Thursday"
+              && request.resource.data.weeklyHours[4].day == "Friday"
+              && request.resource.data.weeklyHours[5].day == "Saturday"
+              && request.resource.data.weeklyHours[6].day == "Sunday")))
         && (request.resource.data.role != "homegarage"
           || ((!request.resource.data.keys().hasAny(["totalSlots"])
               && !request.resource.data.keys().hasAny(["availableSlots"]))
@@ -395,56 +411,75 @@ service cloud.firestore {
         && hasVerifiedRoleAndCategory(uid);
     }
 
+    function validPublicListingCreate(uid) {
+      return validPublicListingWrite(uid)
+        && (request.resource.data.role != "shop-owner"
+          || (request.resource.data.keys().hasAll(["photoUrls", "hoursType", "is24Hours", "weeklyHours"])
+            && (!request.resource.data.keys().hasAny(["contactPhone"])
+              || (request.resource.data.contactPhone is string && request.resource.data.contactPhone.size() >= 7))
+            && request.resource.data.photoUrls is list
+            && request.resource.data.hoursType in ["24_7", "same_daily", "weekly"]
+            && request.resource.data.is24Hours is bool
+            && request.resource.data.weeklyHours is list));
+    }
+
     function verifiedVehicleOwner(uid) {
       return get(/databases/$(database)/documents/users/$(uid)).data.role == "owner"
         && get(/databases/$(database)/documents/users/$(uid)/ownerProfile/profile).data.verificationStatus == "VERIFIED";
     }
 
     function validBookingBase() {
+      let booking = request.resource.data;
       return signedIn()
         && verifiedVehicleOwner(request.auth.uid)
-        && request.resource.data.customerId == request.auth.uid
-        && request.resource.data.customerId is string
-        && request.resource.data.providerId is string
-        && request.resource.data.providerId != request.auth.uid
-        && request.resource.data.customerName is string
-        && request.resource.data.customerName.size() > 0
-        && request.resource.data.customerName.size() <= 120
-        && request.resource.data.customerEmail is string
-        && request.resource.data.customerEmail.size() <= 254
-        && (!request.resource.data.keys().hasAny(["customerPhone"])
-          || (request.resource.data.customerPhone is string
-            && request.resource.data.customerPhone.size() <= 30))
-        && (!request.resource.data.keys().hasAny(["customerAddress"])
-          || (request.resource.data.customerAddress is string
-            && request.resource.data.customerAddress.size() <= 300))
-        && request.resource.data.providerName is string
-        && request.resource.data.providerName.size() > 0
-        && request.resource.data.providerName.size() <= 120
-        && request.resource.data.vehicleId is string
-        && request.resource.data.vehicleId.size() > 0
-        && request.resource.data.vehicle is string
-        && request.resource.data.vehicle.size() > 0
-        && request.resource.data.vehicle.size() <= 120
-        && request.resource.data.vehicleYear is int
-        && request.resource.data.vehicleYear >= 1900
-        && request.resource.data.vehicleYear <= 2100
-        && request.resource.data.vehiclePlate is string
-        && request.resource.data.vehiclePlate.size() <= 30
-        && request.resource.data.latitude is number
-        && request.resource.data.latitude >= -90
-        && request.resource.data.latitude <= 90
-        && request.resource.data.longitude is number
-        && request.resource.data.longitude >= -180
-        && request.resource.data.longitude <= 180
-        && !(request.resource.data.latitude == 0 && request.resource.data.longitude == 0)
-        && request.resource.data.notes is string
-        && request.resource.data.notes.size() <= 1000
-        && request.resource.data.startingPrice is string
-        && request.resource.data.startingPrice.size() <= 60
-        && request.resource.data.status == "pending"
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
+        && booking.customerId == request.auth.uid
+        && booking.customerId is string
+        && booking.providerId is string
+        && booking.providerId != request.auth.uid
+        && booking.customerName is string
+        && booking.customerName.size() > 0
+        && booking.customerName.size() <= 120
+        && booking.customerEmail is string
+        && booking.customerEmail.size() <= 254
+        // Towing validates providerName against the active listing below; avoid duplicate shape checks here.
+        && (booking.bookingType == "towing-company"
+          ? (booking.customerPhone is string
+            && booking.customerPhone.size() > 0
+            && booking.customerPhone.size() <= 30
+            && booking.customerPhone == get(/databases/$(database)/documents/users/$(request.auth.uid)/ownerProfile/profile).data.personal.phone)
+          : (!booking.keys().hasAny(["customerPhone"])
+            || (booking.customerPhone is string && booking.customerPhone.size() <= 30)))
+        && (!booking.keys().hasAny(["customerAddress"])
+          || (booking.customerAddress is string
+            && booking.customerAddress.size() <= 300))
+        && (booking.bookingType == "towing-company"
+          || (booking.providerName is string
+            && booking.providerName.size() > 0
+            && booking.providerName.size() <= 120))
+        && booking.vehicleId is string
+        && booking.vehicleId.size() > 0
+        && booking.vehicle is string
+        && booking.vehicle.size() > 0
+        && booking.vehicle.size() <= 120
+        && booking.vehicleYear is int
+        && booking.vehicleYear >= 1900
+        && booking.vehicleYear <= 2100
+        && booking.vehiclePlate is string
+        && booking.vehiclePlate.size() <= 30
+        && booking.latitude is number
+        && booking.latitude >= -90
+        && booking.latitude <= 90
+        && booking.longitude is number
+        && booking.longitude >= -180
+        && booking.longitude <= 180
+        && !(booking.latitude == 0 && booking.longitude == 0)
+        && booking.notes is string
+        && booking.notes.size() <= 1000
+        && booking.startingPrice is string
+        && booking.startingPrice.size() <= 60
+        && booking.status == "pending"
+        && booking.createdAt == request.time
+        && booking.updatedAt == request.time;
     }
 
     function validBookingProvider() {
@@ -452,8 +487,56 @@ service cloud.firestore {
       return listing.data.providerId == request.resource.data.providerId
         && listing.data.businessName == request.resource.data.providerName
         && listing.data.visibility == "active"
-        && listing.data.availability == "available"
-        && listing.data.role == request.resource.data.bookingType;
+        && listing.data.role == request.resource.data.bookingType
+        && validBookingTiming(listing.data);
+    }
+
+    // Towing evaluates its listing binding and timing from the same read used
+    // by its route-coordinate checks below.
+    function validTowingBookingProvider() {
+      let booking = request.resource.data;
+      let listing = get(/databases/$(database)/documents/providerListings/$(booking.providerId)).data;
+      return listing.providerId == booking.providerId
+        && listing.businessName == booking.providerName
+        && listing.visibility == "active"
+        && listing.role == "towing-company"
+        && validBookingTiming(listing)
+        && validTowingBooking(listing);
+    }
+
+    function validBookingTiming(listing) {
+      let booking = request.resource.data;
+      let scheduled = booking.timingMode == "scheduled";
+      return booking.timingMode in ["now", "scheduled"]
+        && booking.urgency in ["standard", "emergency"]
+        && ((scheduled
+          && booking.urgency == "standard"
+          && listing.get("acceptsScheduledBookings", false) == true
+          && booking.scheduledAt is timestamp
+          && booking.scheduledAt > request.time
+          && booking.scheduledAt.toMillis() % 3600000 == 0)
+          || (!scheduled
+            && !booking.keys().hasAny(["scheduledAt"])
+            && listing.availability == "available"
+            && (booking.urgency == "standard"
+              || (booking.urgency == "emergency" && listing.emergencyServiceAvailable == true))));
+    }
+
+    function scheduleReservationPath(booking) {
+      return /databases/$(database)/documents/providerScheduleReservations/$(booking.providerId + "_" + string(booking.scheduledAt.toMillis()));
+    }
+
+    function reservationClaimedFor(bookingId, booking) {
+      return booking.get("timingMode", "now") != "scheduled"
+        || (existsAfter(scheduleReservationPath(booking))
+          && getAfter(scheduleReservationPath(booking)).data.bookingId == bookingId
+          && getAfter(scheduleReservationPath(booking)).data.providerId == booking.providerId
+          && getAfter(scheduleReservationPath(booking)).data.scheduledAt == booking.scheduledAt);
+    }
+
+    function reservationReleasedFor(booking) {
+      return booking.get("timingMode", "now") != "scheduled"
+        || !existsAfter(scheduleReservationPath(booking));
     }
 
     function validCustomerNotificationCreate(uid, notificationId) {
@@ -500,7 +583,7 @@ service cloud.firestore {
         && updatedBooking.status == request.resource.data.status
         && (request.auth.uid == updatedBooking.providerId
           || (request.auth.uid == uid
-            && request.resource.data.bookingType in ["onsite-mechanic", "towing-company", "homegarage"]
+            && request.resource.data.bookingType in ["onsite-mechanic", "towing-company", "shop-owner", "homegarage"]
             && previousBooking.status in ["pending", "accepted"]
             && updatedBooking.status == "cancelled"));
     }
@@ -550,7 +633,7 @@ service cloud.firestore {
         && updatedBooking.status == request.resource.data.status
         && (request.auth.uid == updatedBooking.providerId
           || (request.auth.uid == uid
-            && request.resource.data.bookingType in ["onsite-mechanic", "towing-company", "homegarage"]
+            && request.resource.data.bookingType in ["onsite-mechanic", "towing-company", "shop-owner", "homegarage"]
             && previousBooking.status in ["pending", "accepted"]
             && updatedBooking.status == "cancelled"));
     }
@@ -872,7 +955,7 @@ service cloud.firestore {
           "bookingType", "customerId", "customerName", "customerEmail", "customerPhone", "customerAddress",
           "providerId", "providerName", "providerPhone", "vehicleId", "vehicle", "vehicleYear",
           "vehiclePlate", "latitude", "longitude", "problem", "notes", "startingPrice", "status",
-          "createdAt", "updatedAt"
+          "createdAt", "updatedAt", "timingMode", "urgency", "scheduledAt"
         ])
         && request.resource.data.bookingType == "onsite-mechanic"
         && request.resource.data.providerPhone is string
@@ -919,13 +1002,11 @@ service cloud.firestore {
     }
 
     function validShopListingProfile(uid) {
-      // Listing saves do not write the private provider profile. Read its
-      // current approved values directly instead of depending on post-write
-      // transaction state for an unrelated document.
+      // The public map pin can differ from the approved business address.
+      // Ownership, verification, availability, and coordinate bounds are
+      // validated separately; never write the private provider profile here.
       let shop = get(/databases/$(database)/documents/providers/$(uid)).data;
-      return request.resource.data.location.latitude == shop.latitude
-        && request.resource.data.location.longitude == shop.longitude
-        && request.resource.data.emergencyServiceAvailable == true
+      return request.resource.data.emergencyServiceAvailable == true
         && ((shop.status == "open" && request.resource.data.availability == "available")
           || (shop.status == "closed" && request.resource.data.availability == "offline"));
     }
@@ -941,7 +1022,6 @@ service cloud.firestore {
         && before.providerId == uid
         && before.role == "shop-owner"
         && before.category == "Auto Shops"
-        && before.visibility == "active"
         && after.providerId == before.providerId
         && after.role == before.role
         && after.category == before.category
@@ -1089,7 +1169,6 @@ service cloud.firestore {
       let listing = get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data;
       return validBookingProvider()
         && listing.category == "Auto Shops"
-        && listing.availability == "available"
         && listing.emergencyServiceAvailable == true
         && request.resource.data.shopLatitude == listing.location.latitude
         && request.resource.data.shopLongitude == listing.location.longitude
@@ -1114,16 +1193,20 @@ service cloud.firestore {
       return request.resource.data.bookingType == "shop-owner"
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "owner"
         && request.resource.data.keys().hasOnly([
-          "bookingType", "customerId", "customerName", "customerEmail",
+          "bookingType", "customerId", "customerName", "customerEmail", "customerPhone",
           "providerId", "providerName", "vehicleId", "vehicle", "vehicleYear",
           "vehiclePlate", "latitude", "longitude", "problem", "notes", "startingPrice", "status",
-          "createdAt", "updatedAt", "shopLatitude", "shopLongitude", "shopAreaLabel"
+          "createdAt", "updatedAt", "shopLatitude", "shopLongitude", "shopAreaLabel", "timingMode", "urgency", "scheduledAt"
         ])
         && request.resource.data.problem is string
         && request.resource.data.problem.size() > 0
         && request.resource.data.problem.size() <= 300
-        && isOpenShop(request.resource.data.providerId)
         && verifiedShop(request.resource.data.providerId)
+        && (request.resource.data.timingMode == "scheduled"
+          ? (isShopOwner(request.resource.data.providerId)
+            && get(/databases/$(database)/documents/providers/$(request.resource.data.providerId)).data.uid == request.resource.data.providerId
+            && get(/databases/$(database)/documents/providers/$(request.resource.data.providerId)).data.role == "shop-owner")
+          : isOpenShop(request.resource.data.providerId))
         && validShopBookingListing()
         && validShopVehicle();
     }
@@ -1139,18 +1222,17 @@ service cloud.firestore {
           "bookingType", "customerId", "customerName", "customerPhone", "providerId", "providerName",
           "vehicleId", "vehicle", "vehicleYear", "vehiclePlate", "problem", "notes",
           "garageLatitude", "garageLongitude", "serviceAreaLabel", "startingPrice", "status",
-          "createdAt", "updatedAt"
+          "createdAt", "updatedAt", "timingMode", "urgency", "scheduledAt"
         ])
         && request.resource.data.customerId == request.auth.uid
         && request.resource.data.customerName is string && request.resource.data.customerName.size() > 0
         && request.resource.data.customerName.size() <= 120
         && request.resource.data.customerPhone is string
         && request.resource.data.customerPhone.size() <= 30
-        && request.resource.data.customerPhone == get(/databases/$(database)/documents/users/$(request.auth.uid)/ownerProfile/profile).data.personal.phone
         && request.resource.data.providerId is string && request.resource.data.providerId != request.auth.uid
         && listing.providerId == request.resource.data.providerId
         && listing.role == "homegarage" && listing.category == "Parking Lots"
-        && listing.visibility == "active" && listing.availability == "available"
+        && listing.visibility == "active" && validBookingTiming(listing)
         && approvedHomeGarage(request.resource.data.providerId)
         && request.resource.data.providerName == listing.businessName
         && request.resource.data.vehicleId is string
@@ -1192,26 +1274,32 @@ service cloud.firestore {
         && getAfter(bookingPath).data.status == "pending";
     }
 
-    function validHomeGarageBookingTransition() {
+    function validHomeGarageBookingTransition(bookingId) {
       let before = resource.data.status;
       let after = request.resource.data.status;
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "homegarage"
         && approvedHomeGarage(request.auth.uid)
         && ((before == "pending" && after in ["accepted", "rejected"]
+              && (after != "accepted" || reservationClaimedFor(bookingId, resource.data))
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
           || (before == "accepted" && after == "accepted"
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["assessmentPrice", "updatedAt"])
               && request.resource.data.assessmentPrice is number
               && request.resource.data.assessmentPrice >= 0
               && request.resource.data.assessmentPrice <= 100000000)
-          || (before == "accepted" && after == "in_progress"
-              && resource.data.assessmentPrice is number
+          || (before == "accepted" && after == "vehicle_arrived"
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
-          || (before == "in_progress" && after == "completed"
+          || (before == "vehicle_arrived" && after == "diagnosing"
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
+          || (before == "diagnosing" && after == "repairing"
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
+          || ((before == "repairing" || before == "in_progress") && after == "completed"
               && request.resource.data.finalPrice is number
               && request.resource.data.finalPrice >= 0
               && request.resource.data.finalPrice <= 100000000
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completionNote"])
+              && request.resource.data.finalPrice * 100 % 1 == 0
+              && request.resource.data.completedAt == request.time
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completedAt", "completionNote"])
               && (!request.resource.data.keys().hasAny(["completionNote"])
                 || (request.resource.data.completionNote is string && request.resource.data.completionNote.size() <= 160))));
     }
@@ -1241,11 +1329,14 @@ service cloud.firestore {
         && getAfter(bookingPath).data.status == "pending";
     }
 
-    function validShopBookingTransition() {
+    function validShopBookingTransition(bookingId) {
       let before = resource.data.status;
       let after = request.resource.data.status;
       return isShopOwner(request.auth.uid)
-        && ((before == "pending" && after == "accepted" && isOpenShop(request.auth.uid) && verifiedShop(request.auth.uid)
+        && ((before == "pending" && after == "accepted"
+              && (resource.data.get("timingMode", "now") == "scheduled" || isOpenShop(request.auth.uid))
+              && verifiedShop(request.auth.uid)
+              && reservationClaimedFor(bookingId, resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
           || (before == "pending" && after == "rejected"
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
@@ -1256,16 +1347,21 @@ service cloud.firestore {
           || (before == "diagnosing" && after == "repairing"
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
           || (before == "repairing" && after == "completed"
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "completionNote"])
+              && request.resource.data.finalPrice is number
+              && request.resource.data.finalPrice >= 0
+              && request.resource.data.finalPrice <= 100000000
+              && request.resource.data.finalPrice * 100 % 1 == 0
+              && request.resource.data.completedAt == request.time
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completedAt", "completionNote"])
               && (!request.resource.data.keys().hasAny(["completionNote"])
                 || (request.resource.data.completionNote is string && request.resource.data.completionNote.size() <= 160))));
     }
 
-    function validTowingBooking() {
-      let listing = get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data;
-      let pricing = get(/databases/$(database)/documents/users/$(request.resource.data.providerId)/towingPricing/config).data;
-      return request.resource.data.keys().hasOnly([
-          "bookingType", "customerId", "customerName", "customerEmail",
+    function validTowingBooking(listing) {
+      let booking = request.resource.data;
+      let pricing = get(/databases/$(database)/documents/users/$(booking.providerId)/towingPricing/config).data;
+      return booking.keys().hasOnly([
+          "bookingType", "customerId", "customerName", "customerEmail", "customerPhone",
           "providerId", "providerName", "vehicleId", "vehicle", "vehicleYear",
           "vehiclePlate", "latitude", "longitude", "providerLatitude", "providerLongitude",
           "destinationLatitude", "destinationLongitude", "providerToPickupDistanceKm",
@@ -1273,60 +1369,59 @@ service cloud.firestore {
           "pricePerKm", "distanceCharge", "estimatedTotalPrice", "pricingMode", "dispatcherPhone",
           "pickupLocation", "destination", "towingType",
           "vehicleCondition", "notes", "startingPrice", "status", "createdAt",
-          "updatedAt"
+          "updatedAt", "timingMode", "urgency", "scheduledAt"
         ])
-        && request.resource.data.bookingType == "towing-company"
-        && request.resource.data.providerLatitude == listing.location.latitude
-        && request.resource.data.providerLongitude == listing.location.longitude
-        && request.resource.data.destinationLatitude is number
-        && request.resource.data.destinationLatitude >= -90
-        && request.resource.data.destinationLatitude <= 90
-        && request.resource.data.destinationLongitude is number
-        && request.resource.data.destinationLongitude >= -180
-        && request.resource.data.destinationLongitude <= 180
-        && !(request.resource.data.destinationLatitude == 0 && request.resource.data.destinationLongitude == 0)
-        && request.resource.data.providerToPickupDistanceKm is number
-        && request.resource.data.providerToPickupDistanceKm >= 0
-        && request.resource.data.pickupToDestinationDistanceKm is number
-        && request.resource.data.pickupToDestinationDistanceKm >= 0
-        && request.resource.data.totalDistanceKm is number
-        && request.resource.data.totalDistanceKm > 0
-        && request.resource.data.totalDistanceKm <= 2000
-        && request.resource.data.totalDistanceKm >= request.resource.data.providerToPickupDistanceKm + request.resource.data.pickupToDestinationDistanceKm - 0.02
-        && request.resource.data.totalDistanceKm <= request.resource.data.providerToPickupDistanceKm + request.resource.data.pickupToDestinationDistanceKm + 0.02
-        && request.resource.data.pricingMode in ["fixed", "dispatcher"]
-        && request.resource.data.dispatcherPhone is string
+        && booking.providerLatitude == listing.location.latitude
+        && booking.providerLongitude == listing.location.longitude
+        && booking.destinationLatitude is number
+        && booking.destinationLatitude >= -90
+        && booking.destinationLatitude <= 90
+        && booking.destinationLongitude is number
+        && booking.destinationLongitude >= -180
+        && booking.destinationLongitude <= 180
+        && !(booking.destinationLatitude == 0 && booking.destinationLongitude == 0)
+        && booking.providerToPickupDistanceKm is number
+        && booking.providerToPickupDistanceKm >= 0
+        && booking.pickupToDestinationDistanceKm is number
+        && booking.pickupToDestinationDistanceKm >= 0
+        && booking.totalDistanceKm is number
+        && booking.totalDistanceKm > 0
+        && booking.totalDistanceKm <= 2000
+        && booking.totalDistanceKm >= booking.providerToPickupDistanceKm + booking.pickupToDestinationDistanceKm - 0.02
+        && booking.totalDistanceKm <= booking.providerToPickupDistanceKm + booking.pickupToDestinationDistanceKm + 0.02
+        && booking.pricingMode in ["fixed", "dispatcher"]
+        && booking.dispatcherPhone is string
         && (
           ((pricing.pricingMode == null || pricing.pricingMode == "fixed")
-            && request.resource.data.pricingMode == "fixed"
-            && request.resource.data.dispatcherPhone == ""
-            && request.resource.data.basePrice is number
-            && request.resource.data.basePrice == pricing.basePrice
-            && request.resource.data.pricePerKm is number
-            && request.resource.data.pricePerKm == pricing.pricePerKm
-            && request.resource.data.distanceCharge is number
-            && request.resource.data.distanceCharge >= request.resource.data.totalDistanceKm * request.resource.data.pricePerKm - 0.01
-            && request.resource.data.distanceCharge <= request.resource.data.totalDistanceKm * request.resource.data.pricePerKm + 0.01
-            && request.resource.data.estimatedTotalPrice is number
-            && request.resource.data.estimatedTotalPrice >= request.resource.data.basePrice + request.resource.data.distanceCharge - 0.01
-            && request.resource.data.estimatedTotalPrice <= request.resource.data.basePrice + request.resource.data.distanceCharge + 0.01)
+            && booking.pricingMode == "fixed"
+            && booking.dispatcherPhone == ""
+            && booking.basePrice is number
+            && booking.basePrice == pricing.basePrice
+            && booking.pricePerKm is number
+            && booking.pricePerKm == pricing.pricePerKm
+            && booking.distanceCharge is number
+            && booking.distanceCharge >= booking.totalDistanceKm * booking.pricePerKm - 0.01
+            && booking.distanceCharge <= booking.totalDistanceKm * booking.pricePerKm + 0.01
+            && booking.estimatedTotalPrice is number
+            && booking.estimatedTotalPrice >= booking.basePrice + booking.distanceCharge - 0.01
+            && booking.estimatedTotalPrice <= booking.basePrice + booking.distanceCharge + 0.01)
           || (pricing.pricingMode == "dispatcher"
-            && request.resource.data.pricingMode == "dispatcher"
-            && request.resource.data.dispatcherPhone == pricing.dispatcherPhone
-            && request.resource.data.dispatcherPhone.size() > 0
-            && request.resource.data.basePrice == 0
-            && request.resource.data.pricePerKm == 0
-            && request.resource.data.distanceCharge == 0
-            && request.resource.data.estimatedTotalPrice == 0)
+            && booking.pricingMode == "dispatcher"
+            && booking.dispatcherPhone == pricing.dispatcherPhone
+            && booking.dispatcherPhone.size() > 0
+            && booking.basePrice == 0
+            && booking.pricePerKm == 0
+            && booking.distanceCharge == 0
+            && booking.estimatedTotalPrice == 0)
         )
-        && request.resource.data.pickupLocation is string
-        && request.resource.data.pickupLocation.size() > 0
-        && request.resource.data.pickupLocation.size() <= 300
-        && request.resource.data.destination is string
-        && request.resource.data.destination.size() > 0
-        && request.resource.data.destination.size() <= 300
-        && request.resource.data.towingType in ["Flatbed Towing", "Wheel-Lift Towing", "Motorcycle Towing", "Emergency Towing"]
-        && request.resource.data.vehicleCondition in ["Vehicle can move", "Vehicle cannot move", "Vehicle badly damaged", "Accident vehicle"];
+        && booking.pickupLocation is string
+        && booking.pickupLocation.size() > 0
+        && booking.pickupLocation.size() <= 300
+        && booking.destination is string
+        && booking.destination.size() > 0
+        && booking.destination.size() <= 300
+        && booking.towingType in ["Flatbed Towing", "Wheel-Lift Towing", "Motorcycle Towing", "Emergency Towing"]
+        && booking.vehicleCondition in ["Vehicle can move", "Vehicle cannot move", "Vehicle badly damaged", "Accident vehicle"];
     }
 
     function validTowingPricingShape() {
@@ -1369,14 +1464,21 @@ service cloud.firestore {
         && request.resource.data.plateNumber.size() <= 20;
     }
 
-    function validProviderBookingTransition() {
+    function validProviderBookingTransition(bookingId) {
       let before = resource.data.status;
       let after = request.resource.data.status;
-      return (before == "pending" && after in ["accepted", "rejected", "cancelled"])
+      return (before == "pending" && after in ["accepted", "rejected", "cancelled"]
+          && (after != "accepted" || reservationClaimedFor(bookingId, resource.data)))
         || (before == "accepted" && after in ["en_route", "cancelled"])
         || (before == "en_route" && after in ["arrived", "cancelled"])
         || (before == "arrived" && after == "in_progress")
-        || (before == "in_progress" && after == "completed");
+        || (before == "in_progress" && after == "completed"
+          && request.resource.data.finalPrice is number
+          && request.resource.data.finalPrice >= 0
+          && request.resource.data.finalPrice <= 100000000
+          && request.resource.data.finalPrice * 100 % 1 == 0
+          && request.resource.data.completedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(["status", "updatedAt", "finalPrice", "completedAt"]));
     }
 
     function validMechanicLocationUpdate() {
@@ -1712,21 +1814,22 @@ service cloud.firestore {
     // provider's verification is later revoked, the trusted admin workflow
     // must remove or deactivate this existing listing.
     match /providerListings/{providerId} {
-      allow get: if isAdmin() || isDocumentOwner(providerId) || (signedIn() && resource.data.visibility == "active" && resource.data.availability == "available");
-      allow list: if isAdmin() || (signedIn() && resource.data.visibility == "active" && resource.data.availability == "available");
+      allow get: if isAdmin() || isDocumentOwner(providerId) || (signedIn() && resource.data.visibility == "active" && (resource.data.availability == "available" || resource.data.get("acceptsScheduledBookings", false) == true));
+      allow list: if isAdmin() || (signedIn() && resource.data.visibility == "active" && (resource.data.availability == "available" || resource.data.get("acceptsScheduledBookings", false) == true));
       allow update: if validAdminListingHide(providerId);
-      allow create: if validPublicListingWrite(providerId);
-      allow update: if validPublicListingWrite(providerId)
+      allow create: if validPublicListingCreate(providerId);
+      allow update: if request.resource.data.role != "shop-owner"
+          && validPublicListingWrite(providerId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
             "services", "vehicleTypes", "operatingHours", "startingPrice",
-            "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
+            "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
           ])
         || (validShopPublicListingUpdate(providerId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
             "services", "vehicleTypes", "operatingHours", "startingPrice",
-            "emergencyServiceAvailable", "photoUrls", "hoursType", "is24Hours", "weeklyHours"
+            "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours"
           ]))
         || validShopAvailabilitySync(providerId)
         || validMechanicAvailabilitySync(providerId);
@@ -1822,41 +1925,77 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /providerScheduleReservations/{reservationId} {
+      allow get: if isAdmin() || (signedIn() &&
+        ((!exists(/databases/$(database)/documents/providerScheduleReservations/$(reservationId))
+            && reservationId.matches("^.+_[0-9]+$"))
+          || resource.data.providerId == request.auth.uid
+          || get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.customerId == request.auth.uid));
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(["providerId", "bookingId", "scheduledAt", "createdAt"])
+        && request.resource.data.providerId == request.auth.uid
+        && request.resource.data.bookingId is string
+        && request.resource.data.scheduledAt is timestamp
+        && request.resource.data.createdAt == request.time
+        && reservationId == request.auth.uid + "_" + string(request.resource.data.scheduledAt.toMillis())
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.providerId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.timingMode == "scheduled"
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.scheduledAt == request.resource.data.scheduledAt
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == "accepted";
+      allow update: if false;
+      allow delete: if signedIn()
+        && resource.data.bookingId is string
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.customerId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status == "cancelled";
+    }
+
     match /bookings/{bookingId} {
+      function providerTransitionAllowed() {
+        return resource.data.bookingType == "shop-owner"
+          ? validShopBookingTransition(bookingId)
+          : resource.data.bookingType == "homegarage"
+            ? validHomeGarageBookingTransition(bookingId)
+            : resource.data.bookingType in ["onsite-mechanic", "towing-company"]
+              && validProviderBookingTransition(bookingId);
+      }
+
+      function providerUpdateAllowed() {
+        return resource.data.providerId == request.auth.uid
+          && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "mechanicLatitude", "mechanicLongitude", "mechanicLocationUpdatedAt"
+              ]) && validMechanicLocationUpdate())
+            || ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
+                || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
+                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completedAt"]))
+                || (resource.data.bookingType in ["shop-owner", "homegarage"]
+                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completedAt", "completionNote"])))
+              && request.resource.data.updatedAt == request.time
+              && providerTransitionAllowed()));
+      }
+
+      function customerCancellationAllowed() {
+        return resource.data.customerId == request.auth.uid
+          && resource.data.bookingType in ["onsite-mechanic", "towing-company", "homegarage", "shop-owner"]
+          && resource.data.status in ["pending", "accepted"]
+          && request.resource.data.status == "cancelled"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
+          && request.resource.data.updatedAt == request.time
+          && reservationReleasedFor(resource.data);
+      }
+
       allow get, list: if isAdmin();
       allow create: if request.resource.data.bookingType == "homegarage"
         ? (validHomeGarageBooking() && validHomeGarageBookingLock(bookingId))
-        : (validBookingBase()
-          && ((validShopBooking() && validShopBookingLock(bookingId))
-            || (validBookingProvider() && (validMechanicBooking() || validTowingBooking()))));
+        : request.resource.data.bookingType == "towing-company"
+          ? (validBookingBase() && validTowingBookingProvider())
+          : (validBookingBase()
+            && ((validShopBooking() && validShopBookingLock(bookingId))
+              || (validBookingProvider() && validMechanicBooking())));
       allow get, list: if signedIn()
         && (resource.data.customerId == request.auth.uid
           || resource.data.providerId == request.auth.uid);
-      allow update: if signedIn() && (
-        (resource.data.providerId == request.auth.uid && (
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["mechanicLatitude", "mechanicLongitude", "mechanicLocationUpdatedAt"])
-            && validMechanicLocationUpdate())
-          || (
-            ((resource.data.bookingType == "shop-owner"
-                && request.resource.data.updatedAt == request.time
-                && validShopBookingTransition())
-              || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
-                && request.resource.data.updatedAt == request.time
-                && validProviderBookingTransition())
-              || (resource.data.bookingType == "homegarage"
-                && request.resource.data.updatedAt == request.time
-                && validHomeGarageBookingTransition()))
-          )
-        ))
-        || (resource.data.customerId == request.auth.uid
-          && (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
-            && resource.data.status in ["pending", "accepted"]
-            || resource.data.bookingType == "homegarage" && resource.data.status == "pending")
-          && request.resource.data.status == "cancelled"
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
-          && request.resource.data.updatedAt == request.time)
-      );
+      allow update: if signedIn() && (providerUpdateAllowed() || customerCancellationAllowed());
       allow delete: if false;
     }
 

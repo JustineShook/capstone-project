@@ -11,6 +11,10 @@ import type { SavedVehicle } from "../types/owner/vehicle";
 import { addBookingStatusNotification } from "./customerNotificationService";
 import { writeShopNotification } from "./shopNotificationService";
 import { requireVerifiedOwner } from "./ownerVerificationProfileService";
+import type { BookingTimingInput } from "../types/bookingTiming";
+import { timingFields, validateBookingTiming } from "../utils/bookingTiming";
+import { claimScheduledReservation, releaseScheduledReservation } from "./scheduledBookingReservationService";
+import { isValidFinalPrice, formatPesoAmount } from "../utils/finalPrice";
 
 function requireUser() {
   const user = auth.currentUser;
@@ -38,6 +42,7 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
   await requireVerifiedOwner(user.uid);
   const problem = input.problem.trim();
   const notes = input.notes.trim();
+  const timing = input.timing ?? { timingMode: "now" as const, urgency: "standard" as const };
   if (!problem || problem.length > 300) throw new Error("Describe the problem in 1–300 characters.");
   if (notes.length > 1000) throw new Error("Additional notes must be 1,000 characters or fewer.");
   if (!input.providerId || !input.vehicleId) throw new Error("Select a shop and one of your saved vehicles.");
@@ -68,9 +73,12 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
     const vehicle = (await transaction.get(doc(db, "users", user.uid, "vehicles", input.vehicleId))).data() as SavedVehicle | undefined;
     const account = (await transaction.get(doc(db, "users", user.uid))).data();
     if (account?.role !== "owner") throw new Error("Sign in as a Vehicle Owner to request a repair.");
-    if (!isBookableShopListing(listing) || listing.providerId !== input.providerId || input.providerId === user.uid) {
-      throw new Error("This shop is no longer open for emergency requests. Choose another shop.");
+    if (!listing || listing.role !== "shop-owner" || listing.category !== "Auto Shops" || listing.visibility !== "active"
+      || listing.providerId !== input.providerId || input.providerId === user.uid) {
+      throw new Error("This shop is not publicly available. Choose another Auto Shop.");
     }
+    validateBookingTiming(timing, listing.emergencyServiceAvailable === true, listing.acceptsScheduledBookings === true);
+    if (timing.timingMode === "now" && listing.availability !== "available") throw new Error("This shop is unavailable now. Choose a scheduled time if enabled.");
     if (!vehicle || vehicle.vehicleId !== input.vehicleId) throw new Error("This vehicle is no longer saved. Please select another vehicle.");
     transaction.set(reference, {
       bookingType: "shop-owner", customerId: user.uid,
@@ -79,6 +87,7 @@ export async function createShopBooking(input: CreateBookingInput): Promise<stri
       vehicleId: vehicle.vehicleId, vehicle: `${vehicle.make} ${vehicle.model}`, vehicleYear: vehicle.year, vehiclePlate: vehicle.plateNumber,
       latitude: input.latitude, longitude: input.longitude, problem, notes,
       shopLatitude: listing.location.latitude, shopLongitude: listing.location.longitude, shopAreaLabel: listing.serviceAreaLabel,
+      ...timingFields(timing),
       startingPrice: listing.startingPrice == null ? "Price on assessment" : `₱${listing.startingPrice.toLocaleString("en-PH")}`,
       status: "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
@@ -188,7 +197,7 @@ export async function setShopAvailability(status: "open" | "closed"): Promise<vo
   });
 }
 
-export async function updateShopBookingStatus(id: string, status: ShopBookingStatus, completionNote?: string): Promise<void> {
+export async function updateShopBookingStatus(id: string, status: ShopBookingStatus, completionNote?: string, finalPrice?: number): Promise<void> {
   const user = requireUser();
   const note = completionNote?.trim() ?? "";
   if (status === "completed" && note.length > 160) throw new Error("Completion notes must be 160 characters or fewer.");
@@ -203,16 +212,35 @@ export async function updateShopBookingStatus(id: string, status: ShopBookingSta
     if (!SHOP_TRANSITIONS[booking.status]?.includes(status)) {
       throw new Error("This request has changed. Check its current status before trying again.");
     }
+    if (status === "completed" && !isValidFinalPrice(finalPrice)) throw new Error("Enter a valid final price with up to two decimal places.");
     if (status === "accepted") {
       const profile = await transaction.get(doc(db, "providers", user.uid));
-      if (profile.data()?.status !== "open") throw new Error("Open your shop before accepting requests.");
+      if (booking.timingMode !== "scheduled" && profile.data()?.status !== "open") throw new Error("Open your shop before accepting immediate requests.");
       if (profile.data()?.verified !== true) throw new Error("Your shop must be approved before accepting requests.");
+      if (booking.timingMode === "scheduled" && booking.scheduledAt instanceof Timestamp) {
+        await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
+      }
     }
-    transaction.update(reference, { status, updatedAt: serverTimestamp(), ...(status === "completed" && note ? { completionNote: note } : {}) });
+    transaction.update(reference, { status, updatedAt: serverTimestamp(), ...(status === "completed" ? { finalPrice, completedAt: serverTimestamp(), ...(note ? { completionNote: note } : {}) } : {}) });
     addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId, bookingType: "shop-owner", providerId: user.uid, providerName: booking.providerName, status,
-      ...(status === "completed" ? { message: `${booking.providerName} completed your service. Please rate it.${note ? ` Note: ${note.slice(0, 100)}` : ""}` } : {}) });
+      ...(status === "completed" ? { message: `${booking.providerName} completed your service. Final service price: ${formatPesoAmount(finalPrice!)}. Please rate it.${note ? ` Note: ${note.slice(0, 100)}` : ""}` } : {}) });
     writeShopNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId,
       customerName: booking.customerName || "Customer", vehicle: booking.vehicle, problem: booking.problem,
       status, event: "provider_status" });
+  });
+}
+
+export async function cancelShopBookingAsCustomer(id: string): Promise<void> {
+  const user = requireUser();
+  await runTransaction(db, async (transaction) => {
+    const reference = doc(db, "bookings", id);
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists()) throw new Error("Request not found.");
+    const booking = snapshot.data() as ShopBookingRequest;
+    if (booking.bookingType !== "shop-owner" || booking.customerId !== user.uid) throw new Error("You cannot cancel this request.");
+    if (!["pending", "accepted"].includes(booking.status)) throw new Error("After the shop marks Vehicle Arrived, contact the provider to request cancellation.");
+    await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
+    transaction.update(reference, { status: "cancelled", updatedAt: serverTimestamp() });
+    addBookingStatusNotification(transaction, { bookingId: id, customerId: user.uid, bookingType: "shop-owner", providerId: booking.providerId, providerName: booking.providerName, status: "cancelled" });
   });
 }

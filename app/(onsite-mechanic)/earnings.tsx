@@ -10,8 +10,7 @@ import type { BookingRequest } from "../../types/owner/booking";
 const C = { canvas: "#08090B", card: "#191A1D", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", bar: "#E12B41" };
 type Period = "WEEK" | "MONTH" | "ALL";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-function amount(value: string) { return Number(value.replace(/[^\d.]/g, "")) || 0; }
-function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value); }
+function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
 
 export default function MechanicEarningsScreen() {
   const router = useRouter();
@@ -26,14 +25,15 @@ export default function MechanicEarningsScreen() {
     const start = new Date();
     start.setDate(start.getDate() - (period === "WEEK" ? 6 : 29));
     start.setHours(0, 0, 0, 0);
-    return completed.filter((item) => new Date(item.updatedAt) >= start);
+    return completed.filter((item) => new Date(item.completedAt || item.updatedAt) >= start);
   }, [completed, period]);
-  const total = transactions.reduce((sum, item) => sum + amount(item.startingPrice), 0);
-  const average = transactions.length ? total / transactions.length : 0;
+  const pricedTransactions = transactions.filter((item) => typeof item.finalPrice === "number");
+  const total = pricedTransactions.reduce((sum, item) => sum + item.finalPrice!, 0);
+  const average = pricedTransactions.length ? total / pricedTransactions.length : 0;
   const weeklyBars = useMemo(() => DAYS.map((_, day) => {
     const target = new Date();
     target.setDate(target.getDate() - ((target.getDay() + 6) % 7) + day);
-    return completed.filter((item) => new Date(item.updatedAt).toDateString() === target.toDateString()).reduce((sum, item) => sum + amount(item.startingPrice), 0);
+    return completed.filter((item) => new Date(item.completedAt || item.updatedAt).toDateString() === target.toDateString()).reduce((sum, item) => sum + (typeof item.finalPrice === "number" ? item.finalPrice : 0), 0);
   }), [completed]);
   const maximum = Math.max(...weeklyBars, 1);
 
@@ -49,7 +49,7 @@ export default function MechanicEarningsScreen() {
       <View style={s.sectionHeader}><Text style={s.sectionTitle}>Transactions</Text><Text style={s.sectionNote}>{transactions.length} completed</Text></View>
       {transactions.length === 0 ? <View style={s.empty}><Feather name="credit-card" size={30} color={C.muted} /><Text style={s.emptyText}>Completed mechanic jobs will appear here.</Text></View> : transactions.slice(0, 12).map((item) => <TouchableOpacity key={item.id} style={s.transaction} activeOpacity={0.75} onPress={() => router.push({ pathname: "/(onsite-mechanic)/request-details", params: { id: item.id } })}>
         <View style={s.transactionTop}><View style={s.vehicleIcon}><Feather name="tool" size={18} color={C.text} /></View><View style={s.transactionInfo}><Text style={s.transactionTitle} numberOfLines={1}>{item.vehicle}</Text><Text style={s.transactionDate}>{new Date(item.updatedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</Text></View><Feather name="chevron-right" size={21} color={C.muted} /></View>
-        <View style={s.transactionBottom}><Text style={s.transactionLabel}>{item.problem || "Mechanic service"}</Text><Text style={s.transactionAmount}>{peso(amount(item.startingPrice))}</Text></View>
+        <View style={s.transactionBottom}><Text style={s.transactionLabel}>{item.problem || "Mechanic service"}</Text><Text style={s.transactionAmount}>{typeof item.finalPrice === "number" ? peso(item.finalPrice) : "Final price not recorded"}</Text></View>
       </TouchableOpacity>)}
     </ScrollView>
   </SafeAreaView>;

@@ -6,6 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { ShopNotificationBell } from "../../components/shop-owner/ShopNotificationBell";
 import type { ShopBookingRequest } from "../../types/shopBooking";
+import { formatPesoAmount } from "../../utils/finalPrice";
 
 const C = { canvas: "#08090B", card: "#17191C", text: "#F5F2F0", muted: "#B7B2B0", red: "#F52239", border: "#303135", green: "#25C47A" };
 type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
@@ -49,9 +50,10 @@ export default function ShopServiceHistoryScreen() {
 
       {requestsLoading ? <View style={s.empty}><ActivityIndicator size="large" color={C.red} /><Text style={s.emptyTitle}>Loading service history…</Text></View> : requestsError ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="alert-circle" size={28} color={C.red} /></View><Text style={s.emptyTitle}>{requestsError}</Text><TouchableOpacity style={s.retry} onPress={retry}><Text style={s.retryText}>Try Again</Text></TouchableOpacity></View> : visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={28} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No service history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or service." : "Completed and cancelled bookings will appear here."}</Text></View> : visible.map((item) => <View key={item.id} style={s.card}>
         <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color={C.text} /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{item.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{item.vehicle}</Text></View></View><View style={[s.status, item.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{item.status === "completed" ? "Completed" : "Cancelled"}</Text></View></View>
-        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{dateLabel(item.updatedAt || item.createdAt)}</Text></View>
+        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{dateLabel(item.completedAt || item.updatedAt || item.createdAt)}</Text></View>
         <View style={s.infoRow}><Feather name="map-pin" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={1}>{item.shopAreaLabel || "Auto shop service"}</Text></View>
         <View style={s.infoRow}><Feather name="tool" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={2}>{item.problem}</Text></View>
+        {item.status === "completed" && <View style={s.infoRow}><Feather name="dollar-sign" size={18} color="#D6D2D0" /><Text style={s.infoText}>{typeof item.finalPrice === "number" ? formatPesoAmount(item.finalPrice) : "Final price not recorded"}</Text></View>}
         <TouchableOpacity style={s.detailsButton} onPress={() => open(item)} activeOpacity={0.75}><Text style={s.detailsText}>View Details</Text><Feather name="chevron-right" size={19} color={C.text} /></TouchableOpacity>
       </View>)}
     </ScrollView>

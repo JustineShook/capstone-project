@@ -5,6 +5,7 @@ import { ImageBackground, ScrollView, StatusBar, StyleSheet, Text, TextInput, To
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeToTowingRequests } from "../../services/owner/towingService";
 import type { TowingBookingRequest } from "../../types/owner/towing";
+import { formatPesoAmount } from "../../utils/finalPrice";
 
 const C = { canvas: "#08090B", card: "#151D24", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#2C3944" };
 type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
@@ -57,9 +58,10 @@ export default function TowingHistoryScreen() {
       {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={29} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No service history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer or vehicle name." : "Completed and cancelled towing jobs will appear here."}</Text></View> : visible.map((booking) => (
         <View key={booking.id} style={s.card}>
           <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{statusLabel(booking.status)}</Text></View></View>
-          <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.updatedAt || booking.createdAt)}</Text></View>
+          <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.completedAt || booking.updatedAt || booking.createdAt)}</Text></View>
           <View style={s.infoRow}><Feather name="map-pin" size={18} color={C.red} /><Text style={s.infoText} numberOfLines={2}>{booking.pickupLocation}</Text><Text style={s.routeLabel}>Pickup</Text></View>
           <View style={s.infoRow}><Feather name="flag" size={18} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={2}>{booking.destination}</Text><Text style={s.routeLabel}>Drop-off</Text></View>
+          {booking.status === "completed" ? <View style={s.infoRow}><Feather name="dollar-sign" size={18} color="#D6D7D9" /><Text style={s.infoText}>{typeof booking.finalPrice === "number" ? `Final Price · ${formatPesoAmount(booking.finalPrice)}` : "Final price not recorded"}</Text></View> : null}
           <TouchableOpacity style={s.detailsButton} onPress={() => router.push({ pathname: "/(towing-company)/request-details", params: { id: booking.id } })} activeOpacity={0.75}><Text style={s.detailsText}>View Details</Text><Feather name="chevron-right" size={18} color="#FFFFFF" /></TouchableOpacity>
         </View>
       ))}

@@ -87,6 +87,7 @@ const HOME_GARAGE_SERVICES = [
 ];
 const MECHANIC_VEHICLE_TYPES = ["Cars", "SUVs", "Pickup Trucks", "Vans", "Motorcycles"];
 const TOWING_VEHICLE_TYPES = ["Motorcycle", "Car", "SUV", "Pickup Truck", "Van", "Truck"];
+const SHOP_VEHICLE_TYPES = ["Cars", "SUVs", "Pickup Trucks", "Vans", "Motorcycles", "Truck"];
 const DEFAULT_MAP_CENTER = { latitude: 10.3157, longitude: 123.8854 };
 const DEFAULT_MAP_CENTER_LEAFLET = { lat: DEFAULT_MAP_CENTER.latitude, lng: DEFAULT_MAP_CENTER.longitude };
 
@@ -143,6 +144,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
       : initialListing?.businessName || defaultBusinessName
   );
   const [availability, setAvailability] = useState<Availability>(initialListing?.availability ?? "offline");
+  const [acceptsScheduledBookings, setAcceptsScheduledBookings] = useState(initialListing?.acceptsScheduledBookings === true);
   const [location, setLocation] = useState(initialListing?.location ?? null);
   const [serviceAreaLabel, setServiceAreaLabel] = useState(initialListing?.serviceAreaLabel ?? "");
   const [areaSuggestions, setAreaSuggestions] = useState<AreaSuggestion[]>([]);
@@ -178,7 +180,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
   const usesStructuredHours = role === "onsite-mechanic" || role === "shop-owner" || role === "homegarage";
   const showsListingPhotos = role === "shop-owner" || role === "homegarage";
   const serviceOptions = role === "towing-company" ? TOWING_SERVICES : role === "shop-owner" ? SHOP_SERVICES : role === "homegarage" ? HOME_GARAGE_SERVICES : MECHANIC_SERVICES;
-  const vehicleTypeOptions = role === "onsite-mechanic" ? MECHANIC_VEHICLE_TYPES : TOWING_VEHICLE_TYPES;
+  const vehicleTypeOptions = role === "onsite-mechanic" ? MECHANIC_VEHICLE_TYPES : role === "shop-owner" ? SHOP_VEHICLE_TYPES : TOWING_VEHICLE_TYPES;
 
   const toggle = (value: string, values: string[], setValues: (next: string[]) => void) => {
     setValues(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
@@ -313,7 +315,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
   };
 
   const selectMapPoint = (coordinates: PublicProviderListingInput["location"]) => {
-    if (role === "homegarage") setLocation(coordinates);
+    setLocation(coordinates);
     setAreaSuggestions([]);
     setShowAreaSuggestions(false);
     setAreaSearchMessage("");
@@ -433,7 +435,10 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           vehicleTypes,
           operatingHours: publicHours,
           startingPrice: publicStartingPrice,
-          emergencyServiceAvailable: role === "towing-company" || role === "homegarage" ? emergencyServiceAvailable! : role === "shop-owner",
+          emergencyServiceAvailable: role === "onsite-mechanic"
+            ? emergencyServiceAvailable === true
+            : role === "towing-company" || role === "homegarage" ? emergencyServiceAvailable! : role === "shop-owner",
+          acceptsScheduledBookings,
           photoUrls,
           hoursType,
           is24Hours: hoursType === "24_7",
@@ -576,7 +581,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           </View>
           <Text style={styles.mapHint}>{role === "homegarage"
             ? "Choose a search result or tap the map to set your public garage location."
-            : "Choose a search result or tap the map to set your service-area label. The saved shop location remains the verified Profile location."}</Text>
+          : "Choose a search result or tap the map to set your public shop location."}</Text>
         </> : <TextInput
           value={serviceAreaLabel}
           onChangeText={setServiceAreaLabel}
@@ -586,6 +591,18 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         />}
 
         {(role === "shop-owner" || role === "homegarage") && <><Text style={styles.label}>{role === "homegarage" ? "ABOUT YOUR HOME GARAGE" : "ABOUT YOUR AUTO SHOP"}</Text><TextInput value={description} onChangeText={setDescription} maxLength={600} multiline placeholder={role === "homegarage" ? "Describe your garage, repair experience, specialties, and what customers can expect" : "Describe your shop, experience, specialties, or what customers can expect"} style={[styles.input, styles.descriptionInput]} /></>}
+
+        <Text style={styles.label}>SCHEDULED BOOKINGS</Text>
+        <Text style={styles.photoHint}>Choose whether customers may request future one-hour start windows. You can confirm or decline each request.</Text>
+        <View style={styles.options}>{[[true, "Accept scheduled requests"], [false, role === "onsite-mechanic" ? "Emergency only" : "Now requests only"]].map(([enabled, label]) => {
+          const schedulingEnabled = enabled as boolean;
+          const selected = acceptsScheduledBookings === schedulingEnabled
+            && (role !== "onsite-mechanic" || schedulingEnabled || emergencyServiceAvailable === true);
+          return <TouchableOpacity key={String(enabled)} style={[styles.option, selected && styles.optionActive]} onPress={() => {
+            setAcceptsScheduledBookings(schedulingEnabled);
+            if (role === "onsite-mechanic" && !schedulingEnabled) setEmergencyServiceAvailable(true);
+          }}><Text style={[styles.optionText, selected && styles.optionTextActive]}>{label}</Text></TouchableOpacity>;
+        })}</View>
 
         <Text style={styles.label}>OPERATING / AVAILABLE HOURS</Text>
         {usesStructuredHours ? <HoursSelector type={hoursType} days={weeklyHours} onTypeChange={setHoursType} onDaysChange={setWeeklyHours} /> : <TextInput value={operatingHours} onChangeText={setOperatingHours} maxLength={200} placeholder="e.g. Mon-Sat, 8:00 AM-6:00 PM" style={styles.input}/>}
@@ -637,7 +654,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             )}
           </View>
         </View>
-        {role !== "shop-owner" && <TouchableOpacity
+        <TouchableOpacity
           style={styles.locationButton}
           onPress={() => void handleUseCurrentLocation()}
           disabled={locating || saving}
@@ -648,7 +665,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             <Feather name="crosshair" size={17} color={COLORS.primary} />
           )}
           <Text style={styles.locationButtonText}>Use My Current Location</Text>
-        </TouchableOpacity>}
+        </TouchableOpacity>
         </>}
 
         <TouchableOpacity

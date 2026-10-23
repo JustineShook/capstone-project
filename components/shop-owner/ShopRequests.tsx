@@ -1,6 +1,9 @@
 import { useRouter } from "expo-router";
+import { formatBookingTimingLabel } from "../../utils/bookingTiming";
 import { useRef, useState } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Alert, Text, TextInput, View } from "react-native";
+import { FinalPriceCompletionModal } from "../provider/FinalPriceCompletionModal";
+import { formatPesoAmount } from "../../utils/finalPrice";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { updateShopBookingStatus } from "../../services/shopOwnerService";
 import { isActiveShopService, type ShopBookingRequest, type ShopBookingStatus } from "../../types/shopBooking";
@@ -19,17 +22,26 @@ export function RequestActions({ request }: { request: ShopBookingRequest }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completionNote, setCompletionNote] = useState("");
+  const [completionFormVisible, setCompletionFormVisible] = useState(false);
   const canAccept = !profileLoading && !profileError && profile?.status === "open" && profile.verified === true;
   const next = NEXT_ACTION[request.status];
 
-  async function update(status: ShopBookingStatus) {
+  async function update(status: ShopBookingStatus, finalPrice?: number) {
     if (locked.current) return;
     locked.current = true;
     setSaving(true);
     setError(null);
-    try { await updateShopBookingStatus(request.id, status, status === "completed" ? completionNote : undefined); }
+    try { await updateShopBookingStatus(request.id, status, status === "completed" ? completionNote : undefined, finalPrice); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update this request. Please try again."); }
     finally { locked.current = false; setSaving(false); }
+  }
+
+  function reviewFinalPrice(amount: number) {
+    setCompletionFormVisible(false);
+    Alert.alert("Confirm service completion", `Final Price: ${formatPesoAmount(amount)}\n\nThis records the service charge only. It does not mark the booking paid or process a payment.`, [
+      { text: "Review amount", style: "cancel", onPress: () => setCompletionFormVisible(true) },
+      { text: "Confirm & Complete", onPress: () => { void update("completed", amount); } },
+    ]);
   }
 
   return <View style={{ gap: 10 }}>
@@ -42,8 +54,9 @@ export function RequestActions({ request }: { request: ShopBookingRequest }) {
         <View style={s.flex}><Button title={saving ? "Saving…" : "Accept Request"} disabled={saving || !canAccept} onPress={() => void update("accepted")} /></View>
       </View>
     </>}
-    {next && <Button title={saving ? "Saving…" : next.title} disabled={saving} onPress={() => void update(next.status)} />}
+    {next && <Button title={saving ? "Saving…" : next.title} disabled={saving} onPress={() => next.status === "completed" ? setCompletionFormVisible(true) : void update(next.status)} />}
     {request.status === "accepted" && <Text style={s.muted}>Waiting for the customer to bring the vehicle to your shop.</Text>}
+    <FinalPriceCompletionModal visible={completionFormVisible} saving={saving} onCancel={() => setCompletionFormVisible(false)} onReview={reviewFinalPrice} />
   </View>;
 }
 
@@ -52,10 +65,12 @@ export function RequestCard({ request, actions = false }: { request: ShopBooking
   return <View style={s.card}>
     <View style={s.between}><Text style={s.title}>{request.customerName}</Text><StatusBadge status={request.status} /></View>
     <Text style={s.muted}>{request.vehicle} · {request.vehicleYear} · {request.vehiclePlate || "No plate provided"}</Text>
+    <Text style={s.muted}>{formatBookingTimingLabel(request)}</Text>
     <Info label="Reported problem" value={request.problem} />
     <Info label="Customer location" value={formatLocation(request)} />
     <Text style={s.muted}>Requested: {formatTime(request.createdAt)}</Text>
-    {request.status === "completed" && <Text style={s.muted}>Completed: {formatTime(request.updatedAt)}</Text>}
+    {request.status === "completed" && <Text style={s.muted}>Completed: {formatTime(request.completedAt || request.updatedAt)}</Text>}
+    {request.status === "completed" && <Text style={s.muted}>Final Price: {typeof request.finalPrice === "number" ? formatPesoAmount(request.finalPrice) : "Final price not recorded"}</Text>}
     <Button title={isActiveShopService(request.status) ? "Manage Service" : "View Request"} secondary onPress={() => router.push({
       pathname: isActiveShopService(request.status) ? "/(shop-owner)/active-service" : "/(shop-owner)/request-details",
       params: { id: request.id },

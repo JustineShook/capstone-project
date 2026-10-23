@@ -9,8 +9,7 @@ import type { TowingBookingRequest } from "../../types/owner/towing";
 const COLORS = { canvas: "#0B1115", card: "#151E25", text: "#ECE8E6", muted: "#B7B2B0", red: "#F51F3B", bar: "#D9233C" };
 type Period = "WEEK" | "MONTH" | "ALL";
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-function amount(value: string) { return Number(value.replace(/[^\d.]/g, "")) || 0; }
-function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value); }
+function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
 
 export default function TowingEarningsScreen() {
   const router = useRouter();
@@ -25,14 +24,15 @@ export default function TowingEarningsScreen() {
     const start = new Date();
     start.setDate(start.getDate() - (period === "WEEK" ? 6 : 29));
     start.setHours(0, 0, 0, 0);
-    return completed.filter((item) => new Date(item.updatedAt) >= start);
+    return completed.filter((item) => new Date(item.completedAt || item.updatedAt) >= start);
   }, [completed, period]);
-  const total = transactions.reduce((sum, item) => sum + amount(item.startingPrice), 0);
-  const average = transactions.length ? total / transactions.length : 0;
+  const pricedTransactions = transactions.filter((item) => typeof item.finalPrice === "number");
+  const total = pricedTransactions.reduce((sum, item) => sum + item.finalPrice!, 0);
+  const average = pricedTransactions.length ? total / pricedTransactions.length : 0;
   const weeklyBars = useMemo(() => DAYS.map((_, day) => {
     const target = new Date();
     target.setDate(target.getDate() - ((target.getDay() + 6) % 7) + day);
-    return completed.filter((item) => new Date(item.updatedAt).toDateString() === target.toDateString()).reduce((sum, item) => sum + amount(item.startingPrice), 0);
+    return completed.filter((item) => new Date(item.completedAt || item.updatedAt).toDateString() === target.toDateString()).reduce((sum, item) => sum + (typeof item.finalPrice === "number" ? item.finalPrice : 0), 0);
   }), [completed]);
   const maximum = Math.max(...weeklyBars, 1);
 
@@ -45,7 +45,7 @@ export default function TowingEarningsScreen() {
       <View style={styles.summaryRow}><Metric icon="truck" value={String(transactions.length)} label="Completed Tows" /><Metric icon="dollar-sign" value={peso(average)} label="Average per Tow" /></View>
       <View style={styles.chartCard}><View style={styles.chartHeader}><Text style={styles.chartTitle}>Earnings Overview</Text><Text style={styles.chartNote}>This week</Text></View><View style={styles.chart}>{weeklyBars.map((value, index) => <View key={DAYS[index]} style={styles.barItem}><View style={styles.barTrack}><View style={[styles.bar, { height: `${Math.max(value ? 16 : 4, (value / maximum) * 100)}%` }]} /></View><Text style={styles.day}>{DAYS[index]}</Text></View>)}</View></View>
       <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Transactions</Text><Text style={styles.sectionNote}>{transactions.length} completed</Text></View>
-      {transactions.length === 0 ? <View style={styles.empty}><Feather name="credit-card" size={30} color={COLORS.muted} /><Text style={styles.emptyText}>Completed towing jobs will appear here.</Text></View> : transactions.slice(0, 12).map((item) => <TouchableOpacity key={item.id} style={styles.transaction} activeOpacity={0.75} onPress={() => router.push({ pathname: "/(towing-company)/request-details", params: { id: item.id } })}><View style={styles.transactionTop}><View style={styles.vehicleIcon}><Feather name="truck" size={18} color={COLORS.text} /></View><View style={styles.transactionInfo}><Text style={styles.transactionTitle}>{item.vehicle}</Text><Text style={styles.transactionDate}>{new Date(item.updatedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</Text></View><Feather name="chevron-right" size={21} color={COLORS.muted} /></View><View style={styles.transactionBottom}><Text style={styles.transactionLabel}>Service amount</Text><Text style={styles.transactionAmount}>{item.startingPrice}</Text></View></TouchableOpacity>)}
+      {transactions.length === 0 ? <View style={styles.empty}><Feather name="credit-card" size={30} color={COLORS.muted} /><Text style={styles.emptyText}>Completed towing jobs will appear here.</Text></View> : transactions.slice(0, 12).map((item) => <TouchableOpacity key={item.id} style={styles.transaction} activeOpacity={0.75} onPress={() => router.push({ pathname: "/(towing-company)/request-details", params: { id: item.id } })}><View style={styles.transactionTop}><View style={styles.vehicleIcon}><Feather name="truck" size={18} color={COLORS.text} /></View><View style={styles.transactionInfo}><Text style={styles.transactionTitle}>{item.vehicle}</Text><Text style={styles.transactionDate}>{new Date(item.completedAt || item.updatedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</Text></View><Feather name="chevron-right" size={21} color={COLORS.muted} /></View><View style={styles.transactionBottom}><Text style={styles.transactionLabel}>Final Price</Text><Text style={styles.transactionAmount}>{typeof item.finalPrice === "number" ? peso(item.finalPrice) : "Final price not recorded"}</Text></View></TouchableOpacity>)}
     </ScrollView>
   </SafeAreaView>;
 }

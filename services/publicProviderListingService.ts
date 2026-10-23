@@ -1,6 +1,6 @@
-import { collection, doc, getDoc, getDocs, query, runTransaction, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 
-import type { ProviderListing, PublicProviderListingInput } from "../types/providerListing";
+import { isBookableShopListing, type ProviderListing, type PublicProviderListingInput } from "../types/providerListing";
 import { db } from "./firebase";
 
 type ProviderRole = ProviderListing["role"];
@@ -20,6 +20,22 @@ async function ensureParkingSlots(uid: string, totalSlots: number) {
 export async function getPublicProviderListing(uid: string): Promise<ProviderListing | null> {
   const snapshot = await getDoc(publicProviderListingRef(uid));
   return snapshot.exists() ? (snapshot.data() as ProviderListing) : null;
+}
+
+/** Streams only an approved, open shop listing to a customer request screen. */
+export function subscribeToBookableShopListing(
+  uid: string,
+  callback: (listing: ProviderListing | null) => void,
+  onError: (error: Error) => void,
+  scheduled = false
+) {
+  return onSnapshot(publicProviderListingRef(uid), (snapshot) => {
+    const listing = snapshot.exists() ? snapshot.data() as ProviderListing : null;
+    const eligible = listing && listing.role === "shop-owner" && listing.category === "Auto Shops"
+      && listing.visibility === "active" && listing.emergencyServiceAvailable === true
+      && (scheduled ? listing.acceptsScheduledBookings === true : listing.availability === "available");
+    callback(eligible && listing?.providerId === uid ? listing : null);
+  }, onError);
 }
 
 /** Changes only availability on an existing verified mechanic listing. */
@@ -64,6 +80,7 @@ export async function updatePublicProviderListing(
     startingPrice: input.startingPrice,
     operatingHours: input.operatingHours,
     emergencyServiceAvailable: input.emergencyServiceAvailable,
+    acceptsScheduledBookings: input.acceptsScheduledBookings === true,
     ...((role === "shop-owner" || role === "homegarage") && input.photoUrls ? { photoUrls: [...input.photoUrls] } : {}),
     ...((role === "onsite-mechanic" || role === "shop-owner") && input.hoursType ? { hoursType: input.hoursType, is24Hours: input.is24Hours === true, weeklyHours: input.weeklyHours ?? [] } : {}),
     ...(role === "homegarage" && input.totalSlots ? { totalSlots: input.totalSlots, availableSlots: input.availableSlots ?? input.totalSlots } : {}),
@@ -77,9 +94,8 @@ export async function updatePublicProviderListing(
       }
       const listingRef = publicProviderListingRef(uid);
       const currentListing = await transaction.get(listingRef);
-      const shopListing = {
+      const shopListing: ProviderListing = {
         ...listing,
-        location: { latitude: profile.latitude, longitude: profile.longitude },
         availability: profile.status === "open" ? "available" : "offline",
         emergencyServiceAvailable: true,
       };
@@ -100,6 +116,7 @@ export async function updatePublicProviderListing(
           operatingHours,
           startingPrice,
           emergencyServiceAvailable,
+          acceptsScheduledBookings,
           photoUrls,
           hoursType,
           is24Hours,
@@ -108,19 +125,22 @@ export async function updatePublicProviderListing(
         const providerEditableFields: Partial<ProviderListing> = {
           businessName,
           location,
-          availability,
+          availability: shopListing.availability,
           serviceAreaLabel,
           description,
-          services,
-          vehicleTypes,
+          services: [...services],
+          vehicleTypes: [...vehicleTypes],
           operatingHours,
           startingPrice,
           emergencyServiceAvailable,
-          photoUrls,
-          hoursType,
-          is24Hours,
-          weeklyHours,
+          acceptsScheduledBookings,
         };
+        if (photoUrls) providerEditableFields.photoUrls = [...photoUrls];
+        if (hoursType) {
+          providerEditableFields.hoursType = hoursType;
+          providerEditableFields.is24Hours = is24Hours;
+          providerEditableFields.weeklyHours = weeklyHours ?? [];
+        }
         // updateDoc rejects undefined values. Older shop listings may not yet
         // have a public contact number, so omit it until the owner supplies one.
         if (contactPhone) providerEditableFields.contactPhone = contactPhone;

@@ -35,6 +35,11 @@ export default function MechanicPublicListingScreen() {
         hoursType: existing?.hoursType,
         weeklyHours: existing?.weeklyHours,
         startingPrice: existing ? existing.startingPrice : profile.serviceInfo.serviceRate > 0 ? profile.serviceInfo.serviceRate : null,
+        // Retain an explicitly enabled listing value; fall back to the
+        // verified profile to recover listings saved false by the old bug.
+        emergencyServiceAvailable: existing?.emergencyServiceAvailable === true
+          || profile.serviceInfo.emergencyServiceAvailable,
+        acceptsScheduledBookings: existing?.acceptsScheduledBookings === true,
       });
     }).catch(() => setInitialListing(null));
   }, []);

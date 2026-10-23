@@ -8,8 +8,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { auth, db } from "../../services/firebase";
 import { subscribeToMyVehicles } from "../../services/owner/vehicleService";
 import type { SavedVehicle } from "../../types/owner/vehicle";
+import { formatPesoAmount } from "../../utils/finalPrice";
 
-type VehicleHistoryItem = { id: string; bookingType: string; providerName: string; status: string; problem?: string; towingType?: string; startingPrice: string; createdAt?: { toDate?: () => Date }; vehicleId: string };
+type VehicleHistoryItem = { id: string; bookingType: string; providerName: string; status: string; problem?: string; towingType?: string; startingPrice: string; finalPrice?: number; createdAt?: { toDate?: () => Date }; vehicleId: string };
 const C = { bg: "#0C1015", card: "#151C23", elevated: "#1C252E", text: "#F4F6F8", muted: "#AAB5C0", border: "#28313A", red: "#F52239", green: "#62D5A5" };
 
 function serviceLabel(bookingType: string) {
@@ -24,6 +25,13 @@ function statusLabel(status: string) {
 
 function statusColor(status: string) {
   return ["completed", "complete"].includes(status.toLowerCase()) ? C.green : C.red;
+}
+
+function historyPrice(item: VehicleHistoryItem) {
+  if (["onsite-mechanic", "towing-company", "shop-owner", "homegarage"].includes(item.bookingType) && item.status === "completed") {
+    return typeof item.finalPrice === "number" ? `Final ${formatPesoAmount(item.finalPrice)}` : "Final price not recorded";
+  }
+  return item.startingPrice || "";
 }
 
 export default function VehicleHistoryScreen() {
@@ -104,7 +112,7 @@ export default function VehicleHistoryScreen() {
             <Text style={s.detail} numberOfLines={2}>{item.problem || item.towingType || "Service request"}</Text>
             <View style={s.cardFooter}>
               <View style={s.dateRow}><Ionicons name="calendar-outline" size={14} color={C.muted} /><Text style={s.date}>{item.createdAt?.toDate?.().toLocaleDateString() || "Recent"}</Text></View>
-              <View style={s.priceRow}><Text style={s.price}>{item.startingPrice || ""}</Text><Ionicons name="chevron-forward" size={16} color={C.red} /></View>
+              <View style={s.priceRow}><Text style={s.price}>{historyPrice(item)}</Text><Ionicons name="chevron-forward" size={16} color={C.red} /></View>
             </View>
           </View>
         </Pressable>

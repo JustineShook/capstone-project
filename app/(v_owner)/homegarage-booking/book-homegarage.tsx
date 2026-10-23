@@ -8,18 +8,21 @@ import { ShopBookingScreen } from "../../../components/owner/ShopBookingScreen";
 import { createHomeGarageBooking } from "../../../services/homeGarageBookingService";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
-import { isBookableHomeGarageListing, type ProviderListing } from "../../../types/providerListing";
+import type { ProviderListing } from "../../../types/providerListing";
 import type { SavedVehicle } from "../../../types/owner/vehicle";
+import { BookingTimingActions } from "../../../components/owner/BookingTimingActions";
+import type { BookingTimingInput } from "../../../types/bookingTiming";
+import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
 
 const C = { bg: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", line: "#28313A", red: "#F52239" };
 
 export default function BookHomeGarageScreen() {
-  const { providerId } = useLocalSearchParams<{ providerId?: string | string[] }>();
+  const { providerId, initialTimingMode } = useLocalSearchParams<{ providerId?: string | string[]; initialTimingMode?: "now" | "scheduled" }>();
   const id = Array.isArray(providerId) ? providerId[0] : providerId;
-  return <BookHomeGarageForm key={id} providerId={id} />;
+  return <BookHomeGarageForm key={id} providerId={id} initialTimingMode={initialTimingMode} />;
 }
 
-function BookHomeGarageForm({ providerId }: { providerId?: string }) {
+function BookHomeGarageForm({ providerId, initialTimingMode }: { providerId?: string; initialTimingMode?: "now" | "scheduled" }) {
   const router = useRouter();
   const focused = useIsFocused();
   const [provider, setProvider] = useState<ProviderListing | null>(null);
@@ -27,6 +30,7 @@ function BookHomeGarageForm({ providerId }: { providerId?: string }) {
   const [vehicleId, setVehicleId] = useState("");
   const [problem, setProblem] = useState("");
   const [notes, setNotes] = useState("");
+  const [timing, setTiming] = useState<BookingTimingInput>(() => ({ timingMode: initialTimingMode === "scheduled" ? "scheduled" : "now", urgency: "standard" }));
   const [loading, setLoading] = useState(true);
   const [vehicleLoading, setVehicleLoading] = useState(true);
   const [error, setError] = useState("");
@@ -43,31 +47,43 @@ function BookHomeGarageForm({ providerId }: { providerId?: string }) {
     if (!providerId) { setError("Choose a Home Garage from the provider list."); setLoading(false); return; }
     getPublicProviderListing(providerId).then((listing) => {
       if (!active) return;
-      if (isBookableHomeGarageListing(listing)) setProvider(listing);
+      if (listing && listing.role === "homegarage" && listing.category === "Parking Lots"
+        && listing.visibility === "active"
+        && (initialTimingMode === "scheduled"
+          ? listing.acceptsScheduledBookings === true
+          : listing.availability === "available")) setProvider(listing);
       else { setProvider(null); setError("This Home Garage is not accepting service requests right now."); }
     }).catch(() => { if (active) { setProvider(null); setError("Unable to load this Home Garage listing."); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [providerId, focused]);
+  }, [providerId, focused, initialTimingMode]);
 
   useEffect(() => subscribeToMyVehicles((items) => {
     setVehicles(items); setVehicleLoading(false);
     setVehicleId((current) => items.some((item) => item.vehicleId === current) ? current : "");
   }, () => { setVehicleLoading(false); setError("Unable to load your saved vehicles."); }), []);
 
-  const canSubmit = Boolean(provider && vehicle && problem.trim() && problem.trim().length <= 300 && notes.trim().length <= 1000 && !loading && !vehicleLoading);
+  const requiredFieldsValid = Boolean(provider && vehicle && problem.trim() && problem.trim().length <= 300 && notes.trim().length <= 1000 && !loading && !vehicleLoading);
+  const timingAllowed = timing.timingMode === "scheduled" ? provider?.acceptsScheduledBookings === true
+    : timing.urgency === "emergency" ? provider?.emergencyServiceAvailable === true : true;
+  const canSubmit = Boolean(requiredFieldsValid && timingAllowed && isBookingTimingReady(timing));
   async function submit() {
     if (lock.current || !provider || !vehicle || !canSubmit) return;
     lock.current = true; setSaving(true); setError("");
     try {
-      const id = submittedId.current ?? await createHomeGarageBooking(provider.providerId, vehicle, problem, notes);
+      const id = submittedId.current ?? await createHomeGarageBooking(provider.providerId, vehicle, problem, notes, timing);
       submittedId.current = id; setModal(null);
       router.replace({ pathname: "/(v_owner)/homegarage-booking/booking-detail", params: { bookingId: id } });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to send the repair request."); }
     finally { lock.current = false; setSaving(false); }
   }
 
-  return <ShopBookingScreen title="Request Home Garage Service">
+  return <ShopBookingScreen title="Request Home Garage Service" footer={provider && !loading ? <BookingTimingActions value={timing}
+    emergencyAvailable={provider.emergencyServiceAvailable === true} acceptsScheduled={provider.acceptsScheduledBookings === true}
+    requiredFieldsValid={requiredFieldsValid} reviewDisabled={saving} onChange={setTiming}
+    onEmergency={() => { const next = { timingMode: "now" as const, urgency: "emergency" as const }; setTiming(next); setError(""); if (requiredFieldsValid) setModal("review"); }}
+    onReview={() => { setError(""); setModal("review"); }}
+    validationMessage={!vehicle ? "Select a vehicle." : !problem.trim() ? "Describe the repair needed." : timing.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid future hour." : undefined} /> : undefined}>
     {loading || vehicleLoading ? <View style={s.state}><ActivityIndicator color={C.red} /></View> : null}
     {error && !provider ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}
     {provider && <>
@@ -82,7 +98,6 @@ function BookHomeGarageForm({ providerId }: { providerId?: string }) {
       <TextInput value={notes} onChangeText={setNotes} style={[s.multiline, { minHeight: 80 }]} placeholder="Anything else the garage should know" placeholderTextColor={C.muted} multiline maxLength={1000} />
       <Text style={s.muted}>The Home Garage will review the request and accept or decline it. Confirm the service schedule and final price directly with the provider.</Text>
       {error ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}
-      <TouchableOpacity style={[s.button, !canSubmit && s.disabled]} disabled={!canSubmit} onPress={() => { setError(""); setModal("review"); }}><Text style={s.buttonText}>Review Request</Text></TouchableOpacity>
     </>}
     <Modal visible={modal !== null} transparent animationType="slide" onRequestClose={() => !saving && setModal(null)}>
       <View style={s.overlay}><SafeAreaView style={s.sheet} edges={["bottom"]}>
@@ -90,7 +105,8 @@ function BookHomeGarageForm({ providerId }: { providerId?: string }) {
         <ScrollView contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
           {modal === "vehicle" ? vehicles.map((item) => <Pressable key={item.vehicleId} style={[s.option, item.vehicleId === vehicleId && s.selected]} onPress={() => { setVehicleId(item.vehicleId); setModal(null); }}><Text style={s.body}>{item.year} {item.make} {item.model}</Text><Text style={s.muted}>{item.type} · {item.plateNumber}</Text></Pressable>) : <>
             <Info label="Home Garage" value={provider?.businessName ?? ""} /><Info label="Vehicle" value={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}` : "Vehicle unavailable"} /><Info label="Repair needed" value={problem} />{notes.trim() ? <Info label="Notes" value={notes} /> : null}
-            <Text style={s.muted}>This sends a service request. It does not reserve a date or time.</Text>
+            <Info label="Timing" value={formatBookingTimingLabel(timing)} />
+            <Text style={s.muted}>Scheduled times are subject to provider confirmation and reserve a start window, not service duration.</Text>
             {error ? <Text accessibilityRole="alert" style={s.error}>{error}</Text> : null}
             <TouchableOpacity style={[s.button, saving && s.disabled]} disabled={saving} onPress={() => void submit()}><Text style={s.buttonText}>{saving ? "Sending…" : "Send Request"}</Text></TouchableOpacity>
           </>}

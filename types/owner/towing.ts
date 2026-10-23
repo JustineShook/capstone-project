@@ -1,4 +1,5 @@
 // types/owner/towing.ts
+import type { BookingTimingFields } from "../bookingTiming";
 // ---------------------------------------------------------------------------
 // TOWING BOOKING REQUEST
 // Mirrors the shape and helpers in types/owner/booking.ts, but kept as its
@@ -93,12 +94,14 @@ export const VEHICLE_CONDITIONS = [
 
 export type VehicleCondition = (typeof VEHICLE_CONDITIONS)[number];
 
-export interface TowingBookingRequest {
+export interface TowingBookingRequest extends BookingTimingFields {
   id: string;
   bookingType: "towing-company";
   customerId: string;
   customerName: string;
   customerEmail: string;
+  /** Verified owner contact snapshot captured when the booking is created. */
+  customerPhone?: string;
   providerId: string;
   providerName: string;
   vehicleId: string;
@@ -129,6 +132,8 @@ export interface TowingBookingRequest {
   vehicleCondition: string;
   notes: string;
   startingPrice: string;
+  finalPrice?: number;
+  completedAt?: string;
   status: TowingStatus;
   createdAt: string; // ISO timestamp
   updatedAt: string;

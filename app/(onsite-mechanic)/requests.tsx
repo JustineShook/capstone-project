@@ -6,6 +6,7 @@ import { ImageBackground, ScrollView, StatusBar, StyleSheet, Text, TouchableOpac
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeToMechanicRequests } from "../../services/owner/bookingService";
 import type { BookingRequest } from "../../types/owner/booking";
+import { formatBookingTimingLabel } from "../../utils/bookingTiming";
 
 const C = { canvas: "#08090B", card: "#191A1D", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#303135" };
 type Filter = "PENDING" | "ACTIVE";
@@ -52,7 +53,7 @@ export default function MechanicRequestsScreen() {
       {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name={filter === "PENDING" ? "inbox" : "tool"} size={28} color="#FF8995" /></View><Text style={s.emptyTitle}>{filter === "PENDING" ? "All caught up" : "Ready for the next job?"}</Text><Text style={s.emptyText}>{filter === "PENDING" ? "New customer requests will show up here as soon as they come in." : "Once you accept a request, you can track your active job here."}</Text><View style={s.emptyAccent}><Feather name="check-circle" size={15} color="#63D99A" /><Text style={s.emptyAccentText}>{filter === "PENDING" ? "No requests need your attention" : "Your current jobs will stay easy to find"}</Text></View></View> : visible.map((booking) => <View key={booking.id} style={s.card}>
         <View style={s.customerRow}><View style={s.avatar}><Feather name="user" size={20} color="#FFFFFF" /></View><View style={s.customerCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View><View style={[s.status, booking.status !== "pending" && s.activeStatus]}><Text style={[s.statusText, booking.status !== "pending" && s.activeStatusText]}>{label(booking.status)}</Text></View></View>
         <View style={s.locationGrid}><View style={s.locationCell}><View style={s.locationHeading}><Feather name="map-pin" size={17} color={C.red} /><Text style={s.locationLabel}>Service location</Text></View><Text style={s.locationText} numberOfLines={2}>{booking.customerAddress || "Customer location"}</Text></View></View>
-        <View style={s.details}><Detail icon="tool" text={booking.problem || "Mechanic service request"} /><Detail icon="message-square" text={booking.notes || "No additional notes"} /></View>
+        <View style={s.details}><Text style={s.detailText}>{formatBookingTimingLabel(booking)}</Text><Detail icon="tool" text={booking.problem || "Mechanic service request"} /><Detail icon="message-square" text={booking.notes || "No additional notes"} /></View>
         <TouchableOpacity style={s.viewButton} onPress={() => open(booking.id)} activeOpacity={0.82}><Text style={s.viewButtonText}>View Request</Text><Feather name="chevron-right" size={19} color="#FFFFFF" /></TouchableOpacity>
       </View>)}
     </ScrollView>

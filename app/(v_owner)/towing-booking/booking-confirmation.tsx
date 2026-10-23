@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
 import { ServiceProgress } from "../../../components/owner/ServiceProgress";
+import { BookingTimingBanner } from "../../../components/owner/BookingTimingBanner";
 import { getTowingBookingById } from "../../../services/owner/towingService";
 import { getTowingStatusLabel, getTowingStatusShortLabel, TOWING_STATUS_FLOW, TowingBookingRequest } from "../../../types/owner/towing";
 
@@ -62,6 +63,9 @@ export default function TowingBookingConfirmationScreen() {
         <Text style={styles.subtitle}>
           Your towing request has been sent to {provider?.name ?? "the provider"}.
         </Text>
+        <View style={styles.card}>
+          <BookingTimingBanner booking={booking} />
+        </View>
 
         {vehicle && (
           <View style={styles.card}>

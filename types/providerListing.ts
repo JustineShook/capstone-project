@@ -18,6 +18,7 @@ export interface PublicProviderListingInput {
   operatingHours: string;
   startingPrice: number | null;
   emergencyServiceAvailable: boolean;
+  acceptsScheduledBookings?: boolean;
   photoUrls?: string[];
   hoursType?: "24_7" | "same_daily" | "weekly";
   is24Hours?: boolean;
@@ -56,6 +57,7 @@ export interface ProviderListing {
   startingPrice: number | null;
   operatingHours: string;
   emergencyServiceAvailable: boolean;
+  acceptsScheduledBookings?: boolean;
   photoUrls?: string[];
   hoursType?: "24_7" | "same_daily" | "weekly";
   is24Hours?: boolean;

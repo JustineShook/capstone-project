@@ -23,8 +23,6 @@ import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "..
 import { colors } from "../../constants/owner/theme";
 import {
   CATEGORIES,
-  getCategoryBadge,
-  getCategoryIcon,
   getServiceLabel,
   MOCK_CENTER,
   MOCK_LOCATION_LABEL,
@@ -42,6 +40,7 @@ import { styles } from "../../components/owner/ownerMapStyles";
 // ---------------------------------------------------------------------------
 export default function OwnerDashboard() {
   const [selectedCategory, setSelectedCategory] = useState<ProviderCategory>("All");
+  const [discoveryMode, setDiscoveryMode] = useState<"now" | "scheduled">("now");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [providers, setProviders] = useState<MockProvider[]>([]);
@@ -60,20 +59,20 @@ export default function OwnerDashboard() {
         if (active) { setShops(items); setShopError(null); }
       }, () => {
         if (active) { setShops([]); setShopError("Unable to load Auto Shops. Return to Home to try again."); }
-      });
+      }, discoveryMode === "scheduled");
       const stopProviders = subscribeToCustomerMapProviders((nextProviders) => {
         if (active) setProviders(nextProviders.filter((provider) => provider.category !== "Auto Shops"));
       }, (error) => {
         console.error("Failed to load available customer map providers", error);
         if (active) setProviders([]);
-      });
+      }, discoveryMode === "scheduled");
 
       return () => {
         active = false;
         stopShops();
         stopProviders();
       };
-    }, [])
+    }, [discoveryMode])
   );
 
   const allProviders = [...providers, ...shops];
@@ -319,6 +318,7 @@ export default function OwnerDashboard() {
         {selectedProvider ? (
           <ProviderDetailCard
             provider={selectedProvider}
+            timingMode={discoveryMode}
             distanceKm={userLocation ? distanceTo(selectedProvider) : undefined}
             onClose={() => selectProvider(null)}
           />
@@ -391,6 +391,12 @@ export default function OwnerDashboard() {
               <Text style={styles.listingCount}>{filteredProviders.length} found</Text>
             </View>
 
+            <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+              {(["now", "scheduled"] as const).map((mode) => <Pressable key={mode} onPress={() => setDiscoveryMode(mode)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: discoveryMode === mode ? colors.primary : "#202832" }}>
+                <Text style={{ color: "white", fontWeight: "700" }}>{mode === "now" ? "Now" : "Schedule"}</Text>
+              </Pressable>)}
+            </View>
+
             {(selectedCategory === "Auto Shops" || selectedCategory === "All") && shopError && <Text style={styles.listingMetaTextMuted}>{shopError}</Text>}
               {!shopError && filteredProviders.length === 0 && (
                 <Text style={styles.listingMetaTextMuted}>
@@ -405,7 +411,6 @@ export default function OwnerDashboard() {
             <View style={styles.listingList}>
               {filteredProviders.map((provider) => {
                 const isSelected = provider.id === selectedProviderId;
-                const badge = getCategoryBadge(provider.category);
                 const distanceKm = distanceTo(provider);
                 return (
                   <Pressable
@@ -424,7 +429,6 @@ export default function OwnerDashboard() {
                       </View>
 
                       <View style={styles.listingServiceRow}>
-                        <Ionicons name={getCategoryIcon(provider.category)} size={15} color={colors.primary} />
                         <Text style={styles.listingServiceText} numberOfLines={1}>
                           {getServiceLabel(provider.category)}
                         </Text>
@@ -433,19 +437,14 @@ export default function OwnerDashboard() {
                       <View style={styles.listingMetaRow}>
                         <Ionicons name="star" size={14} color={colors.rating} />
                         <Text style={styles.listingMetaText}>{provider.rating.toFixed(1)}</Text>
-                        <Text style={styles.listingMetaTextMuted}>({provider.reviewCount})</Text>
+                        <Text style={styles.listingMetaTextMuted}>{provider.reviewCount} reviews</Text>
                         <Text style={styles.listingMetaDot}>{"\u2022"}</Text>
-                        <Ionicons name="navigate-outline" size={13} color={colors.textMuted} />
-                        <Text style={styles.listingMetaText}>{distanceKm.toFixed(1)} km</Text>
-                        <View style={styles.listingMetaSpacer} />
-                        <Ionicons name="flash" size={14} color={colors.rating} />
-                        <Text style={styles.listingMetaTextMuted}>{provider.isPositiveStatus ? "Ready now" : "Unavailable"}</Text>
+                        <Text style={styles.listingMetaText}>{distanceKm.toFixed(1)} km away</Text>
                       </View>
 
                       <View style={styles.listingBottomRow}>
                         <View style={styles.onsiteBadge}>
-                          <Ionicons name={badge.icon} size={10} color={colors.primary} />
-                          <Text style={styles.onsiteBadgeText}>{badge.text}</Text>
+                          <Text style={styles.onsiteBadgeText}>{provider.category}</Text>
                         </View>
                       </View>
                     </View>

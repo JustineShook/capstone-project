@@ -5,6 +5,7 @@ import { ActivityIndicator, ImageBackground, ScrollView, StatusBar, StyleSheet, 
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeToHomeGarageRequests } from "../../services/homeGarageBookingService";
 import type { HomeGarageBooking } from "../../types/homeGarageBooking";
+import { formatBookingTimingLabel } from "../../utils/bookingTiming";
 
 const C = { canvas: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", red: "#F52239", border: "#28313A" };
 type Filter = "ALL" | "NEW" | "ACTIVE";
@@ -66,6 +67,7 @@ export default function HomeGarageRepairRequests() {
               </View>
               <View style={s.detail}><View style={s.detailLabel}><Feather name="map-pin" size={17} color={C.red} /><Text style={s.detailCaption}>Service area</Text></View><Text style={s.detailValue} numberOfLines={1}>{item.serviceAreaLabel || "Home Garage service"}</Text></View>
               <View style={s.detail}><View style={s.detailLabel}><Feather name="message-square" size={17} color={C.muted} /><Text style={s.detailCaption}>Repair needed</Text></View><Text style={s.problem} numberOfLines={2}>{item.problem}</Text></View>
+              <View style={s.detail}><View style={s.detailLabel}><Feather name="clock" size={17} color={C.muted} /><Text style={s.detailCaption}>Timing</Text></View><Text style={s.detailValue}>{formatBookingTimingLabel(item)}</Text></View>
               <TouchableOpacity style={s.viewButton} onPress={() => open(item)} activeOpacity={0.82}><Text style={s.viewButtonText}>{item.status === "pending" ? "Review Request" : "View Request"}</Text><Feather name="chevron-right" size={20} color="#FFFFFF" /></TouchableOpacity>
             </View>)}
     </ScrollView>

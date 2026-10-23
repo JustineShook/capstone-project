@@ -20,6 +20,7 @@ import { getPublicProviderListing } from "../../services/publicProviderListingSe
 import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
 import { CustomerRating } from "./CustomerRating";
 import { ServiceProgress } from "./ServiceProgress";
+import { formatPesoAmount } from "../../utils/finalPrice";
 
 export function CustomerShopHistoryDetail() {
   const router = useRouter();
@@ -141,6 +142,7 @@ export function CustomerShopHistoryDetail() {
                   {booking.notes ? <DetailRow icon="document-text-outline" label="Notes" value={booking.notes} /> : null}
                   {booking.completionNote?.trim() ? <DetailRow icon="chatbox-ellipses-outline" label="Shop Note" value={booking.completionNote} /> : null}
                   <DetailRow icon="cash-outline" label="Starting Price" value={booking.startingPrice} last />
+                  {booking.status === "completed" ? <DetailRow icon="cash-outline" label="Final Price" value={typeof booking.finalPrice === "number" ? formatPesoAmount(booking.finalPrice) : "Final price not recorded"} last /> : null}
                 </View>
 
                 <View style={s.detailCard}>

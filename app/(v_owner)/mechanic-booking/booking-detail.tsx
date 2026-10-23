@@ -20,6 +20,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../../../constants/owner/theme";
 import { CancelRequestModal } from "../../../components/owner/CancelRequestModal";
 import { ServiceProgress } from "../../../components/owner/ServiceProgress";
+import { BookingTimingBanner } from "../../../components/owner/BookingTimingBanner";
+import { formatPesoAmount } from "../../../utils/finalPrice";
 import { getServiceLabel } from "../../../data/owner/mockProviders";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
 import { cancelMechanicBookingAsCustomer, subscribeToBooking } from "../../../services/owner/bookingService";
@@ -249,6 +251,7 @@ export default function BookingDetailScreen() {
               </Pressable>
             )}
 
+            <BookingTimingBanner booking={booking} />
             <ServiceProgress
               steps={BOOKING_STATUS_FLOW.map((status) => ({ key: status, label: getBookingStatusShortLabel(status) }))}
               currentStep={currentStepIndex}
@@ -265,6 +268,7 @@ export default function BookingDetailScreen() {
                 {isCancelling ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.cancelRequestButtonText}>Cancel Request</Text>}
               </Pressable>
             )}
+            {!canCustomerCancel && ["en_route", "arrived", "in_progress"].includes(booking.status) && <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 19 }}>The mechanic is on the way or service has started. Contact the provider to request cancellation.</Text>}
           </View>
 
           {/* Scrollable section — rating card + Provider/Vehicle/Service/
@@ -443,6 +447,11 @@ export default function BookingDetailScreen() {
                 <Text style={styles.detailLabel}>Starting Price</Text>
                 <Text style={styles.detailValue}>{booking.startingPrice}</Text>
               </View>
+              {booking.status === "completed" && <View style={[styles.detailRow, styles.detailRowLast]}>
+                <Ionicons name="cash-outline" size={16} color={colors.textSecondary} />
+                <Text style={styles.detailLabel}>Final Price</Text>
+                <Text style={styles.detailValue}>{typeof booking.finalPrice === "number" ? formatPesoAmount(booking.finalPrice) : "Final price not recorded"}</Text>
+              </View>}
             </View>
 
             <View style={styles.detailCard}>

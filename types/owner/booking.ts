@@ -1,4 +1,5 @@
 // types/owner/booking.ts
+import type { BookingTimingFields } from "../bookingTiming";
 // ---------------------------------------------------------------------------
 // BOOKING REQUEST
 // Shared shape for a service request from an owner to a provider. Every
@@ -73,7 +74,7 @@ export function getBookingStatusShortLabel(status: BookingStatus): string {
   }
 }
 
-export interface BookingRequest {
+export interface BookingRequest extends BookingTimingFields {
   id: string;
   bookingType: "onsite-mechanic";
   customerId: string;
@@ -96,6 +97,8 @@ export interface BookingRequest {
   problem: string;
   notes: string;
   startingPrice: string;
+  finalPrice?: number;
+  completedAt?: string;
   status: BookingStatus;
   createdAt: string; // ISO timestamp
   updatedAt: string;

@@ -4,12 +4,16 @@ import { auth, db } from "../firebase";
 import { getOwnerVerificationProfile, requireVerifiedOwner } from "../ownerVerificationProfileService";
 import { addBookingStatusNotification } from "../customerNotificationService";
 import { writeMechanicNotification } from "../mechanicNotificationService";
+import type { BookingTimingInput } from "../../types/bookingTiming";
+import { timingFields, validateBookingTiming } from "../../utils/bookingTiming";
+import { claimScheduledReservation, releaseScheduledReservation } from "../scheduledBookingReservationService";
+import { isValidFinalPrice } from "../../utils/finalPrice";
 
 const BOOKINGS_COLLECTION = "bookings";
-export interface CreateBookingInput { providerId: string; providerName: string; providerPhone?: string; vehicleId: string; vehicle: string; vehicleYear: number; vehiclePlate: string; latitude: number; longitude: number; problem: string; notes: string; startingPrice: string; }
+export interface CreateBookingInput { providerId: string; providerName: string; providerPhone?: string; vehicleId: string; vehicle: string; vehicleYear: number; vehiclePlate: string; latitude: number; longitude: number; problem: string; notes: string; startingPrice: string; timing?: BookingTimingInput; }
 function requireUser() { const user = auth.currentUser; if (!user) throw new Error("You must be signed in to use bookings."); return user; }
 function asIso(value: unknown) { return value instanceof Timestamp ? value.toDate().toISOString() : new Date().toISOString(); }
-function fromDocument(id: string, data: Record<string, unknown>): BookingRequest { return { ...(data as Omit<BookingRequest, "id" | "createdAt" | "updatedAt">), ...(data.mechanicLocationUpdatedAt ? { mechanicLocationUpdatedAt: asIso(data.mechanicLocationUpdatedAt) } : {}), id, createdAt: asIso(data.createdAt), updatedAt: asIso(data.updatedAt) }; }
+function fromDocument(id: string, data: Record<string, unknown>): BookingRequest { return { ...(data as Omit<BookingRequest, "id" | "createdAt" | "updatedAt">), ...(data.mechanicLocationUpdatedAt ? { mechanicLocationUpdatedAt: asIso(data.mechanicLocationUpdatedAt) } : {}), ...(data.completedAt ? { completedAt: asIso(data.completedAt) } : {}), id, createdAt: asIso(data.createdAt), updatedAt: asIso(data.updatedAt) }; }
 
 export async function createBooking(input: CreateBookingInput): Promise<BookingRequest> {
   const user = requireUser();
@@ -19,9 +23,18 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
   const ownerProfile = await getOwnerVerificationProfile(user.uid);
   const address = ownerProfile?.personal.address?.trim() ?? "";
   const city = ownerProfile?.personal.cityMunicipality?.trim() ?? "";
-  const payload = { bookingType: "onsite-mechanic" as const, customerId: user.uid, customerName: user.displayName?.trim() || user.email?.split("@")[0] || "Customer", customerEmail: user.email ?? "", customerPhone: ownerProfile?.personal.phone?.trim() ?? "", customerAddress: [address, city].filter(Boolean).join(", "), ...input, status: "pending" as const, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  const timing = input.timing ?? { timingMode: "now" as const, urgency: "standard" as const };
+  const { timing: _timing, ...bookingInput } = input;
+  const payload = { bookingType: "onsite-mechanic" as const, customerId: user.uid, customerName: user.displayName?.trim() || user.email?.split("@")[0] || "Customer", customerEmail: user.email ?? "", customerPhone: ownerProfile?.personal.phone?.trim() ?? "", customerAddress: [address, city].filter(Boolean).join(", "), ...bookingInput, ...timingFields(timing), status: "pending" as const, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
   const reference = doc(collection(db, BOOKINGS_COLLECTION));
   await runTransaction(db, async (transaction) => {
+    const listing = (await transaction.get(doc(db, "providerListings", input.providerId))).data();
+    if (!listing || listing.providerId !== input.providerId || listing.role !== "onsite-mechanic" || listing.visibility !== "active") throw new Error("This mechanic is not publicly available.");
+    if (timing.timingMode === "now" && timing.urgency === "standard") {
+      throw new Error("Mechanics accept Emergency or scheduled requests only. Choose Emergency explicitly to continue.");
+    }
+    validateBookingTiming(timing, listing.emergencyServiceAvailable === true, listing.acceptsScheduledBookings === true);
+    if (timing.timingMode === "now" && listing.availability !== "available") throw new Error("This mechanic is unavailable right now. Choose a scheduled time if enabled.");
     transaction.set(reference, payload);
     writeMechanicNotification(transaction, {
       bookingId: reference.id,
@@ -49,6 +62,16 @@ const ALLOWED_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
 };
 
 export async function updateBookingStatus(id: string, status: BookingStatus) {
+  if (status === "completed") throw new Error("Enter a final price to complete this service.");
+  await updateMechanicBooking(id, status);
+}
+
+export async function completeMechanicBooking(id: string, finalPrice: number) {
+  if (!isValidFinalPrice(finalPrice)) throw new Error("Enter a valid final price with up to two decimal places.");
+  await updateMechanicBooking(id, "completed", finalPrice);
+}
+
+async function updateMechanicBooking(id: string, status: BookingStatus, finalPrice?: number) {
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -57,8 +80,18 @@ export async function updateBookingStatus(id: string, status: BookingStatus) {
     const booking = snapshot.data() as BookingRequest;
     if (booking.providerId !== user.uid || booking.bookingType !== "onsite-mechanic") throw new Error("You are not assigned to this booking.");
     if (!ALLOWED_TRANSITIONS[booking.status]?.includes(status)) throw new Error(`Invalid booking transition: ${booking.status} → ${status}.`);
-    transaction.update(reference, { status, updatedAt: serverTimestamp() });
-    addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId, bookingType: "onsite-mechanic", providerId: user.uid, providerName: booking.providerName, status });
+    if (status === "accepted" && booking.timingMode === "scheduled" && booking.scheduledAt instanceof Timestamp) {
+      await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
+    }
+    const completedAt = status === "completed" ? serverTimestamp() : undefined;
+    transaction.update(reference, status === "completed"
+      ? { status, finalPrice, completedAt, updatedAt: completedAt }
+      : { status, updatedAt: serverTimestamp() });
+    addBookingStatusNotification(transaction, {
+      bookingId: id, customerId: booking.customerId, bookingType: "onsite-mechanic",
+      providerId: user.uid, providerName: booking.providerName, status,
+      ...(status === "completed" ? { message: `${booking.providerName} completed your service. Final price recorded: ₱${finalPrice!.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` } : {}),
+    });
     writeMechanicNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId, customerName: booking.customerName, vehicle: booking.vehicle, status, event: "provider_status" });
   });
 }
@@ -77,6 +110,7 @@ export async function cancelMechanicBookingAsCustomer(id: string) {
     if (booking.status !== "pending" && booking.status !== "accepted") {
       throw new Error("This request can no longer be cancelled because the mechanic may already be on the way.");
     }
+    await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
     transaction.update(reference, { status: "cancelled", updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, { bookingId: id, customerId: user.uid, bookingType: "onsite-mechanic", providerId: booking.providerId, providerName: booking.providerName, status: "cancelled" });
     writeMechanicNotification(transaction, { bookingId: id, providerId: booking.providerId, customerId: user.uid, customerName: booking.customerName, vehicle: booking.vehicle, status: "cancelled", event: "customer_cancelled" });
