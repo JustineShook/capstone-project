@@ -28,9 +28,10 @@ const ALLOWED_TRANSITIONS: Partial<Record<TowingStatus, TowingStatus[]>> = {
   in_progress: ["completed"],
 };
 
-export async function updateTowingBookingStatus(id: string, status: TowingStatus) {
+export async function updateTowingBookingStatus(id: string, status: TowingStatus, reason?: string) {
   if (status === "completed") throw new Error("Enter a final price to complete this tow.");
-  await updateTowingBooking(id, status);
+  if (status === "rejected" && !reason?.trim()) throw new Error("A decline reason is required.");
+  await updateTowingBooking(id, status, undefined, status === "rejected" ? reason!.trim() : undefined);
 }
 
 export async function completeTowingBooking(id: string, finalPrice: number) {
@@ -38,7 +39,7 @@ export async function completeTowingBooking(id: string, finalPrice: number) {
   await updateTowingBooking(id, "completed", finalPrice);
 }
 
-async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?: number) {
+async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?: number, declineReason?: string) {
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -53,10 +54,11 @@ async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?
     const completedAt = status === "completed" ? serverTimestamp() : undefined;
     transaction.update(reference, status === "completed"
       ? { status, finalPrice, completedAt, updatedAt: completedAt }
-      : { status, updatedAt: serverTimestamp() });
+      : { status, ...(status === "rejected" ? { declineReason, riskEventType: "provider_decline", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, {
       bookingId: id, customerId: booking.customerId, bookingType: "towing-company",
       providerId: user.uid, providerName: booking.providerName, status,
+      ...(status === "rejected" ? { message: `${booking.providerName} declined your towing request. Reason: ${declineReason!.slice(0, 180)}` } : {}),
       ...(status === "completed" ? { message: `${booking.providerName} completed the tow. Final price recorded: ₱${finalPrice!.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` } : {}),
     });
     writeTowingNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId, customerName: booking.customerName, vehicle: booking.vehicle, pickupLocation: booking.pickupLocation, destination: booking.destination, status, event: "provider_status" });
@@ -64,7 +66,8 @@ async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?
 }
 
 /** Lets the customer cancel a towing request before the tow truck is on the way. */
-export async function cancelTowingBookingAsCustomer(id: string) {
+export async function cancelTowingBookingAsCustomer(id: string, reason: string) {
+  if (!reason.trim()) throw new Error("A cancellation reason is required.");
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -78,7 +81,7 @@ export async function cancelTowingBookingAsCustomer(id: string) {
       throw new Error("This request can no longer be cancelled because the tow truck may already be on the way.");
     }
     await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
-    transaction.update(reference, { status: "cancelled", updatedAt: serverTimestamp() });
+    transaction.update(reference, { status: "cancelled", cancellationReason: reason.trim(), ...(booking.status === "accepted" ? { riskEventType: "owner_cancel_after_acceptance", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, {
       bookingId: id,
       customerId: user.uid,
@@ -98,6 +101,7 @@ export async function cancelTowingBookingAsCustomer(id: string) {
       destination: booking.destination,
       status: "cancelled",
       event: "customer_cancelled",
+      reason: reason.trim().slice(0, 180),
     });
   });
 }

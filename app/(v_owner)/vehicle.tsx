@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VehicleActions, VehicleDetailCard } from "../../components/owner/VehicleDetailCard";
@@ -65,11 +65,11 @@ export default function VehicleScreen() {
       </>}
     </ScrollView>
     {!loading && selectedVehicle && <VehicleActions onHistory={() => router.push({ pathname: "/(v_owner)/vehicle-history", params: { vehicleId: selectedVehicle.vehicleId } })} onEdit={() => openEdit(selectedVehicle)} onDelete={() => confirmDelete(selectedVehicle)} />}
-    <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={()=>setModalVisible(false)}><View style={styles.modalBackdrop}><View style={styles.modalCard}><View style={styles.modalHeader}><Text style={styles.modalTitle}>{editingId?"Edit Vehicle":"Add Vehicle"}</Text><Pressable onPress={()=>setModalVisible(false)}><Ionicons name="close" size={24} color={COLORS.textPrimary}/></Pressable></View><ScrollView showsVerticalScrollIndicator={false}>
+    <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={()=>setModalVisible(false)}><KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS === "ios" ? "padding" : "height"}><View style={[styles.modalBackdrop,{justifyContent:"center",alignItems:"center",padding:18}]}><View style={[styles.modalCard,{width:"100%",maxWidth:520,maxHeight:"90%",borderRadius:20,borderWidth:1,borderColor:COLORS.border}]}><View style={styles.modalHeader}><Text style={styles.modalTitle}>{editingId?"Edit Vehicle":"Add Vehicle"}</Text><Pressable onPress={()=>setModalVisible(false)}><Ionicons name="close" size={24} color={COLORS.textPrimary}/></Pressable></View><ScrollView style={{flexShrink:1}} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
       <Text style={styles.inputLabel}>Vehicle Type</Text><View style={styles.types}>{VEHICLE_TYPES.map((type)=><Pressable key={type} style={[styles.typeChip,form.type===type&&styles.typeChipActive]} onPress={()=>setForm({...form,type})}><Text style={[styles.typeChipText,form.type===type&&styles.typeChipTextActive]}>{type}</Text></Pressable>)}</View>
       <Field label="Make / Brand" value={form.make} change={(make)=>setForm({...form,make})}/><Field label="Model" value={form.model} change={(model)=>setForm({...form,model})}/><Field label="Year" value={form.year} change={(year)=>setForm({...form,year})} numeric/><Field label="Color" value={form.color} change={(color)=>setForm({...form,color})}/><Field label="Plate Number" value={form.plateNumber} change={(plateNumber)=>setForm({...form,plateNumber})} autoCapitalize="characters"/>
       <Pressable style={styles.saveButton} disabled={saving} onPress={()=>void save()}>{saving?<ActivityIndicator color={COLORS.surface}/>:<Text style={styles.saveButtonText}>{editingId?"Save Changes":"Add Vehicle"}</Text>}</Pressable>
-    </ScrollView></View></View></Modal>
+    </ScrollView></View></View></KeyboardAvoidingView></Modal>
   </SafeAreaView>;
 }
 

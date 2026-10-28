@@ -6,6 +6,7 @@ import { FinalPriceCompletionModal } from "../provider/FinalPriceCompletionModal
 import { formatPesoAmount } from "../../utils/finalPrice";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { updateShopBookingStatus } from "../../services/shopOwnerService";
+import { DeclineRequestModal } from "../provider/DeclineRequestModal";
 import { isActiveShopService, type ShopBookingRequest, type ShopBookingStatus } from "../../types/shopBooking";
 import { Button, formatTime, Info, s, StatusBadge } from "./ShopUI";
 
@@ -23,6 +24,8 @@ export function RequestActions({ request }: { request: ShopBookingRequest }) {
   const [error, setError] = useState<string | null>(null);
   const [completionNote, setCompletionNote] = useState("");
   const [completionFormVisible, setCompletionFormVisible] = useState(false);
+  const [declineVisible, setDeclineVisible] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
   const canAccept = !profileLoading && !profileError && profile?.status === "open" && profile.verified === true;
   const next = NEXT_ACTION[request.status];
 
@@ -31,7 +34,7 @@ export function RequestActions({ request }: { request: ShopBookingRequest }) {
     locked.current = true;
     setSaving(true);
     setError(null);
-    try { await updateShopBookingStatus(request.id, status, status === "completed" ? completionNote : undefined, finalPrice); }
+    try { await updateShopBookingStatus(request.id, status, status === "completed" ? completionNote : undefined, finalPrice, status === "rejected" ? declineReason : undefined); setDeclineVisible(false); setDeclineReason(""); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to update this request. Please try again."); }
     finally { locked.current = false; setSaving(false); }
   }
@@ -50,13 +53,14 @@ export function RequestActions({ request }: { request: ShopBookingRequest }) {
     {request.status === "pending" && <>
       {!canAccept && <Text style={s.muted}>{profile?.verified ? "Open your shop from Home before accepting this request." : "Administrator approval is required before accepting requests."}</Text>}
       <View style={s.row}>
-        <View style={s.flex}><Button title="Reject" secondary disabled={saving} onPress={() => void update("rejected")} /></View>
+        <View style={s.flex}><Button title="Reject" secondary disabled={saving} onPress={() => setDeclineVisible(true)} /></View>
         <View style={s.flex}><Button title={saving ? "Saving…" : "Accept Request"} disabled={saving || !canAccept} onPress={() => void update("accepted")} /></View>
       </View>
     </>}
     {next && <Button title={saving ? "Saving…" : next.title} disabled={saving} onPress={() => next.status === "completed" ? setCompletionFormVisible(true) : void update(next.status)} />}
     {request.status === "accepted" && <Text style={s.muted}>Waiting for the customer to bring the vehicle to your shop.</Text>}
     <FinalPriceCompletionModal visible={completionFormVisible} saving={saving} onCancel={() => setCompletionFormVisible(false)} onReview={reviewFinalPrice} />
+    <DeclineRequestModal visible={declineVisible} reason={declineReason} saving={saving} onReasonChange={setDeclineReason} onCancel={() => setDeclineVisible(false)} onConfirm={() => void update("rejected")} />
   </View>;
 }
 

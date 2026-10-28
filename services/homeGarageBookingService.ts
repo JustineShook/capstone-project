@@ -197,7 +197,8 @@ export async function completeHomeGarageRepair(id: string, finalPrice: number) {
   });
 }
 
-export async function updateHomeGarageBookingStatus(id: string, status: "accepted" | "rejected" | "cancelled") {
+export async function updateHomeGarageBookingStatus(id: string, status: "accepted" | "rejected" | "cancelled", reason?: string) {
+  if ((status === "rejected" || status === "cancelled") && !reason?.trim()) throw new Error(status === "rejected" ? "A decline reason is required." : "A cancellation reason is required.");
   const user = requireUser();
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "bookings", id);
@@ -215,14 +216,15 @@ export async function updateHomeGarageBookingStatus(id: string, status: "accepte
         await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
       }
     }
-    transaction.update(reference, { status, updatedAt: serverTimestamp() });
+    transaction.update(reference, { status, ...(status === "cancelled" ? { cancellationReason: reason!.trim(), ...(booking.status === "accepted" ? { riskEventType: "owner_cancel_after_acceptance", riskEventAt: serverTimestamp() } : {}) } : status === "rejected" ? { declineReason: reason!.trim(), riskEventType: "provider_decline", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
     if (status === "cancelled") {
       writeHomeGarageProviderNotification(transaction, { bookingId: id, providerId: booking.providerId,
         customerId: booking.customerId, customerName: booking.customerName || "Customer", vehicle: booking.vehicle,
-        problem: booking.problem, status, event: "customer_cancelled" });
+        problem: booking.problem, status, event: "customer_cancelled", reason: reason!.trim().slice(0, 180) });
     } else {
       addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId,
-        bookingType: "homegarage", providerId: user.uid, providerName: booking.providerName, status });
+        bookingType: "homegarage", providerId: user.uid, providerName: booking.providerName, status,
+        ...(status === "rejected" ? { message: `${booking.providerName} declined your Home Garage repair request. Reason: ${reason!.trim().slice(0, 180)}` } : {}) });
       writeHomeGarageProviderNotification(transaction, { bookingId: id, providerId: user.uid,
         customerId: booking.customerId, customerName: booking.customerName || "Customer", vehicle: booking.vehicle,
         problem: booking.problem, status, event: "provider_update" });

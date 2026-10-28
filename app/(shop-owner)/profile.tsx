@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
-import { ActivityIndicator, Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ImageBackground, Modal, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { ShopNotificationBell } from "../../components/shop-owner/ShopNotificationBell";
@@ -13,11 +13,12 @@ const C = { bg: "#08090B", card: "#17191C", text: "#F5F2F0", muted: "#B7B2B0", l
 export default function ShopProfile() {
   const router = useRouter(); const insets = useSafeAreaInsets();
   const { account, profile, profileLoading, profileError, retry } = useShopDashboard();
-  const [editing, setEditing] = useState(false); const [saving, setSaving] = useState(false); const [out, setOut] = useState(false); const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false); const [saving, setSaving] = useState(false); const [out, setOut] = useState(false); const [logoutVisible, setLogoutVisible] = useState(false); const [logoutError, setLogoutError] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ businessName: "", phone: "", address: "", latitude: "", longitude: "" }); const busy = useRef(false);
   const edit = () => { if (!profile) return; setForm({ businessName: profile.businessName, phone: profile.phone, address: profile.address, latitude: String(profile.latitude), longitude: String(profile.longitude) }); setError(null); setEditing(true); };
   const save = async () => { if (busy.current) return; busy.current = true; setSaving(true); setError(null); try { await saveShopProfile({ ...form, latitude: Number(form.latitude), longitude: Number(form.longitude) }); setEditing(false); } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save profile."); } finally { busy.current = false; setSaving(false); } };
-  const signOut = () => Alert.alert("Log Out", "Are you sure you want to log out?", [{ text: "Cancel", style: "cancel" }, { text: "Log Out", style: "destructive", onPress: () => void (async () => { setOut(true); try { await logout(); router.replace("/(auth)/login"); } finally { setOut(false); } })() }]);
+  const signOut = () => { setLogoutError(null); setLogoutVisible(true); };
+  const performLogout = async () => { if (out) return; setOut(true); setLogoutError(null); try { await logout(); setLogoutVisible(false); router.replace("/(auth)/login"); } catch (cause) { setLogoutError(cause instanceof Error ? cause.message : "We couldn't log you out. Check your connection and try again."); } finally { setOut(false); } };
   if (profileLoading) return <State loading text="Loading profile..." />;
   if (profileError || !profile) return <State text={profileError || "Profile unavailable."} retry={retry} />;
   return <SafeAreaView style={s.safe} edges={["top", "left", "right"]}><StatusBar barStyle="light-content" backgroundColor={C.bg} />
@@ -35,6 +36,16 @@ export default function ShopProfile() {
         <TouchableOpacity style={s.logout} disabled={out} onPress={signOut}>{out ? <ActivityIndicator color={C.red} /> : <><Feather name="log-out" size={18} color={C.red} /><Text style={s.logoutText}>Log Out</Text></>}</TouchableOpacity>
       </>}
     </ScrollView>
+    <Modal visible={logoutVisible} transparent animationType="fade" onRequestClose={() => !out && setLogoutVisible(false)}>
+      <View style={s.modalBackdrop}><View style={s.modalCard}>
+        <Text style={s.modalTitle}>Log Out</Text><Text style={s.modalMessage}>Are you sure you want to log out?</Text>
+        {logoutError ? <Text style={s.modalError}>{logoutError}</Text> : null}
+        <View style={s.modalActions}>
+          <TouchableOpacity style={s.modalCancel} disabled={out} onPress={() => setLogoutVisible(false)}><Text style={s.modalCancelText}>Cancel</Text></TouchableOpacity>
+          <TouchableOpacity style={s.modalConfirm} disabled={out} onPress={() => void performLogout()}>{out ? <ActivityIndicator color="#FFFFFF" /> : <Text style={s.modalConfirmText}>Log Out</Text>}</TouchableOpacity>
+        </View>
+      </View></View>
+    </Modal>
   </SafeAreaView>;
 }
 
@@ -44,6 +55,7 @@ function MenuRow({ icon, title, onPress, last }: { icon: keyof typeof Feather.gl
 function Input({ label, value, onChange, phone }: { label: string; value: string; onChange: (v: string) => void; phone?: boolean }) { return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput style={s.input} value={value} onChangeText={onChange} keyboardType={phone ? "phone-pad" : "default"} /></View>; }
 
 const s = StyleSheet.create({
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.68)", justifyContent: "center", alignItems: "center", padding: 24 }, modalCard: { width: "100%", maxWidth: 420, borderRadius: 18, padding: 22, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }, modalTitle: { color: C.text, fontSize: 21, fontWeight: "900" }, modalMessage: { color: C.muted, fontSize: 15, lineHeight: 22, marginTop: 9 }, modalError: { color: "#FF9AA8", fontSize: 14, lineHeight: 20, marginTop: 12 }, modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 22 }, modalCancel: { minHeight: 46, minWidth: 104, paddingHorizontal: 16, borderRadius: 11, borderWidth: 1, borderColor: C.line, alignItems: "center", justifyContent: "center" }, modalCancelText: { color: C.text, fontSize: 15, fontWeight: "800" }, modalConfirm: { minHeight: 46, minWidth: 112, paddingHorizontal: 16, borderRadius: 11, backgroundColor: C.red, alignItems: "center", justifyContent: "center" }, modalConfirmText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
   safe: { flex: 1, backgroundColor: C.bg }, content: { paddingHorizontal: 16, paddingTop: 5, flexGrow: 1 }, header: { height: 54, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 3, marginBottom: 8 }, brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 34, lineHeight: 39, fontWeight: "900", fontStyle: "italic", marginRight: 5 }, brand: { color: C.text, fontSize: 21, fontWeight: "900" }, brandRed: { color: C.red }, bell: { width: 46, height: 46, borderRadius: 23, backgroundColor: C.card, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: C.line },
   identity: { minHeight: 180, borderRadius: 20, overflow: "hidden", justifyContent: "center", padding: 18, backgroundColor: "#22262C", borderWidth: 1, borderColor: "#353A40" }, identityImage: { borderRadius: 20 }, identityShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(6,8,10,0.68)" }, identityContent: { flexDirection: "row", alignItems: "center" }, avatar: { width: 76, height: 76, borderRadius: 23, backgroundColor: "#F7EFED", alignItems: "center", justifyContent: "center", overflow: "hidden" }, identityInfo: { marginLeft: 15, flex: 1 }, identityEyebrow: { color: "#FF9A9D", fontSize: 11, letterSpacing: 1.1, fontWeight: "900", marginBottom: 4 }, name: { color: "#FFFFFF", fontSize: 22, lineHeight: 28, fontWeight: "900" }, verified: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }, verifiedText: { color: "#F7EFED", fontSize: 13, fontWeight: "800" }, editProfile: { alignSelf: "flex-start", minWidth: 126, minHeight: 37, backgroundColor: C.red, borderRadius: 11, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 10 }, editProfileText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   sectionHeading: { marginTop: 20, marginBottom: 10 }, sectionTitle: { color: C.text, fontSize: 22, lineHeight: 28, fontWeight: "900" }, sectionHint: { color: C.muted, fontSize: 14, lineHeight: 20, marginTop: 2 }, shortcuts: { flexDirection: "row", gap: 10, marginBottom: 2 }, shortcut: { flex: 1, alignItems: "center", justifyContent: "center", gap: 9, minHeight: 105, borderRadius: 17, paddingHorizontal: 7, backgroundColor: C.card, borderWidth: 1, borderColor: C.line }, shortcutIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: "#292C31", alignItems: "center", justifyContent: "center" }, shortcutTitle: { color: C.text, fontSize: 13, lineHeight: 18, fontWeight: "700", textAlign: "center" }, menu: { backgroundColor: C.card, borderRadius: 17, marginTop: 0, paddingHorizontal: 15, paddingVertical: 4, borderWidth: 1, borderColor: C.line }, menuRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 13, borderBottomWidth: 1, borderBottomColor: "#2B2C2F", paddingHorizontal: 2 }, lastMenuRow: { borderBottomWidth: 0 }, menuTitle: { color: C.text, fontSize: 17, lineHeight: 23, fontWeight: "700" }, spacer: { flex: 1 }, logout: { minHeight: 57, borderWidth: 1, borderColor: C.red, borderRadius: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 16 }, logoutText: { color: C.red, fontSize: 16, fontWeight: "800" },

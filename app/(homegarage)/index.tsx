@@ -1,9 +1,11 @@
 import { Feather } from "@expo/vector-icons";
+import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../hooks/useAuth";
+import { useActionRisk } from "../../hooks/useActionRisk";
 import { setParkingAvailability, subscribeToMyParkingProviderListing } from "../../services/parkingBookingService";
 import { subscribeToHomeGarageRequests } from "../../services/homeGarageBookingService";
 import type { HomeGarageBooking } from "../../types/homeGarageBooking";
@@ -13,6 +15,7 @@ const C = { canvas: "#0C1015", card: "#151C23", elevated: "#1C252E", text: "#F4F
 function dateLabel(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Recently booked" : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 
 export default function HomeGarageDashboard() {
+  const actionRisk = useActionRisk("provider");
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, userProfile } = useAuth();
@@ -71,6 +74,7 @@ export default function HomeGarageDashboard() {
     <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
     <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 18 }]} showsVerticalScrollIndicator={false}>
       <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>VeResc</Text></View><TouchableOpacity style={s.bell} accessibilityRole="button" accessibilityLabel={`Notifications${unreadNotifications ? `, ${unreadNotifications} unread` : ""}`} onPress={() => router.push("/(homegarage)/notifications")}><Feather name="bell" size={25} color={C.text} />{unreadNotifications > 0 ? <View style={s.bellDot} /> : null}</TouchableOpacity></View>
+      <AccountActionWarning count={actionRisk.count} error={actionRisk.error} />
       <ImageBackground source={require("../../assets/images/towing-dashboard-bg.png")} imageStyle={s.heroImage} style={[s.hero, online ? s.heroOnline : s.heroOffline]}>
         <View style={s.heroShade} />
         <View style={s.heroTop}><View style={s.heroCopy}><View style={s.locationRow}><Feather name="map-pin" size={13} color={online ? C.green : "#F4A45D"} /><Text style={s.locationLabel} numberOfLines={1}>{userProfile?.displayName || "Home Garage provider"}</Text></View><Text style={s.heroTitle}>{online ? "Ready for customers" : "You're offline"}</Text><Text style={s.heroHint}>{online ? "Your Home Garage is accepting repair requests." : "Switch on when you're ready to welcome customers."}</Text></View>

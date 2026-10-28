@@ -17,7 +17,8 @@ import {
   View, Image,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import WebView, { type WebViewMessageEvent } from "react-native-webview";
+// @ts-expect-error Expo Metro selects the .web or .native implementation by platform.
+import MapHtmlSurface from "../maps/MapHtmlSurface";
 
 import { auth } from "../../services/firebase";
 import { updatePublicProviderListing } from "../../services/publicProviderListingService";
@@ -133,7 +134,7 @@ function TimeButton({ label, value, onPress }: { label: string; value: string; o
 export function PublicListingForm({ role, initialListing, defaultBusinessName }: Props) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<WebView | null>(null);
+  const mapRef = useRef<{ injectJavaScript: (script: string) => void } | null>(null);
   const mapReady = useRef(false);
   const pendingMapMarker = useRef<PublicProviderListingInput["location"] | null>(null);
   const areaSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -178,7 +179,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
   const [showSavedModal, setShowSavedModal] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const usesStructuredHours = role === "onsite-mechanic" || role === "shop-owner" || role === "homegarage";
-  const showsListingPhotos = role === "shop-owner" || role === "homegarage";
+  const showsListingPhotos = true;
   const serviceOptions = role === "towing-company" ? TOWING_SERVICES : role === "shop-owner" ? SHOP_SERVICES : role === "homegarage" ? HOME_GARAGE_SERVICES : MECHANIC_SERVICES;
   const vehicleTypeOptions = role === "onsite-mechanic" ? MECHANIC_VEHICLE_TYPES : role === "shop-owner" ? SHOP_VEHICLE_TYPES : TOWING_VEHICLE_TYPES;
 
@@ -189,7 +190,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
     const remaining = 3 - photoUrls.length;
     if (remaining <= 0) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return Alert.alert("Permission required", "Allow photo-library access to add shop photos.");
+    if (!permission.granted) return Alert.alert("Permission required", "Allow photo-library access to add listing photos.");
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: remaining, quality: .8 });
     if (result.canceled) return;
     const uid = auth.currentUser?.uid; if (!uid) return;
@@ -331,7 +332,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
     });
   };
 
-  const handleGarageMapMessage = (event: WebViewMessageEvent) => {
+  const handleGarageMapMessage = (event: { nativeEvent: { data: string } }) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data?.type === "select" && typeof data.lat === "number" && typeof data.lng === "number") {
@@ -450,7 +451,6 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         });
       setShowSavedModal(true);
     } catch (error) {
-      console.error("Failed to save public provider listing", error);
       const message = error instanceof Error ? error.message : String(error);
       const code = typeof error === "object" && error !== null && "code" in error
         ? String((error as { code?: unknown }).code ?? "")
@@ -564,19 +564,16 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
             </TouchableOpacity>)}
           </View>}
           <View style={styles.mapFrame}>
-            <WebView
+            <MapHtmlSurface
               ref={mapRef}
-              originWhitelist={["*"]}
-              source={{ html: garageMapHtml }}
+              sourceHtml={garageMapHtml}
               style={styles.map}
-              javaScriptEnabled
-              domStorageEnabled
               startInLoadingState
               nestedScrollEnabled
               overScrollMode="never"
+              accessibilityLabel="Home Garage service area map"
               onMessage={handleGarageMapMessage}
               onLoadEnd={handleGarageMapLoadEnd}
-              accessibilityLabel="Home Garage service area map"
             />
           </View>
           <Text style={styles.mapHint}>{role === "homegarage"
@@ -617,7 +614,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           style={styles.input}
         />
 
-        {showsListingPhotos && <><Text style={styles.label}>{role === "homegarage" ? "HOME GARAGE PHOTOS (OPTIONAL)" : "SHOP PHOTOS (OPTIONAL)"}</Text><Text style={styles.photoHint}>{role === "homegarage" ? "Add up to 3 photos of your garage or work area." : "Add up to 3 photos of your shop, service area, or exterior."}</Text><View style={styles.photoGrid}>{photoUrls.map((url, index) => <View key={url} style={styles.photoWrap}><Image source={{ uri: url }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUrls((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Feather name="x" size={15} color="#fff" /></TouchableOpacity></View>)}{photoUrls.length < 3 && <TouchableOpacity style={styles.addPhoto} disabled={uploadingPhotos} onPress={() => void addPhotos()}>{uploadingPhotos ? <ActivityIndicator color={COLORS.primary} /> : <><Feather name="image" size={21} color={COLORS.primary} /><Text style={styles.addPhotoText}>Add photo</Text></>}</TouchableOpacity>}</View></>}
+        {showsListingPhotos && <><Text style={styles.label}>{role === "homegarage" ? "HOME GARAGE PHOTOS (OPTIONAL)" : role === "shop-owner" ? "SHOP PHOTOS (OPTIONAL)" : role === "onsite-mechanic" ? "MECHANIC WORK PHOTOS (OPTIONAL)" : "TOWING PHOTOS (OPTIONAL)"}</Text><Text style={styles.photoHint}>{role === "homegarage" ? "Add up to 3 photos of your garage or work area." : role === "shop-owner" ? "Add up to 3 photos of your shop, service area, or exterior." : role === "onsite-mechanic" ? "Add up to 3 photos of your tools, work area, or completed repairs." : "Add up to 3 photos of your tow truck, equipment, or service."}</Text><View style={styles.photoGrid}>{photoUrls.map((url, index) => <View key={url} style={styles.photoWrap}><Image source={{ uri: url }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUrls((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Feather name="x" size={15} color="#fff" /></TouchableOpacity></View>)}{photoUrls.length < 3 && <TouchableOpacity style={styles.addPhoto} disabled={uploadingPhotos} onPress={() => void addPhotos()}>{uploadingPhotos ? <ActivityIndicator color={COLORS.primary} /> : <><Feather name="image" size={21} color={COLORS.primary} /><Text style={styles.addPhotoText}>Add photo</Text></>}</TouchableOpacity>}</View></>}
 
         {(role === "towing-company" || role === "homegarage") && <>
         <Text style={styles.label}>{role === "homegarage" ? "EMERGENCY REPAIR SERVICE AVAILABLE" : "EMERGENCY SERVICE AVAILABLE"}</Text>
@@ -734,8 +731,8 @@ const styles = StyleSheet.create({
   timeButton: { flex: 1, minWidth: 86, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 9, backgroundColor: COLORS.surface },
   timeCaption: { color: COLORS.muted, fontSize: 10, fontWeight: "700" },
   timeValue: { color: COLORS.text, fontSize: 13, fontWeight: "700", marginTop: 2 },
-  modalShade: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,.55)" },
-  timeModal: { maxHeight: "70%", backgroundColor: COLORS.background, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18 },
+  modalShade: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20, backgroundColor: "rgba(0,0,0,.68)" },
+  timeModal: { width: "100%", maxWidth: 480, maxHeight: "82%", flexShrink: 1, backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border, borderRadius: 22, padding: 18 },
   modalTitle: { color: COLORS.text, fontSize: 18, fontWeight: "700", marginBottom: 8 },
   timeOption: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   timeOptionText: { color: COLORS.text, fontSize: 17 },

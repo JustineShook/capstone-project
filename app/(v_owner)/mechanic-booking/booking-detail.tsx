@@ -19,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors } from "../../../constants/owner/theme";
 import { CancelRequestModal } from "../../../components/owner/CancelRequestModal";
+import { OpenGoogleMapsModal } from "../../../components/owner/OpenGoogleMapsModal";
 import { ServiceProgress } from "../../../components/owner/ServiceProgress";
 import { BookingTimingBanner } from "../../../components/owner/BookingTimingBanner";
 import { formatPesoAmount } from "../../../utils/finalPrice";
@@ -68,6 +69,8 @@ export default function BookingDetailScreen() {
   const [providerRating, setProviderRating] = useState({ average: 0, count: 0 });
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [showMapsConfirmation, setShowMapsConfirmation] = useState(false);
 
   // --- Rating state --------------------------------------------------------
   const [selectedStars, setSelectedStars] = useState(0);
@@ -121,7 +124,8 @@ export default function BookingDetailScreen() {
     if (!booking || !canCustomerCancel || isCancelling) return;
     setIsCancelling(true);
     try {
-      await cancelMechanicBookingAsCustomer(booking.id);
+      await cancelMechanicBookingAsCustomer(booking.id, cancelReason);
+      setCancelReason("");
       setShowCancelConfirmation(false);
     } catch (error) {
       setShowCancelConfirmation(false);
@@ -240,7 +244,7 @@ export default function BookingDetailScreen() {
             {booking.mechanicLatitude != null && booking.mechanicLongitude != null && !isTerminalStatus && (
               <Pressable
                 style={styles.liveTrackingCard}
-                onPress={() => void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${booking.mechanicLatitude},${booking.mechanicLongitude}`)}
+                onPress={() => setShowMapsConfirmation(true)}
               >
                 <Ionicons name="navigate-circle" size={24} color={colors.primary} />
                 <View style={{ flex: 1 }}>
@@ -257,6 +261,8 @@ export default function BookingDetailScreen() {
               currentStep={currentStepIndex}
               terminalLabel={isTerminalStatus ? getBookingStatusLabel(booking.status) : undefined}
             />
+            {booking.declineReason ? <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Reason from mechanic: {booking.declineReason}</Text> : null}
+            {booking.cancellationReason ? <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Your cancellation reason: {booking.cancellationReason}</Text> : null}
             {canCustomerCancel && (
               <Pressable
                 style={[styles.cancelRequestButton, isCancelling && styles.cancelRequestButtonDisabled]}
@@ -485,7 +491,10 @@ export default function BookingDetailScreen() {
         isCancelling={isCancelling}
         onKeep={() => setShowCancelConfirmation(false)}
         onConfirm={() => void cancelBooking()}
+        reason={cancelReason}
+        onReasonChange={setCancelReason}
       />
+      {booking && <OpenGoogleMapsModal visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.mechanicLatitude},${booking.mechanicLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />}
     </View>
   );
 }

@@ -18,7 +18,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import WebView, { WebViewMessageEvent } from "react-native-webview";
+// @ts-expect-error Expo Metro selects the .web or .native implementation by platform.
+import MapHtmlSurface from "../../../components/maps/MapHtmlSurface";
 import { createTowingBooking } from "../../../services/owner/towingService";
 import { getOwnerVerificationProfile } from "../../../services/ownerVerificationProfileService";
 import type { OwnerVerificationProfile } from "../../../types/ownerVerificationProfile";
@@ -151,7 +152,7 @@ export default function BookTowingScreen() {
   const pickupSearchController = useRef<AbortController | null>(null);
 
   // --- Destination map state (tap-to-select + autocomplete-driven) ------
-  const destWebViewRef = useRef<WebView | null>(null);
+  const destWebViewRef = useRef<{ injectJavaScript: (script: string) => void } | null>(null);
   const [destMapHtml] = useState(() => buildDestinationMapHtml(DEFAULT_CENTER, colors.primary));
   const isDestMapReady = useRef(false);
   const pendingDestMarker = useRef<{ lat: number; lng: number } | null>(null);
@@ -323,7 +324,7 @@ export default function BookTowingScreen() {
 
   // Tap-to-select on the Destination map — the map already dropped its own
   // marker locally before posting this message, we just reverse-geocode it.
-  const handleDestMapMessage = (event: WebViewMessageEvent) => {
+  const handleDestMapMessage = (event: { nativeEvent: { data: string } }) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data?.type === "select" && typeof data.lat === "number" && typeof data.lng === "number") {
@@ -689,13 +690,10 @@ export default function BookTowingScreen() {
         ) : null}
 
         <View style={styles.destMapWrapper}>
-          <WebView
+          <MapHtmlSurface
             ref={destWebViewRef}
-            originWhitelist={["*"]}
-            source={{ html: destMapHtml }}
+            sourceHtml={destMapHtml}
             style={styles.destMap}
-            javaScriptEnabled
-            domStorageEnabled
             startInLoadingState
             nestedScrollEnabled
             overScrollMode="never"
@@ -782,27 +780,43 @@ export default function BookTowingScreen() {
       </SafeAreaView>
       </KeyboardAvoidingView>
 
-      <Modal visible={reviewVisible} transparent animationType="slide" onRequestClose={() => !submitting && setReviewVisible(false)}>
-        <View style={styles.modalOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
+      <Modal visible={reviewVisible} transparent animationType="fade" onRequestClose={() => !submitting && setReviewVisible(false)}>
+        <View style={styles.reviewOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
           <Text style={styles.reviewTitle}>Review Booking</Text>
-          <ScrollView contentContainerStyle={{ gap: 11 }}>
+          <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewContent}>
             <View style={styles.contactReviewBlock}>
+              <Text style={styles.reviewGroupTitle}>Contact</Text>
               <Text style={styles.reviewText}>Contact number · {profileLoaded ? ownerPhone?.trim() ? ownerPhone : "Add a phone number to your profile" : "Loading your verified profile…"}</Text>
               <Text style={styles.reviewMuted}>Shared with this provider so they can contact you about this booking.</Text>
             </View>
-            <Text style={styles.reviewText}>Provider · {provider.name}</Text>
-            <Text style={styles.reviewText}>Vehicle · {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} · ${selectedVehicle.plateNumber}` : "Select a vehicle"}</Text>
-            <Text style={styles.reviewText}>Pickup · {pickupLocation || "Choose pickup"}</Text>
-            <Text style={styles.reviewText}>Destination · {destination || "Choose destination"}</Text>
-            <Text style={styles.reviewText}>Towing type · {selectedTowingType ?? "Not selected"}</Text>
-            <Text style={styles.reviewText}>Vehicle condition · {selectedCondition ?? "Not selected"}</Text>
-            {notes.trim() ? <Text style={styles.reviewText}>Notes · {notes}</Text> : null}
-            <Text style={styles.reviewText}>Timing · {timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid hour" : timing ? formatBookingTimingLabel(timing) : "Choose a timing option"}</Text>
-            {timing?.urgency === "emergency" ? <Text style={styles.reviewMuted}>Acceptance and response time are not guaranteed.</Text> : null}
-            {timing?.timingMode === "scheduled" ? <Text style={styles.reviewMuted}>Subject to provider confirmation. This reserves a start window, not service duration.</Text> : null}
-            {!usesDispatcherPricing && pricingEstimate ? <Text style={styles.reviewText}>Estimated total · ₱{pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}</Text> : null}
-            {!usesDispatcherPricing && pricingEstimate ? <Text style={styles.reviewText}>Distance · {pricingEstimate.totalDistanceKm.toFixed(2)} km at ₱{pricingEstimate.pricePerKm.toLocaleString("en-PH")}/km (₱{pricingEstimate.distanceCharge.toLocaleString("en-PH")} distance charge)</Text> : null}
-            {usesDispatcherPricing ? <Text style={styles.reviewText}>Contact dispatcher · {pricingConfig?.dispatcherPhone || "Contact dispatcher for pricing"}</Text> : null}
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Provider & vehicle</Text>
+              <Text style={styles.reviewText}>Provider · {provider.name}</Text>
+              <Text style={styles.reviewText}>Vehicle · {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} · ${selectedVehicle.plateNumber}` : "Select a vehicle"}</Text>
+            </View>
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Route</Text>
+              <Text style={styles.reviewText}>Pickup · {pickupLocation || "Choose pickup"}</Text>
+              <Text style={styles.reviewText}>Destination · {destination || "Choose destination"}</Text>
+            </View>
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Towing details</Text>
+              <Text style={styles.reviewText}>Towing type · {selectedTowingType ?? "Not selected"}</Text>
+              <Text style={styles.reviewText}>Vehicle condition · {selectedCondition ?? "Not selected"}</Text>
+              {notes.trim() ? <Text style={styles.reviewText}>Notes · {notes}</Text> : null}
+            </View>
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Schedule & notices</Text>
+              <Text style={styles.reviewText}>Timing · {timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid hour" : timing ? formatBookingTimingLabel(timing) : "Choose a timing option"}</Text>
+              {timing?.urgency === "emergency" ? <Text style={styles.reviewMuted}>Acceptance and response time are not guaranteed.</Text> : null}
+              {timing?.timingMode === "scheduled" ? <Text style={styles.reviewMuted}>Subject to provider confirmation. This reserves a start window, not service duration.</Text> : null}
+            </View>
+            {(usesDispatcherPricing || pricingEstimate) ? <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Price</Text>
+              {!usesDispatcherPricing && pricingEstimate ? <Text style={styles.reviewText}>Estimated total · ₱{pricingEstimate.estimatedTotalPrice.toLocaleString("en-PH")}</Text> : null}
+              {!usesDispatcherPricing && pricingEstimate ? <Text style={styles.reviewText}>Distance · {pricingEstimate.totalDistanceKm.toFixed(2)} km at ₱{pricingEstimate.pricePerKm.toLocaleString("en-PH")}/km (₱{pricingEstimate.distanceCharge.toLocaleString("en-PH")} distance charge)</Text> : null}
+              {usesDispatcherPricing ? <Text style={styles.reviewText}>Contact dispatcher · {pricingConfig?.dispatcherPhone || "Contact dispatcher for pricing"}</Text> : null}
+            </View> : null}
           </ScrollView>
           <Pressable disabled={!canConfirm || submitting || !profileLoaded} style={[styles.confirmButton, (!canConfirm || submitting || !profileLoaded) && styles.confirmButtonDisabled]} onPress={() => void handleConfirm()}><Text style={styles.confirmButtonText}>{submitting ? "Sending..." : "Confirm Towing"}</Text></Pressable>
           <Pressable disabled={submitting} onPress={() => setReviewVisible(false)} style={styles.reviewCancel}><Text style={styles.validationText}>Back to edit</Text></Pressable>
@@ -816,7 +830,8 @@ export default function BookTowingScreen() {
         transparent
         onRequestClose={() => setVehicleModalVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setVehicleModalVisible(false)} />
+        <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setVehicleModalVisible(false)} accessibilityLabel="Close vehicle selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
           <View style={styles.modalHeaderRow}>
@@ -826,7 +841,7 @@ export default function BookTowingScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {vehiclesLoading ? <Text style={styles.validationText}>Loading your vehicles...</Text> : vehicles.length === 0 ? <Text style={styles.validationText}>{vehicleError || "No saved vehicles. Add one from My Vehicles first."}</Text> : vehicles.map((vehicle) => {
               const isSelected = vehicle.vehicleId === selectedVehicleId;
               return (
@@ -854,6 +869,7 @@ export default function BookTowingScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Select Towing Type modal */}
@@ -863,7 +879,8 @@ export default function BookTowingScreen() {
         transparent
         onRequestClose={() => setTowingTypeModalVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setTowingTypeModalVisible(false)} />
+        <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setTowingTypeModalVisible(false)} accessibilityLabel="Close towing type selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
           <View style={styles.modalHeaderRow}>
@@ -873,7 +890,7 @@ export default function BookTowingScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {TOWING_TYPES.map((towingType) => {
               const isSelected = towingType === selectedTowingType;
               return (
@@ -896,6 +913,7 @@ export default function BookTowingScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Select Vehicle Condition modal */}
@@ -905,7 +923,8 @@ export default function BookTowingScreen() {
         transparent
         onRequestClose={() => setConditionModalVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setConditionModalVisible(false)} />
+        <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setConditionModalVisible(false)} accessibilityLabel="Close vehicle condition selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
           <View style={styles.modalHeaderRow}>
@@ -915,7 +934,7 @@ export default function BookTowingScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {VEHICLE_CONDITIONS.map((condition) => {
               const isSelected = condition === selectedCondition;
               return (
@@ -938,6 +957,7 @@ export default function BookTowingScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
+        </View>
       </Modal>
     </View>
   );
@@ -1104,24 +1124,37 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   confirmButtonTextDisabled: { color: colors.textMuted },
-  reviewSheet: { maxHeight: "82%", backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, gap: 12 },
+  reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 16 },
+  reviewSheet: { width: "100%", maxHeight: "90%", flexShrink: 1, backgroundColor: colors.background, borderRadius: 24, padding: 18, gap: 12 },
+  reviewScroll: { flexShrink: 1 },
+  reviewContent: { gap: 10, paddingBottom: 2 },
+  reviewGroup: { gap: 7, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 13 },
+  reviewGroupTitle: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 1 },
   reviewTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "800" },
   contactReviewBlock: { gap: 3, padding: 11, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   reviewText: { color: colors.textPrimary, fontSize: 14, lineHeight: 21 },
   reviewMuted: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   reviewCancel: { minHeight: 36, alignItems: "center", justifyContent: "center" },
 
-  // Shared bottom-sheet modal (Vehicle + Towing Type + Condition)
+  // Centered selection dialog (Vehicle + Towing Type + Condition)
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.68)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
   },
   modalSheet: {
     backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: "70%",
-    paddingHorizontal: 16,
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "86%",
+    flexShrink: 1,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 18,
+    paddingBottom: 10,
   },
   modalHandle: {
     width: 40,
@@ -1140,6 +1173,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   modalList: { gap: 10, paddingBottom: 20 },
+  modalScroll: { flexShrink: 1 },
 
   modalOptionCard: {
     flexDirection: "row",

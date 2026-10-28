@@ -23,6 +23,7 @@ import { getActiveHomeGarageBooking, subscribeToActiveHomeGarageBooking } from "
 import { getActiveShopBooking } from "../../services/shopOwnerService";
 import { getTowingPricing } from "../../services/towingPricingService";
 import { StatusPill } from "./StatusPill";
+import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
 
 function renderStars(rating: number) {
   const rounded = Math.round(rating);
@@ -90,6 +91,7 @@ export function ProviderDetailCard({
   const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
   const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
   const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [showMapsConfirmation, setShowMapsConfirmation] = useState(false);
 
   const checkBookingAccess = () => canBookAsOwner(() => setShowVerificationPrompt(true));
 
@@ -140,9 +142,7 @@ export function ProviderDetailCard({
       Alert.alert("Location unavailable", "This provider has not shared a map location.");
       return;
     }
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${provider.lat},${provider.lng}&travelmode=driving`;
-    try { await Linking.openURL(url); }
-    catch { Alert.alert("Navigation unavailable", "Unable to open a maps app on this device."); }
+    setShowMapsConfirmation(true);
   };
   const openBooking = async () => {
     if (provider.category === "Onsite Mechanics") {
@@ -434,6 +434,11 @@ export function ProviderDetailCard({
           </>
         )}
       </View>
+      <OpenGoogleMapsModal
+        visible={showMapsConfirmation}
+        url={`https://www.google.com/maps/dir/?api=1&destination=${provider.lat},${provider.lng}&travelmode=driving`}
+        onCancel={() => setShowMapsConfirmation(false)}
+      />
       <Modal
         visible={showVerificationPrompt}
         transparent

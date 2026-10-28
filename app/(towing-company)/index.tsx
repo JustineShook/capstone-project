@@ -1,9 +1,11 @@
 import { Feather } from "@expo/vector-icons";
+import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../services/firebase";
+import { useActionRisk } from "../../hooks/useActionRisk";
 import { getPublicProviderListing, updatePublicProviderListing } from "../../services/publicProviderListingService";
 import { getTowingCompanyProfile } from "../../services/towingCompanyProfileService";
 import { subscribeToTowingRequests } from "../../services/owner/towingService";
@@ -33,6 +35,7 @@ function money(value: number) {
 }
 
 export default function TowingCompanyDashboard() {
+  const actionRisk = useActionRisk("provider");
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [online, setOnline] = useState(false);
@@ -124,6 +127,7 @@ export default function TowingCompanyDashboard() {
             {unreadNotifications > 0 && <View style={s.notificationBadge}><Text style={s.notificationBadgeText}>{unreadNotifications > 99 ? "99+" : unreadNotifications}</Text></View>}
           </TouchableOpacity>
         </View>
+        <AccountActionWarning count={actionRisk.count} error={actionRisk.error} />
 
         <ImageBackground source={require("../../assets/images/towing-dashboard-bg.png")} imageStyle={s.heroImage} style={[s.hero, online ? s.heroOnline : s.heroOffline]}>
           <View style={s.heroShade} />

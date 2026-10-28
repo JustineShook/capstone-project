@@ -31,6 +31,7 @@ interface MechanicNotificationInput {
   vehicle: string;
   status: string;
   event: "new_request" | "provider_status" | "customer_cancelled";
+  reason?: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -57,7 +58,7 @@ export function writeMechanicNotification(
   const message = input.event === "new_request"
     ? `${input.customerName} requested service for ${input.vehicle}.`
     : input.event === "customer_cancelled"
-      ? `${input.customerName} cancelled the request for ${input.vehicle}.`
+      ? `${input.customerName} cancelled the request for ${input.vehicle}. Reason: ${input.reason ?? ""}`
       : `The request for ${input.vehicle} is now ${STATUS_LABELS[input.status] ?? input.status}.`;
   const isRead = input.event === "provider_status";
 

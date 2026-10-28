@@ -8,7 +8,7 @@ export interface HomeGarageNotification {
 
 interface Input {
   bookingId: string; providerId: string; customerId: string; customerName: string; vehicle: string; problem: string;
-  status: string; event: "new_request" | "provider_update" | "customer_cancelled";
+  status: string; event: "new_request" | "provider_update" | "customer_cancelled"; reason?: string;
 }
 
 const labels: Record<string, string> = { pending: "Pending", accepted: "Accepted", vehicle_arrived: "Vehicle Arrived", diagnosing: "Diagnosing", repairing: "Repairing", rejected: "Declined", in_progress: "In Progress", completed: "Completed", cancelled: "Cancelled", assessed: "Price Assessed" };
@@ -21,7 +21,7 @@ export function writeHomeGarageProviderNotification(transaction: Transaction, in
     customerName: input.customerName, vehicle: input.vehicle, problem: input.problem, status: input.status,
     title: isNew ? "New Home Garage request" : cancelled ? "Customer cancelled request" : "Request updated",
     message: isNew ? `${input.customerName} requested a repair for ${input.vehicle}.` : cancelled
-      ? `${input.customerName} cancelled the repair request for ${input.vehicle}.`
+      ? `${input.customerName} cancelled the repair request for ${input.vehicle}. Reason: ${input.reason ?? ""}`
       : `The repair for ${input.vehicle} is now ${labels[input.status] ?? input.status.replace(/_/g, " ")}.`,
     isRead: !isNew && !cancelled, readAt: !isNew && !cancelled ? serverTimestamp() : null,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),

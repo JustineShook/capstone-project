@@ -19,6 +19,8 @@ import {
 } from "../../services/homeGarageBookingService";
 import type { HomeGarageBooking, HomeGarageBookingStatus } from "../../types/homeGarageBooking";
 import { formatPesoAmount } from "../../utils/finalPrice";
+import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
+import { DeclineRequestModal } from "../provider/DeclineRequestModal";
 
 const FLOW: { key: HomeGarageBookingStatus; label: string }[] = [
   { key: "pending", label: "Pending" },
@@ -51,8 +53,11 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [providerPhone, setProviderPhone] = useState("");
-  const [mapError, setMapError] = useState("");
+  const [showMapsConfirmation, setShowMapsConfirmation] = useState(false);
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [declineVisible, setDeclineVisible] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
   const [assessmentPriceInput, setAssessmentPriceInput] = useState("");
   const [completionFormVisible, setCompletionFormVisible] = useState(false);
   const returnToHistory = useCallback(() => router.replace("/(v_owner)/history"), [router]);
@@ -81,10 +86,10 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
     return () => { active = false; };
   }, [booking?.providerId, providerMode]);
 
-  async function update(status: "accepted" | "rejected" | "cancelled") {
+  async function update(status: "accepted" | "rejected" | "cancelled", reason?: string) {
     if (!id || busy) return;
     setBusy(true);
-    try { await updateHomeGarageBookingStatus(id, status); setShowCancelConfirmation(false); }
+    try { await updateHomeGarageBookingStatus(id, status, reason); setShowCancelConfirmation(false); setDeclineVisible(false); if (status === "cancelled") setCancelReason(""); if (status === "rejected") setDeclineReason(""); }
     catch (cause) { Alert.alert("Request not updated", cause instanceof Error ? cause.message : "Please try again."); }
     finally { setBusy(false); }
   }
@@ -146,10 +151,7 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
 
   async function openGarageMap() {
     if (!booking) return;
-    try {
-      setMapError("");
-      await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${booking.garageLatitude},${booking.garageLongitude}`);
-    } catch { setMapError("Unable to open maps. Use the service area details shown below."); }
+    setShowMapsConfirmation(true);
   }
 
   if (loading) return <View style={s.loadingRoot}><StatusBar barStyle="light-content" backgroundColor={colors.background} /><ActivityIndicator color={colors.primary} /></View>;
@@ -157,9 +159,65 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
 
   const currentStep = booking.status === "in_progress" ? -1 : FLOW.findIndex((step) => step.key === booking.status);
   const isTerminalStatus = booking.status === "cancelled" || booking.status === "rejected";
-  const vehicleSummary = `${booking.vehicleYear} ${booking.vehicle}${booking.vehiclePlate ? ` · ${booking.vehiclePlate}` : ""}`;
+  const isHistoryStatus = isTerminalStatus || booking.status === "completed";
+  const vehicleSummary = `${booking.vehicleYear ? `${booking.vehicleYear} ` : ""}${booking.vehicle || "Vehicle not recorded"}${booking.vehiclePlate ? ` · ${booking.vehiclePlate}` : ""}`;
   const garageCoordinates = Number.isFinite(booking.garageLatitude) && Number.isFinite(booking.garageLongitude)
     ? `${booking.garageLatitude.toFixed(6)}, ${booking.garageLongitude.toFixed(6)}` : "Coordinates unavailable";
+
+  if (providerMode && isHistoryStatus) {
+    const statusDateLabel = booking.status === "completed" && booking.completedAt ? "Completed" : "Last updated";
+    const statusDate = booking.status === "completed" && booking.completedAt
+      ? booking.completedAt : booking.updatedAt || booking.createdAt;
+    return <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <SafeAreaView style={s.header} edges={["top"]}>
+        <View style={s.headerRow}>
+          <Pressable onPress={() => router.back()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back to history">
+            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+          </Pressable>
+          <Text style={s.headerTitle}>Past Booking Details</Text>
+          <View style={{ width: 24 }} />
+        </View>
+      </SafeAreaView>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        <View style={s.detailCard}>
+          <Text style={s.archiveEyebrow}>PAST BOOKING RECORD</Text>
+          <Text style={s.archiveTitle}>{LABELS[booking.status]}</Text>
+          <Text style={s.priceHint}>{statusDateLabel} · {formatDateTime(statusDate)}</Text>
+        </View>
+        <View style={s.detailCard}>
+          <Text style={s.detailCardTitle}>Customer and vehicle</Text>
+          <DetailRow icon="person-outline" label="Customer" value={booking.customerName || "Customer"} />
+          <DetailRow icon="home-outline" label="Service" value="Home Garage" />
+          <DetailRow icon="calendar-outline" label="Year" value={booking.vehicleYear ? String(booking.vehicleYear) : "Not recorded"} />
+          <DetailRow icon="car-outline" label="Vehicle" value={booking.vehicle || "Vehicle not recorded"} />
+          <DetailRow icon="pricetag-outline" label="Plate" value={booking.vehiclePlate || "Not provided"} last />
+        </View>
+        <View style={s.detailCard}>
+          <Text style={s.detailCardTitle}>Repair and location</Text>
+          <DetailRow icon="construct-outline" label="Problem" value={booking.problem || "Not recorded"} />
+          <DetailRow icon="document-text-outline" label="Notes" value={booking.notes?.trim() || "No additional notes"} />
+          <DetailRow icon="navigate-outline" label="Service area" value={booking.serviceAreaLabel || "Not provided"} />
+          <DetailRow icon="navigate-outline" label="Garage coordinates" value={garageCoordinates} last />
+        </View>
+        <View style={s.detailCard}>
+          <Text style={s.detailCardTitle}>Price information</Text>
+          <DetailRow icon="cash-outline" label="Starting price" value={booking.startingPrice || "Price on assessment"} />
+          <DetailRow icon="calculator-outline" label="Assessed price" value={booking.assessmentPrice != null ? formatPrice(booking.assessmentPrice) : "Not recorded"} />
+          {booking.status === "completed" ? <DetailRow icon="cash-outline" label="Final price" value={typeof booking.finalPrice === "number" ? formatPrice(booking.finalPrice) : "Final price not recorded"} last /> : null}
+          {booking.status === "completed" && booking.completionNote ? <DetailRow icon="chatbox-ellipses-outline" label="Completion note" value={booking.completionNote} last /> : null}
+        </View>
+        {booking.cancellationReason ? <View style={s.detailCard}><Text style={s.detailCardTitle}>Owner cancellation reason</Text><Text style={s.priceHint}>{booking.cancellationReason}</Text></View> : null}
+        {booking.declineReason ? <View style={s.detailCard}><Text style={s.detailCardTitle}>Provider decline reason</Text><Text style={s.priceHint}>{booking.declineReason}</Text></View> : null}
+        <View style={s.detailCard}>
+          <Text style={s.detailCardTitle}>Booking information</Text>
+          <DetailRow icon="receipt-outline" label="Booking ID" value={booking.id} />
+          <DetailRow icon="time-outline" label="Requested" value={formatDateTime(booking.createdAt)} />
+          <DetailRow icon="ellipse-outline" label="Status" value={LABELS[booking.status]} last />
+        </View>
+      </ScrollView>
+    </View>;
+  }
 
   return (
     <View style={s.root}>
@@ -183,14 +241,17 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             <Text style={s.providerName} numberOfLines={1}>{providerMode ? booking.customerName || "Customer" : booking.providerName}</Text>
             <Text style={s.problemText} numberOfLines={1} ellipsizeMode="tail">{providerMode ? vehicleSummary : booking.problem}</Text>
           </View>
-          <View style={s.providerActionsRow}>
+          {(!providerMode || !isHistoryStatus) ? <View style={s.providerActionsRow}>
             <Pressable style={s.actionButton} onPress={() => void (providerMode ? contactCustomer("tel") : contactProvider("tel"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Call customer" : "Call Home Garage"}><Ionicons name="call" size={16} color={colors.white} /></Pressable>
             <Pressable style={s.actionButton} onPress={() => void (providerMode ? contactCustomer("sms") : contactProvider("sms"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Message customer" : "Message Home Garage"}><Ionicons name="chatbubble" size={16} color={colors.white} /></Pressable>
-          </View>
+          </View> : null}
         </View>
         {booking.status === "in_progress"
           ? <View style={s.detailCard}><Text style={s.detailCardTitle}>Legacy service progress</Text><Text style={s.priceHint}>This existing booking keeps its original In Progress status. The provider can finish it through the final-price confirmation.</Text></View>
           : <ServiceProgress steps={FLOW} currentStep={currentStep} terminalLabel={isTerminalStatus ? LABELS[booking.status] : undefined} />}
+        {!providerMode && booking.declineReason ? <Text style={s.priceHint}>Reason from Home Garage: {booking.declineReason}</Text> : null}
+        {providerMode && booking.cancellationReason ? <Text style={s.priceHint}>Owner&apos;s cancellation reason: {booking.cancellationReason}</Text> : null}
+        {providerMode && booking.declineReason ? <Text style={s.priceHint}>Provider decline reason: {booking.declineReason}</Text> : null}
         <BookingTimingBanner booking={booking} />
         {!providerMode && ["pending", "accepted"].includes(booking.status) && <Pressable style={[s.cancelRequestButton, busy && s.cancelRequestButtonDisabled]} onPress={() => setShowCancelConfirmation(true)} disabled={busy} accessibilityRole="button" accessibilityLabel="Cancel Home Garage request"><Text style={s.cancelRequestButtonText}>Cancel Request</Text></Pressable>}
         {!providerMode && !["pending", "accepted"].includes(booking.status) && booking.status !== "completed" && !isTerminalStatus && <Text style={s.priceHint}>After the provider marks Vehicle Arrived, contact the Home Garage to request cancellation.</Text>}
@@ -201,7 +262,7 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
           <View style={s.detailCard}>
             <Text style={s.detailCardTitle}>Customer Details</Text>
             <DetailRow icon="person-outline" label="Customer" value={booking.customerName || "Customer"} />
-            <DetailRow icon="call-outline" label="Contact Number" value={booking.customerPhone || "Not provided"} />
+            {!isHistoryStatus ? <DetailRow icon="call-outline" label="Contact Number" value={booking.customerPhone || "Not provided"} /> : null}
             <DetailRow icon="home-outline" label="Service" value="Home Garage" last />
           </View>
           <View style={s.detailCard}>
@@ -217,6 +278,7 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             <DetailRow icon="cash-outline" label="Starting Price" value={booking.startingPrice || "Price on assessment"} last={booking.assessmentPrice == null && booking.finalPrice == null} />
             {booking.assessmentPrice != null ? <DetailRow icon="calculator-outline" label="Assessed Price" value={formatPrice(booking.assessmentPrice)} last={booking.finalPrice == null} /> : null}
             {booking.status === "completed" ? <DetailRow icon="cash-outline" label="Final Price" value={typeof booking.finalPrice === "number" ? formatPrice(booking.finalPrice) : "Final price not recorded"} last /> : null}
+            {booking.status === "completed" && booking.completionNote ? <DetailRow icon="chatbox-ellipses-outline" label="Completion Note" value={booking.completionNote} last /> : null}
           </View>
           {booking.status === "accepted" && <View style={s.detailCard}>
             <Text style={s.detailCardTitle}>Service Assessment</Text>
@@ -229,10 +291,11 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             <Text style={s.detailCardTitle}>Booking Information</Text>
             <DetailRow icon="receipt-outline" label="Request ID" value={booking.id} />
             <DetailRow icon="time-outline" label="Requested" value={formatDateTime(booking.createdAt)} />
+            {booking.status === "completed" ? <DetailRow icon="checkmark-circle-outline" label={booking.completedAt ? "Completed" : "Last updated"} value={formatDateTime(booking.completedAt || booking.updatedAt || booking.createdAt)} /> : isTerminalStatus ? <DetailRow icon="time-outline" label="Last updated" value={formatDateTime(booking.updatedAt || booking.createdAt)} /> : null}
             <DetailRow icon="ellipse-outline" label="Status" value={LABELS[booking.status]} last />
           </View>
           {booking.status === "pending" && <View style={s.providerActions}>
-            <Pressable style={[s.providerSecondaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void update("rejected")}><Text style={s.providerSecondaryText}>Decline</Text></Pressable>
+            <Pressable style={[s.providerSecondaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => setDeclineVisible(true)}><Text style={s.providerSecondaryText}>Decline</Text></Pressable>
             <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void update("accepted")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Accept Request"}</Text></Pressable>
           </View>}
           {booking.status === "accepted" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void startRepair()}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Mark Vehicle Arrived"}</Text></Pressable>}
@@ -269,7 +332,6 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
             <Pressable style={s.mapButton} onPress={() => void openGarageMap()} accessibilityRole="button">
               <Ionicons name="map-outline" size={17} color={colors.primary} /><Text style={s.mapButtonText}>View Garage Location</Text>
             </Pressable>
-            {mapError ? <Text accessibilityRole="alert" style={s.error}>{mapError}</Text> : null}
           </View>
           <View style={s.detailCard}>
             <Text style={s.detailCardTitle}>Booking Information</Text>
@@ -280,8 +342,10 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
         </>}
       </ScrollView>
 
-      {!providerMode && <CancelRequestModal visible={showCancelConfirmation} serviceName="Home Garage repair" explanation="You can cancel before the provider marks Vehicle Arrived. After that, contact the provider to request cancellation." isCancelling={busy} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => void update("cancelled")} />}
+      {!providerMode && <CancelRequestModal visible={showCancelConfirmation} serviceName="Home Garage repair" explanation="You can cancel before the provider marks Vehicle Arrived. After that, contact the provider to request cancellation." isCancelling={busy} reason={cancelReason} onReasonChange={setCancelReason} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => void update("cancelled", cancelReason)} />}
+      {providerMode && <DeclineRequestModal visible={declineVisible} reason={declineReason} saving={busy} onReasonChange={setDeclineReason} onCancel={() => setDeclineVisible(false)} onConfirm={() => void update("rejected", declineReason)} />}
       {providerMode && <FinalPriceCompletionModal visible={completionFormVisible} estimatedPrice={booking.assessmentPrice} referencePriceLabel="Assessed Price" saving={busy} onCancel={() => setCompletionFormVisible(false)} onReview={reviewFinalPrice} />}
+      <OpenGoogleMapsModal visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.garageLatitude},${booking.garageLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />
     </View>
   );
 }
@@ -310,6 +374,8 @@ const s = StyleSheet.create({
   header: { backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
   headerTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
+  archiveEyebrow: { fontSize: 10, fontWeight: "800", color: colors.primary, letterSpacing: 1, marginBottom: 5 },
+  archiveTitle: { fontSize: 21, lineHeight: 27, fontWeight: "800", color: colors.textPrimary, marginBottom: 4 },
   loadingRoot: { flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 24, gap: 14 },
   notFoundText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: "center" },
   retryButton: { backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 20 },

@@ -3,6 +3,8 @@ import type { BookingTimingFields } from "./bookingTiming";
 export type HomeGarageBookingStatus = "pending" | "accepted" | "vehicle_arrived" | "diagnosing" | "repairing" | "in_progress" | "rejected" | "completed" | "cancelled";
 
 export interface HomeGarageBooking extends BookingTimingFields {
+  cancellationReason?: string;
+  declineReason?: string;
   id: string;
   bookingType: "homegarage";
   providerId: string;

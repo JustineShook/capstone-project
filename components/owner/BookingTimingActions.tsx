@@ -82,7 +82,7 @@ export function BookingTimingActions({ value, emergencyAvailable, acceptsSchedul
       </Pressable>
     </View>
 
-    <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
+    <Modal visible={sheetOpen} transparent animationType="fade" onRequestClose={() => setSheetOpen(false)}>
       <View style={s.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setSheetOpen(false)} accessibilityLabel="Close schedule picker" />
         <SafeAreaView edges={["bottom"]} style={s.sheet}>
@@ -126,12 +126,12 @@ const s = StyleSheet.create({
   change: { color: C.red, fontSize: 13, fontWeight: "800", padding: 4 },
   review: { minHeight: 42, borderRadius: 10, backgroundColor: C.red, justifyContent: "center", alignItems: "center", paddingHorizontal: 14 },
   reviewText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,.58)" },
-  sheet: { maxHeight: "86%", backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 9 },
+  backdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20, backgroundColor: "rgba(0,0,0,.68)" },
+  sheet: { width: "100%", maxWidth: 520, maxHeight: "86%", flexShrink: 1, backgroundColor: C.bg, borderRadius: 22, borderWidth: 1, borderColor: C.line, padding: 18, gap: 9 },
   title: { color: C.text, fontSize: 18, fontWeight: "800" },
   section: { color: C.muted, fontSize: 11, fontWeight: "800", marginTop: 3 },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 7, paddingVertical: 3 },
-  hourList: { maxHeight: 220 },
+  hourList: { maxHeight: 220, flexShrink: 1 },
   option: { minHeight: 38, justifyContent: "center", alignItems: "center", paddingHorizontal: 11, borderWidth: 1, borderColor: C.line, borderRadius: 9, backgroundColor: C.card },
   cancel: { minHeight: 30, justifyContent: "center", alignItems: "center" },
 });

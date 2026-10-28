@@ -7,8 +7,9 @@ import { subscribeToHomeGarageRequests } from "../../services/homeGarageBookingS
 import type { HomeGarageBooking } from "../../types/homeGarageBooking";
 
 const C = { canvas: "#08090B", card: "#17191C", text: "#F5F2F0", muted: "#B7B2B0", red: "#F52239", border: "#303135", green: "#25C47A" };
-type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
-function isCancelled(status: HomeGarageBooking["status"]) { return status === "cancelled" || status === "rejected"; }
+type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED" | "DECLINED";
+function isCancelled(status: HomeGarageBooking["status"]) { return status === "cancelled"; }
+function isDeclined(status: HomeGarageBooking["status"]) { return status === "rejected"; }
 function dateLabel(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
 function recordedPrice(item: HomeGarageBooking) {
   if (item.status === "completed" && item.finalPrice == null) return "Final price not recorded";
@@ -28,13 +29,14 @@ export default function HomeGarageHistory() {
 
   useEffect(() => subscribeToHomeGarageRequests((next) => { setItems(next); setLoading(false); setError(""); }, (reason) => { setError(reason.message || "Could not load repair history."); setLoading(false); }), []);
 
-  const history = useMemo(() => items.filter((item) => item.status === "completed" || isCancelled(item.status)), [items]);
+  const history = useMemo(() => items.filter((item) => item.status === "completed" || isCancelled(item.status) || isDeclined(item.status)), [items]);
   const completedCount = history.filter((item) => item.status === "completed").length;
   const cancelledCount = history.filter((item) => isCancelled(item.status)).length;
+  const declinedCount = history.filter((item) => isDeclined(item.status)).length;
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return history.filter((item) => {
-      const matchFilter = filter === "ALL" || (filter === "COMPLETED" ? item.status === "completed" : isCancelled(item.status));
+      const matchFilter = filter === "ALL" || (filter === "COMPLETED" ? item.status === "completed" : filter === "CANCELLED" ? isCancelled(item.status) : isDeclined(item.status));
       const matchSearch = !query || `${item.customerName} ${item.vehicleYear} ${item.vehicle} ${item.vehiclePlate} ${item.problem} ${item.serviceAreaLabel}`.toLocaleLowerCase().includes(query);
       return matchFilter && matchSearch;
     });
@@ -52,14 +54,15 @@ export default function HomeGarageHistory() {
       <View style={s.statsRow}>
         <View style={s.statCard}><View style={[s.statIcon, { backgroundColor: "rgba(37,196,122,0.15)" }]}><Feather name="check-circle" size={20} color={C.green} /></View><Text style={s.statLabel}>COMPLETED</Text><Text style={s.statValue}>{completedCount}</Text></View>
         <View style={s.statCard}><View style={[s.statIcon, { backgroundColor: "rgba(245,34,57,0.15)" }]}><Feather name="x-circle" size={20} color={C.red} /></View><Text style={s.statLabel}>CANCELLED</Text><Text style={s.statValue}>{cancelledCount}</Text></View>
+        <View style={s.statCard}><View style={[s.statIcon, { backgroundColor: "rgba(245,34,57,0.15)" }]}><Feather name="slash" size={20} color={C.red} /></View><Text style={s.statLabel}>DECLINED</Text><Text style={s.statValue}>{declinedCount}</Text></View>
       </View>
       <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>Past repair requests</Text><Text style={s.sectionSubtitle}>Search and open a request to see its full details.</Text></View><View style={s.historyCount}><Feather name="archive" size={15} color={C.red} /><Text style={s.historyCountText}>{history.length}</Text></View></View>
       <View style={s.searchBox}><Feather name="search" size={20} color={C.muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Search customer or vehicle" placeholderTextColor={C.muted} style={s.searchInput} returnKeyType="search" clearButtonMode="while-editing" /></View>
-      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Feather name={key === "ALL" ? "list" : key === "COMPLETED" ? "check-circle" : "x-circle"} size={16} color={filter === key ? "#FFFFFF" : C.muted} /><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : "Cancelled"}</Text>{key === "ALL" && <Text style={[s.filterCount, filter === key && s.filterTextActive]}>{history.length}</Text>}</TouchableOpacity>)}</View>
+      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED", "DECLINED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Feather name={key === "ALL" ? "list" : key === "COMPLETED" ? "check-circle" : key === "DECLINED" ? "slash" : "x-circle"} size={16} color={filter === key ? "#FFFFFF" : C.muted} /><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : key === "CANCELLED" ? "Cancelled" : "Declined"}</Text>{key === "ALL" && <Text style={[s.filterCount, filter === key && s.filterTextActive]}>{history.length}</Text>}</TouchableOpacity>)}</View>
 
-      {loading ? <View style={s.empty}><ActivityIndicator size="large" color={C.red} /><Text style={s.emptyTitle}>Loading repair history…</Text></View> : error ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="alert-circle" size={28} color={C.red} /></View><Text style={s.emptyTitle}>{error}</Text></View> : visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={28} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No repair history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or repair." : "Completed and cancelled repair requests will appear here."}</Text></View> : visible.map((item) => <View key={item.id} style={s.card}>
+      {loading ? <View style={s.empty}><ActivityIndicator size="large" color={C.red} /><Text style={s.emptyTitle}>Loading repair history…</Text></View> : error ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="alert-circle" size={28} color={C.red} /></View><Text style={s.emptyTitle}>{error}</Text></View> : visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={28} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No repair history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or repair." : "Completed, cancelled, and declined repair requests will appear here."}</Text></View> : visible.map((item) => <View key={item.id} style={s.card}>
         <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color={C.text} /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{item.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{item.vehicleYear} {item.vehicle} · {item.vehiclePlate}</Text></View></View><View style={[s.status, item.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{item.status === "completed" ? "Completed" : item.status === "rejected" ? "Declined" : "Cancelled"}</Text></View></View>
-        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{dateLabel(item.completedAt || item.updatedAt || item.createdAt)}</Text></View>
+        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{item.status === "completed" && item.completedAt ? `Completed · ${dateLabel(item.completedAt)}` : `Last updated · ${dateLabel(item.updatedAt || item.createdAt)}`}</Text></View>
         {recordedPrice(item) ? <View style={s.infoRow}><Feather name="dollar-sign" size={18} color="#D6D2D0" /><Text style={s.infoText}>{recordedPrice(item)}</Text></View> : null}
         <View style={s.infoRow}><Feather name="map-pin" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={1}>{item.serviceAreaLabel || "Home garage service"}</Text></View>
         <View style={s.infoRow}><Feather name="tool" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={2}>{item.problem}</Text></View>

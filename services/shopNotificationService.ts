@@ -25,7 +25,8 @@ interface ShopNotificationInput {
   vehicle: string;
   problem: string;
   status: string;
-  event: "new_request" | "provider_status";
+  event: "new_request" | "provider_status" | "customer_cancelled";
+  reason?: string;
 }
 
 const LABELS: Record<string, string> = {
@@ -35,6 +36,7 @@ const LABELS: Record<string, string> = {
 
 export function writeShopNotification(transaction: Transaction, input: ShopNotificationInput) {
   const isNew = input.event === "new_request";
+  const cancelled = input.event === "customer_cancelled";
   transaction.set(doc(db, "users", input.providerId, "shopNotifications", input.bookingId), {
     bookingId: input.bookingId,
     providerId: input.providerId,
@@ -43,12 +45,12 @@ export function writeShopNotification(transaction: Transaction, input: ShopNotif
     vehicle: input.vehicle,
     problem: input.problem,
     status: input.status,
-    title: isNew ? "New auto shop request" : "Request status updated",
+    title: isNew ? "New auto shop request" : cancelled ? "Customer cancelled request" : "Request status updated",
     message: isNew
       ? `${input.customerName} requested service for ${input.vehicle}.`
-      : `The service for ${input.vehicle} is now ${LABELS[input.status] ?? input.status}.`,
-    isRead: !isNew,
-    readAt: !isNew ? serverTimestamp() : null,
+      : cancelled ? `${input.customerName} cancelled the request for ${input.vehicle}. Reason: ${input.reason ?? ""}` : `The service for ${input.vehicle} is now ${LABELS[input.status] ?? input.status}.`,
+    isRead: !isNew && !cancelled,
+    readAt: !isNew && !cancelled ? serverTimestamp() : null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

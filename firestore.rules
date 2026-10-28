@@ -6,6 +6,34 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Temporary rollout compatibility: a missing reason is accepted for old
+    // clients, but a supplied reason must contain non-whitespace text.
+    function optionalBookingReasonIsValid(data, field) {
+      return !data.keys().hasAny([field])
+        || (data[field] is string
+          && data[field].matches('(?s).*\\S.*')
+          && data[field].size() <= 500);
+    }
+
+    // Compatibility phase: legacy clients may omit both risk fields. Updated
+    // clients must provide the matching event type and server timestamp.
+    function optionalRiskEventIsValid(eventType, previousStatus) {
+      let data = request.resource.data;
+      let hasType = data.keys().hasAny(["riskEventType"]);
+      let hasAt = data.keys().hasAny(["riskEventAt"]);
+      return (!hasType && !hasAt)
+        || (hasType && hasAt
+          && data.riskEventType == eventType
+          && data.riskEventAt == request.time
+          && resource.data.status == previousStatus);
+    }
+
+    function accountIsActive(uid) {
+      let userPath = /databases/$(database)/documents/users/$(uid);
+      return !exists(userPath)
+        || get(userPath).data.get("accountStatus", "active") == "active";
+    }
+
     function isDocumentOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
@@ -29,19 +57,108 @@ service cloud.firestore {
 
     function validAdminListingHide(uid) {
       let userPath = /databases/$(database)/documents/users/$(uid);
+      let role = resource.data.role;
+      let reviewedRoleProfile = role == "owner"
+        ? adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/ownerProfile/profile)
+        : role == "onsite-mechanic"
+          ? adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/providerProfile/profile)
+          : role == "towing-company"
+            ? adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/towingCompanyProfile/profile)
+            : role == "homegarage"
+              ? adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/homeGarageVerification/profile)
+              : role == "shop-owner"
+                ? (adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/shopVerification/profile)
+                  || adminReviewedProfile(/databases/$(database)/documents/providers/$(uid)))
+                : false;
       return isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["visibility"])
         && request.resource.data.visibility == "inactive"
-        && (adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/ownerProfile/profile)
-          || adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/providerProfile/profile)
-          || adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/towingCompanyProfile/profile)
-          || adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/shopVerification/profile)
-          || adminReviewedProfile(/databases/$(database)/documents/users/$(uid)/homeGarageVerification/profile)
-          || adminReviewedProfile(/databases/$(database)/documents/providers/$(uid))
+        && (reviewedRoleProfile
           || (existsAfter(userPath)
             && getAfter(userPath).data.accountStatus == "suspended"
             && getAfter(userPath).data.accountStatusUpdatedAt == request.time
             && getAfter(userPath).data.accountStatusUpdatedBy == request.auth.uid));
+    }
+
+    function providerWasPublicBeforeSuspension(uid, role) {
+      let userPath = /databases/$(database)/documents/users/$(uid);
+      let suspensionPath = /databases/$(database)/documents/providerStatusHistory/$(get(userPath).data.accountStatusNotificationId);
+      return exists(userPath)
+        && get(userPath).data.get("accountStatus", "active") == "suspended"
+        && get(userPath).data.accountStatusNotificationId is string
+        && exists(suspensionPath)
+        && get(suspensionPath).data.providerId == uid
+        && get(suspensionPath).data.role == role
+        && get(suspensionPath).data.newStatus == "suspended"
+        && get(suspensionPath).data.listingVisibilityBeforeSuspension == "active";
+    }
+
+    function adminProviderApprovalIsCurrent(uid, role) {
+      let userPath = /databases/$(database)/documents/users/$(uid);
+      let mechanicPath = /databases/$(database)/documents/users/$(uid)/providerProfile/profile;
+      let towingPath = /databases/$(database)/documents/users/$(uid)/towingCompanyProfile/profile;
+      let garagePath = /databases/$(database)/documents/users/$(uid)/homeGarageVerification/profile;
+      let shopPath = /databases/$(database)/documents/providers/$(uid);
+      let shopVerificationPath = /databases/$(database)/documents/users/$(uid)/shopVerification/profile;
+      return exists(userPath) && get(userPath).data.role == role
+        && (role == "onsite-mechanic"
+          ? exists(mechanicPath) && get(mechanicPath).data.uid == uid
+            && get(mechanicPath).data.role == role && get(mechanicPath).data.verificationStatus == "VERIFIED"
+          : role == "towing-company"
+            ? exists(towingPath) && get(towingPath).data.uid == uid
+              && get(towingPath).data.role == role && get(towingPath).data.verificationStatus == "VERIFIED"
+            : role == "homegarage"
+              ? exists(garagePath) && get(garagePath).data.uid == uid
+                && get(garagePath).data.role == role && get(garagePath).data.verificationStatus == "VERIFIED"
+                && get(garagePath).data.business.name is string
+                && get(garagePath).data.business.name.size() > 0
+              : role == "shop-owner"
+                ? exists(shopPath) && get(shopPath).data.uid == uid
+                  && get(shopPath).data.role == role && get(shopPath).data.verified == true
+                  && exists(shopVerificationPath)
+                  && get(shopVerificationPath).data.uid == uid
+                  && get(shopVerificationPath).data.role == role
+                  && get(shopVerificationPath).data.verificationStatus == "VERIFIED"
+                : false);
+    }
+
+    function validAdminListingRestore(uid) {
+      let userPath = /databases/$(database)/documents/users/$(uid);
+      let listingPath = /databases/$(database)/documents/providerListings/$(uid);
+      let restorePath = /databases/$(database)/documents/providerStatusHistory/$(get(userPath).data.accountStatusNotificationId);
+      let suspensionPath = /databases/$(database)/documents/providerStatusHistory/$(get(restorePath).data.previousStatusNotificationId);
+      let role = resource.data.role;
+      return isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["visibility"])
+        && resource.data.visibility == "inactive"
+        && request.resource.data.visibility == "active"
+        && exists(userPath)
+        && get(userPath).data.accountStatus == "active"
+        && get(userPath).data.accountStatusNotificationId is string
+        && exists(restorePath)
+        && get(restorePath).data.providerId == uid
+        && get(restorePath).data.role == role
+        && get(restorePath).data.previousStatus == "suspended"
+        && get(restorePath).data.newStatus == "active"
+        && get(restorePath).data.listingRestored == false
+        && get(restorePath).data.previousStatusNotificationId is string
+        && exists(suspensionPath)
+        && get(suspensionPath).data.providerId == uid
+        && get(suspensionPath).data.role == role
+        && get(suspensionPath).data.newStatus == "suspended"
+        && get(suspensionPath).data.listingVisibilityBeforeSuspension == "active"
+        && getAfter(listingPath).data.visibility == "active"
+        && adminProviderApprovalIsCurrent(uid, role)
+        && request.resource.data.providerId == uid
+        && request.resource.data.role == role
+        && request.resource.data.category == (role == "onsite-mechanic" ? "Onsite Mechanics"
+          : role == "towing-company" ? "Towing"
+          : role == "homegarage" ? "Parking Lots" : "Auto Shops")
+        && hasExactPublicListingShape()
+        && hasValidProviderControlledFields()
+        && hasValidRoleSpecificServices()
+        && (role != "shop-owner" || validShopListingProfile(uid))
+        && (role != "homegarage" || validHomeGarageListingProfile(uid));
     }
 
     function validShopReview(uid) {
@@ -63,11 +180,12 @@ service cloud.firestore {
           && !(shop.latitude == 0 && shop.longitude == 0)));
     }
 
-    function validProviderStatusHistory() {
+    function validProviderStatusHistory(historyId) {
       let event = request.resource.data;
       let account = getAfter(/databases/$(database)/documents/users/$(event.providerId)).data;
+      let listingPath = /databases/$(database)/documents/providerListings/$(event.providerId);
       return isAdmin()
-        && event.keys().hasOnly(["providerId", "role", "previousStatus", "newStatus", "changedAt", "changedBy"])
+        && event.keys().hasOnly(["providerId", "role", "previousStatus", "newStatus", "changedAt", "changedBy", "listingVisibilityBeforeSuspension", "listingRestored", "previousStatusNotificationId"])
         && event.providerId is string
         && event.role in ["onsite-mechanic", "shop-owner", "towing-company", "homegarage", "owner"]
         && event.previousStatus in ["active", "suspended"]
@@ -79,7 +197,57 @@ service cloud.firestore {
         && account.role == event.role
         && account.accountStatus == event.newStatus
         && account.accountStatusUpdatedAt == request.time
-        && account.accountStatusUpdatedBy == request.auth.uid;
+        && account.accountStatusUpdatedBy == request.auth.uid
+        && account.accountStatusNotificationId == historyId
+        && (!event.keys().hasAny(["previousStatusNotificationId"])
+          || (event.newStatus == "active" && event.previousStatus == "suspended"
+            && event.previousStatusNotificationId is string
+            && get(/databases/$(database)/documents/users/$(event.providerId)).data.accountStatus == "suspended"
+            && get(/databases/$(database)/documents/users/$(event.providerId)).data.accountStatusNotificationId == event.previousStatusNotificationId
+            && exists(/databases/$(database)/documents/providerStatusHistory/$(event.previousStatusNotificationId))
+            && get(/databases/$(database)/documents/providerStatusHistory/$(event.previousStatusNotificationId)).data.providerId == event.providerId
+            && get(/databases/$(database)/documents/providerStatusHistory/$(event.previousStatusNotificationId)).data.role == event.role
+            && get(/databases/$(database)/documents/providerStatusHistory/$(event.previousStatusNotificationId)).data.newStatus == "suspended"))
+        && (!event.keys().hasAny(["listingVisibilityBeforeSuspension"])
+          || (event.newStatus == "suspended" && event.role != "owner"
+            && event.listingVisibilityBeforeSuspension in ["active", "inactive", "missing"]
+            && (event.listingVisibilityBeforeSuspension == "active"
+              ? exists(listingPath) && get(listingPath).data.visibility == "active"
+              : event.listingVisibilityBeforeSuspension == "inactive"
+                ? (!exists(listingPath) || get(listingPath).data.visibility != "active")
+                : !exists(listingPath))))
+        && (!event.keys().hasAny(["listingRestored"])
+          || (event.newStatus == "active" && event.listingRestored is bool
+            && (!event.listingRestored || (event.role != "owner"
+              && providerWasPublicBeforeSuspension(event.providerId, event.role)
+              && adminProviderApprovalIsCurrent(event.providerId, event.role)
+              && existsAfter(listingPath)
+              && getAfter(listingPath).data.visibility == "active"
+              && getAfter(listingPath).data.role == event.role))));
+    }
+
+    function validAdminListingRestoreHistory(historyId) {
+      let event = resource.data;
+      let after = request.resource.data;
+      let userPath = /databases/$(database)/documents/users/$(event.providerId);
+      let listingPath = /databases/$(database)/documents/providerListings/$(event.providerId);
+      let suspensionPath = /databases/$(database)/documents/providerStatusHistory/$(event.previousStatusNotificationId);
+      return isAdmin()
+        && after.diff(event).affectedKeys().hasOnly(["listingRestored"])
+        && event.listingRestored == false && after.listingRestored == true
+        && event.newStatus == "active" && event.previousStatus == "suspended"
+        && event.providerId is string && event.role != "owner"
+        && get(userPath).data.accountStatus == "active"
+        && get(userPath).data.accountStatusNotificationId == historyId
+        && event.previousStatusNotificationId is string
+        && exists(suspensionPath)
+        && get(suspensionPath).data.providerId == event.providerId
+        && get(suspensionPath).data.role == event.role
+        && get(suspensionPath).data.newStatus == "suspended"
+        && get(suspensionPath).data.listingVisibilityBeforeSuspension == "active"
+        && adminProviderApprovalIsCurrent(event.providerId, event.role)
+        && existsAfter(listingPath)
+        && getAfter(listingPath).data.visibility == "active";
     }
 
     function validProviderVerificationHistory() {
@@ -361,44 +529,41 @@ service cloud.firestore {
     }
 
     function hasValidRoleSpecificServices() {
-      return (request.resource.data.role == "onsite-mechanic"
-          && request.resource.data.services.hasOnly([
+      return request.resource.data.role == "onsite-mechanic"
+        ? request.resource.data.services.hasOnly([
             "Engine Diagnostics", "Battery Replacement", "Brake Repair",
             "Tire Replacement", "Electrical Repair", "Air Conditioning"
-          ]))
-        || (request.resource.data.role == "shop-owner"
-          && request.resource.data.services.hasOnly([
+          ])
+        : request.resource.data.role == "shop-owner"
+          ? request.resource.data.services.hasOnly([
             "Oil change", "Brake service", "Engine repair", "Battery service",
             "Tire service", "Air-conditioning service", "Preventive maintenance"
-          ]))
-        || (request.resource.data.role == "towing-company"
-          && request.resource.data.services.hasOnly([
+          ])
+          : request.resource.data.role == "towing-company"
+            ? request.resource.data.services.hasOnly([
             "Flatbed Towing", "Wheel-Lift Towing", "Emergency Roadside Assistance",
             "Accident Recovery", "Motorcycle Towing"
-          ]))
-        || (request.resource.data.role == "homegarage"
-          && request.resource.data.services.hasOnly([
-            "Oil change", "Brake service", "Engine repair", "Battery service",
-            "Tire service", "Air-conditioning service"
-          ]));
+          ])
+          : request.resource.data.role == "homegarage"
+              ? request.resource.data.services.hasOnly([
+                "Oil change", "Brake service", "Engine repair", "Battery service",
+                "Tire service", "Air-conditioning service"
+              ])
+              : false;
     }
 
     function hasVerifiedRoleAndCategory(uid) {
-      return (request.resource.data.role == "onsite-mechanic"
-          && request.resource.data.category == "Onsite Mechanics"
-          && verifiedMechanic(uid))
-        || (request.resource.data.role == "towing-company"
-          && request.resource.data.category == "Towing"
-          && verifiedTowingCompany(uid))
-        || (request.resource.data.role == "shop-owner"
-          && request.resource.data.category == "Auto Shops"
-          && verifiedShop(uid)
-          && validShopListingProfile(uid))
-        || (request.resource.data.role == "homegarage"
-          && request.resource.data.category == "Parking Lots"
-          && get(/databases/$(database)/documents/users/$(uid)).data.role == "homegarage"
-          && verifiedHomeGarage(uid)
-          && validHomeGarageListingProfile(uid));
+      return request.resource.data.role == "onsite-mechanic"
+        ? request.resource.data.category == "Onsite Mechanics" && verifiedMechanic(uid)
+        : request.resource.data.role == "towing-company"
+          ? request.resource.data.category == "Towing" && verifiedTowingCompany(uid)
+          : request.resource.data.role == "shop-owner"
+            ? request.resource.data.category == "Auto Shops" && verifiedShop(uid) && validShopListingProfile(uid)
+            : request.resource.data.role == "homegarage"
+              ? request.resource.data.category == "Parking Lots"
+                && get(/databases/$(database)/documents/users/$(uid)).data.role == "homegarage"
+                && verifiedHomeGarage(uid) && validHomeGarageListingProfile(uid)
+              : false;
     }
 
     function validPublicListingWrite(uid) {
@@ -972,7 +1137,7 @@ service cloud.firestore {
     }
 
     function verifiedShop(uid) {
-      let shop = get(/databases/$(database)/documents/providers/$(uid)).data;
+      let shop = getAfter(/databases/$(database)/documents/providers/$(uid)).data;
       return isShopOwner(uid) && shop.uid == uid && shop.role == "shop-owner" && shop.verified == true;
     }
 
@@ -1005,7 +1170,7 @@ service cloud.firestore {
       // The public map pin can differ from the approved business address.
       // Ownership, verification, availability, and coordinate bounds are
       // validated separately; never write the private provider profile here.
-      let shop = get(/databases/$(database)/documents/providers/$(uid)).data;
+      let shop = getAfter(/databases/$(database)/documents/providers/$(uid)).data;
       return request.resource.data.emergencyServiceAvailable == true
         && ((shop.status == "open" && request.resource.data.availability == "available")
           || (shop.status == "closed" && request.resource.data.availability == "offline"));
@@ -1022,16 +1187,12 @@ service cloud.firestore {
         && before.providerId == uid
         && before.role == "shop-owner"
         && before.category == "Auto Shops"
-        && after.providerId == before.providerId
-        && after.role == before.role
-        && after.category == before.category
-        && after.visibility == before.visibility
+        // The caller's changed-field allowlist below already prevents edits
+        // to providerId, role, category, and ratingSummary.
+        && (after.visibility == before.visibility
+          || (after.visibility == "active" && accountIsActive(uid)))
         && before.ratingSummary is map
         && before.ratingSummary.keys().hasOnly(["average", "count"])
-        && after.ratingSummary is map
-        && after.ratingSummary.keys().hasOnly(["average", "count"])
-        && after.ratingSummary.average == before.ratingSummary.average
-        && after.ratingSummary.count == before.ratingSummary.count
         && after.location is map
         && after.location.keys().hasOnly(["latitude", "longitude"])
         && hasValidProviderControlledFields()
@@ -1051,6 +1212,7 @@ service cloud.firestore {
         && resource.data.role == "shop-owner"
         && resource.data.category == "Auto Shops"
         && resource.data.visibility == "active"
+        && accountIsActive(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["availability"])
         && request.resource.data.availability in ["available", "offline"]
         && validShopListingProfile(uid);
@@ -1066,6 +1228,63 @@ service cloud.firestore {
         && resource.data.visibility == "active"
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["availability"])
         && request.resource.data.availability in ["available", "offline"];
+    }
+
+    function validHomeGarageAvailabilitySync(uid) {
+      return signedIn()
+        && request.auth.uid == uid
+        && accountIsActive(uid)
+        && get(/databases/$(database)/documents/users/$(uid)).data.role == "homegarage"
+        && verifiedHomeGarage(uid)
+        && validHomeGarageListingProfile(uid)
+        && resource.data.providerId == uid
+        && resource.data.role == "homegarage"
+        && resource.data.category == "Parking Lots"
+        && resource.data.visibility == "active"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["availability"])
+        && request.resource.data.availability in ["available", "offline"];
+    }
+
+    function validProviderListingUpdate(uid) {
+      let role = resource.data.role;
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return role == "shop-owner"
+        ? (changed.hasOnly(["availability"])
+          ? validShopAvailabilitySync(uid)
+          : (validShopPublicListingUpdate(uid)
+            && changed.hasOnly([
+              "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
+              "services", "vehicleTypes", "operatingHours", "startingPrice",
+              "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "visibility"
+            ])))
+        : role == "onsite-mechanic"
+          ? (changed.hasOnly(["availability"])
+            ? validMechanicAvailabilitySync(uid)
+            : (validPublicListingWrite(uid)
+              && (!changed.hasAny(["visibility"]) || accountIsActive(uid))
+              && changed.hasOnly([
+                "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
+                "services", "vehicleTypes", "operatingHours", "startingPrice",
+                "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots", "visibility"
+              ])))
+          : role == "homegarage"
+            ? (changed.hasOnly(["availability"])
+              ? validHomeGarageAvailabilitySync(uid)
+              : (validPublicListingWrite(uid)
+                && (!changed.hasAny(["visibility"]) || accountIsActive(uid))
+                && changed.hasOnly([
+                  "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
+                  "services", "vehicleTypes", "operatingHours", "startingPrice",
+                  "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots", "visibility"
+                ])))
+          : role == "towing-company"
+            && validPublicListingWrite(uid)
+            && (!changed.hasAny(["visibility"]) || accountIsActive(uid))
+            && changed.hasOnly([
+              "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
+              "services", "vehicleTypes", "operatingHours", "startingPrice",
+              "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots", "visibility"
+            ]);
     }
 
     function validMechanicProfileEdit(uid) {
@@ -1279,8 +1498,12 @@ service cloud.firestore {
       let after = request.resource.data.status;
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "homegarage"
         && approvedHomeGarage(request.auth.uid)
-        && ((before == "pending" && after in ["accepted", "rejected"]
-              && (after != "accepted" || reservationClaimedFor(bookingId, resource.data))
+        && ((before == "pending" && after == "rejected"
+              && optionalBookingReasonIsValid(request.resource.data, "declineReason")
+              && optionalRiskEventIsValid("provider_decline", "pending")
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "declineReason", "riskEventType", "riskEventAt"]))
+          || (before == "pending" && after == "accepted"
+              && reservationClaimedFor(bookingId, resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
           || (before == "accepted" && after == "accepted"
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["assessmentPrice", "updatedAt"])
@@ -1339,7 +1562,9 @@ service cloud.firestore {
               && reservationClaimedFor(bookingId, resource.data)
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
           || (before == "pending" && after == "rejected"
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
+              && optionalRiskEventIsValid("provider_decline", "pending")
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "declineReason", "riskEventType", "riskEventAt"])
+              && optionalBookingReasonIsValid(request.resource.data, "declineReason"))
           || (before == "accepted" && after == "vehicle_arrived"
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"]))
           || (before == "vehicle_arrived" && after == "diagnosing"
@@ -1467,7 +1692,11 @@ service cloud.firestore {
     function validProviderBookingTransition(bookingId) {
       let before = resource.data.status;
       let after = request.resource.data.status;
-      return (before == "pending" && after in ["accepted", "rejected", "cancelled"]
+      return (before == "pending" && after == "rejected"
+          && optionalRiskEventIsValid("provider_decline", "pending")
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "declineReason", "riskEventType", "riskEventAt"])
+          && optionalBookingReasonIsValid(request.resource.data, "declineReason"))
+        || (before == "pending" && after in ["accepted", "cancelled"]
           && (after != "accepted" || reservationClaimedFor(bookingId, resource.data)))
         || (before == "accepted" && after in ["en_route", "cancelled"])
         || (before == "en_route" && after in ["arrived", "cancelled"])
@@ -1657,6 +1886,14 @@ service cloud.firestore {
           && request.resource.data.isRead == true
           && request.resource.data.readAt == request.time
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead", "readAt"]);
+        allow update: if isAdmin()
+          && resource.data.providerId == uid
+          && resource.data.status == "ACTIVE"
+          && get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == "active"
+          && get(/databases/$(database)/documents/users/$(uid)).data.accountStatusNotificationId == notificationId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["message", "updatedAt"])
+          && request.resource.data.message is string
+          && request.resource.data.updatedAt == request.time;
         allow delete: if false;
       }
 
@@ -1816,30 +2053,17 @@ service cloud.firestore {
     match /providerListings/{providerId} {
       allow get: if isAdmin() || isDocumentOwner(providerId) || (signedIn() && resource.data.visibility == "active" && (resource.data.availability == "available" || resource.data.get("acceptsScheduledBookings", false) == true));
       allow list: if isAdmin() || (signedIn() && resource.data.visibility == "active" && (resource.data.availability == "available" || resource.data.get("acceptsScheduledBookings", false) == true));
-      allow update: if validAdminListingHide(providerId);
-      allow create: if validPublicListingCreate(providerId);
-      allow update: if request.resource.data.role != "shop-owner"
-          && validPublicListingWrite(providerId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
-            "services", "vehicleTypes", "operatingHours", "startingPrice",
-            "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours", "totalSlots", "availableSlots"
-          ])
-        || (validShopPublicListingUpdate(providerId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            "businessName", "location", "availability", "serviceAreaLabel", "description", "contactPhone",
-            "services", "vehicleTypes", "operatingHours", "startingPrice",
-            "emergencyServiceAvailable", "acceptsScheduledBookings", "photoUrls", "hoursType", "is24Hours", "weeklyHours"
-          ]))
-        || validShopAvailabilitySync(providerId)
-        || validMechanicAvailabilitySync(providerId);
+      allow update: if validAdminListingRestore(providerId) || validAdminListingHide(providerId);
+      allow create: if accountIsActive(providerId) && validPublicListingCreate(providerId);
+      allow update: if validProviderListingUpdate(providerId);
       allow delete: if false;
     }
 
     match /providerStatusHistory/{historyId} {
       allow get, list: if isAdmin();
-      allow create: if validProviderStatusHistory();
-      allow update, delete: if false;
+      allow create: if validProviderStatusHistory(historyId);
+      allow update: if validAdminListingRestoreHistory(historyId);
+      allow delete: if false;
     }
 
     match /providerVerificationHistory/{historyId} {
@@ -1869,29 +2093,8 @@ service cloud.firestore {
     // only accepted alongside the app's Firestore transactions; providers
     // never need to start or end a customer's parking session.
     match /parkingBookings/{bookingId} {
-      allow create: if signedIn()
-        && verifiedVehicleOwner(request.auth.uid)
-        && request.resource.data.keys().hasOnly(["providerId", "providerName", "customerId", "customerName", "vehicleId", "vehicle", "vehiclePlate", "vehicleType", "slotId", "slotNumber", "notes", "status", "bookedAt", "updatedAt"])
-        && request.resource.data.customerId == request.auth.uid
-        && request.resource.data.providerId is string
-        && request.resource.data.providerId != request.auth.uid
-        && request.resource.data.providerName is string
-        && request.resource.data.customerName is string
-        && request.resource.data.vehicleId is string
-        && request.resource.data.vehicle is string
-        && request.resource.data.vehiclePlate is string
-        && request.resource.data.vehicleType is string
-        && request.resource.data.slotId is string
-        && request.resource.data.slotNumber is int && request.resource.data.slotNumber >= 1
-        && request.resource.data.notes is string && request.resource.data.notes.size() <= 500
-        && request.resource.data.status == "reserved"
-        && request.resource.data.bookedAt == request.time && request.resource.data.updatedAt == request.time
-        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.role == "homegarage"
-        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.visibility == "active"
-        && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.availability == "available"
-        && getAfter(/databases/$(database)/documents/parkingSlots/$(request.resource.data.slotId)).data.status == "reserved"
-        && getAfter(/databases/$(database)/documents/parkingSlots/$(request.resource.data.slotId)).data.customerId == request.auth.uid
-        && getAfter(/databases/$(database)/documents/parkingSlots/$(request.resource.data.slotId)).data.bookingId == bookingId;
+      // Stage 1 stops new sessions while existing sessions remain readable and completable.
+      allow create: if false;
       allow get, list: if signedIn() && (resource.data.customerId == request.auth.uid || resource.data.providerId == request.auth.uid);
       allow update: if signedIn() && resource.data.customerId == request.auth.uid
         && ((resource.data.status == "reserved" && request.resource.data.status == "active"
@@ -1909,19 +2112,16 @@ service cloud.firestore {
     match /parkingSlots/{slotId} {
       allow get, list: if signedIn();
       allow create: if isDocumentOwner(request.resource.data.providerId)
+        && accountIsActive(request.auth.uid)
         && request.resource.data.keys().hasOnly(["providerId", "slotNumber", "status", "customerId", "bookingId"])
         && request.resource.data.slotNumber is int && request.resource.data.slotNumber >= 1 && request.resource.data.slotNumber <= 500
         && request.resource.data.status == "available" && request.resource.data.customerId == null && request.resource.data.bookingId == null
         && get(/databases/$(database)/documents/providerListings/$(request.resource.data.providerId)).data.role == "homegarage";
       allow update: if signedIn()
-        && ((resource.data.status == "available" && request.resource.data.status == "reserved"
-          && request.resource.data.customerId == request.auth.uid && request.resource.data.bookingId is string
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "customerId", "bookingId", "updatedAt"])
-          && request.resource.data.updatedAt == request.time)
-          || (resource.data.status == "reserved" && resource.data.customerId == request.auth.uid
+        && (resource.data.status == "reserved" && resource.data.customerId == request.auth.uid
           && request.resource.data.status == "available" && request.resource.data.customerId == null && request.resource.data.bookingId == null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "customerId", "bookingId", "updatedAt"])
-          && request.resource.data.updatedAt == request.time));
+          && request.resource.data.updatedAt == request.time);
       allow delete: if false;
     }
 
@@ -1962,12 +2162,28 @@ service cloud.firestore {
 
       function providerUpdateAllowed() {
         return resource.data.providerId == request.auth.uid
+          && accountIsActive(request.auth.uid)
           && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 "mechanicLatitude", "mechanicLongitude", "mechanicLocationUpdatedAt"
               ]) && validMechanicLocationUpdate())
             || ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
                 || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
+                  && resource.data.status == "pending"
+                  && request.resource.data.status == "rejected"
+                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "declineReason", "riskEventType", "riskEventAt"])
+                  && optionalBookingReasonIsValid(request.resource.data, "declineReason"))
+                || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
                   && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completedAt"]))
+                || (resource.data.bookingType == "homegarage"
+                  && resource.data.status == "pending"
+                  && request.resource.data.status == "rejected"
+                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "declineReason", "riskEventType", "riskEventAt"])
+                  && optionalBookingReasonIsValid(request.resource.data, "declineReason"))
+                || (resource.data.bookingType == "shop-owner"
+                  && resource.data.status == "pending"
+                  && request.resource.data.status == "rejected"
+                  && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "declineReason", "riskEventType", "riskEventAt"])
+                  && optionalBookingReasonIsValid(request.resource.data, "declineReason"))
                 || (resource.data.bookingType in ["shop-owner", "homegarage"]
                   && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "finalPrice", "completedAt", "completionNote"])))
               && request.resource.data.updatedAt == request.time
@@ -1979,19 +2195,23 @@ service cloud.firestore {
           && resource.data.bookingType in ["onsite-mechanic", "towing-company", "homegarage", "shop-owner"]
           && resource.data.status in ["pending", "accepted"]
           && request.resource.data.status == "cancelled"
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
+          && optionalRiskEventIsValid("owner_cancel_after_acceptance", "accepted")
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt", "cancellationReason", "riskEventType", "riskEventAt"])
+          && optionalBookingReasonIsValid(request.resource.data, "cancellationReason")
           && request.resource.data.updatedAt == request.time
           && reservationReleasedFor(resource.data);
       }
 
       allow get, list: if isAdmin();
-      allow create: if request.resource.data.bookingType == "homegarage"
+      allow create: if accountIsActive(request.auth.uid)
+        && accountIsActive(request.resource.data.providerId)
+        && (request.resource.data.bookingType == "homegarage"
         ? (validHomeGarageBooking() && validHomeGarageBookingLock(bookingId))
         : request.resource.data.bookingType == "towing-company"
           ? (validBookingBase() && validTowingBookingProvider())
           : (validBookingBase()
             && ((validShopBooking() && validShopBookingLock(bookingId))
-              || (validBookingProvider() && validMechanicBooking())));
+              || (validBookingProvider() && validMechanicBooking()))));
       allow get, list: if signedIn()
         && (resource.data.customerId == request.auth.uid
           || resource.data.providerId == request.auth.uid);

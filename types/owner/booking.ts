@@ -75,6 +75,8 @@ export function getBookingStatusShortLabel(status: BookingStatus): string {
 }
 
 export interface BookingRequest extends BookingTimingFields {
+  cancellationReason?: string;
+  declineReason?: string;
   id: string;
   bookingType: "onsite-mechanic";
   customerId: string;

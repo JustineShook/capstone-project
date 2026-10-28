@@ -4,7 +4,6 @@ import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   ScrollView,
   StatusBar,
@@ -103,6 +102,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const hasFocusedOnce = useRef(false);
 
   const loadAccountData = useCallback(async (user: FirebaseUser) => {
@@ -159,11 +159,12 @@ export default function ProfileScreen() {
   async function handleLogout() {
     if (signingOut) return;
     setSigningOut(true);
+    setLogoutError(null);
     try {
       await logout();
       router.replace("/(auth)/login");
     } catch (err) {
-      Alert.alert("Log Out Failed", (err as Error)?.message ?? "Please try again.");
+      setLogoutError((err as Error)?.message || "We couldn't log you out. Check your connection and try again.");
     } finally {
       setSigningOut(false);
     }
@@ -349,6 +350,7 @@ export default function ProfileScreen() {
             </>
           )}
         </TouchableOpacity>
+        {logoutError ? <Text accessibilityRole="alert" style={styles.logoutError}>{logoutError}</Text> : null}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -517,6 +519,14 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: 15,
     fontWeight: "800",
+  },
+  logoutError: {
+    color: "#FF8995",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 10,
+    paddingHorizontal: 8,
   },
   shortcuts: { flexDirection: "row", gap: 10, marginBottom: 3 },
   shortcut: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, minHeight: 96, borderRadius: 17, paddingHorizontal: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },

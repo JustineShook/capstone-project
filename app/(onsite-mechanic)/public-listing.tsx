@@ -40,6 +40,7 @@ export default function MechanicPublicListingScreen() {
         emergencyServiceAvailable: existing?.emergencyServiceAvailable === true
           || profile.serviceInfo.emergencyServiceAvailable,
         acceptsScheduledBookings: existing?.acceptsScheduledBookings === true,
+        photoUrls: existing?.photoUrls ?? [],
       });
     }).catch(() => setInitialListing(null));
   }, []);

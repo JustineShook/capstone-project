@@ -95,6 +95,8 @@ export const VEHICLE_CONDITIONS = [
 export type VehicleCondition = (typeof VEHICLE_CONDITIONS)[number];
 
 export interface TowingBookingRequest extends BookingTimingFields {
+  cancellationReason?: string;
+  declineReason?: string;
   id: string;
   bookingType: "towing-company";
   customerId: string;

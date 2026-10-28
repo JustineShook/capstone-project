@@ -7,6 +7,8 @@ export const SHOP_STATUS_FLOW = [
 
 export type ShopBookingStatus = typeof SHOP_STATUS_FLOW[number] | "rejected" | "cancelled";
 export type ShopBookingRequest = Omit<BookingRequest, "bookingType" | "status"> & BookingTimingFields & {
+  cancellationReason?: string;
+  declineReason?: string;
   bookingType: "shop-owner";
   status: ShopBookingStatus;
   finalPrice?: number;

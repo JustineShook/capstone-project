@@ -197,10 +197,11 @@ export async function setShopAvailability(status: "open" | "closed"): Promise<vo
   });
 }
 
-export async function updateShopBookingStatus(id: string, status: ShopBookingStatus, completionNote?: string, finalPrice?: number): Promise<void> {
+export async function updateShopBookingStatus(id: string, status: ShopBookingStatus, completionNote?: string, finalPrice?: number, declineReason?: string): Promise<void> {
   const user = requireUser();
   const note = completionNote?.trim() ?? "";
   if (status === "completed" && note.length > 160) throw new Error("Completion notes must be 160 characters or fewer.");
+  if (status === "rejected" && !declineReason?.trim()) throw new Error("A decline reason is required.");
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "bookings", id);
     const snapshot = await transaction.get(reference);
@@ -221,8 +222,9 @@ export async function updateShopBookingStatus(id: string, status: ShopBookingSta
         await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
       }
     }
-    transaction.update(reference, { status, updatedAt: serverTimestamp(), ...(status === "completed" ? { finalPrice, completedAt: serverTimestamp(), ...(note ? { completionNote: note } : {}) } : {}) });
+    transaction.update(reference, { status, updatedAt: serverTimestamp(), ...(status === "rejected" ? { declineReason: declineReason!.trim(), riskEventType: "provider_decline", riskEventAt: serverTimestamp() } : {}), ...(status === "completed" ? { finalPrice, completedAt: serverTimestamp(), ...(note ? { completionNote: note } : {}) } : {}) });
     addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId, bookingType: "shop-owner", providerId: user.uid, providerName: booking.providerName, status,
+      ...(status === "rejected" ? { message: `${booking.providerName} declined your auto shop request. Reason: ${declineReason!.trim().slice(0, 180)}` } : {}),
       ...(status === "completed" ? { message: `${booking.providerName} completed your service. Final service price: ${formatPesoAmount(finalPrice!)}. Please rate it.${note ? ` Note: ${note.slice(0, 100)}` : ""}` } : {}) });
     writeShopNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId,
       customerName: booking.customerName || "Customer", vehicle: booking.vehicle, problem: booking.problem,
@@ -230,7 +232,8 @@ export async function updateShopBookingStatus(id: string, status: ShopBookingSta
   });
 }
 
-export async function cancelShopBookingAsCustomer(id: string): Promise<void> {
+export async function cancelShopBookingAsCustomer(id: string, reason: string): Promise<void> {
+  if (!reason.trim()) throw new Error("A cancellation reason is required.");
   const user = requireUser();
   await runTransaction(db, async (transaction) => {
     const reference = doc(db, "bookings", id);
@@ -240,7 +243,8 @@ export async function cancelShopBookingAsCustomer(id: string): Promise<void> {
     if (booking.bookingType !== "shop-owner" || booking.customerId !== user.uid) throw new Error("You cannot cancel this request.");
     if (!["pending", "accepted"].includes(booking.status)) throw new Error("After the shop marks Vehicle Arrived, contact the provider to request cancellation.");
     await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
-    transaction.update(reference, { status: "cancelled", updatedAt: serverTimestamp() });
-    addBookingStatusNotification(transaction, { bookingId: id, customerId: user.uid, bookingType: "shop-owner", providerId: booking.providerId, providerName: booking.providerName, status: "cancelled" });
+    transaction.update(reference, { status: "cancelled", cancellationReason: reason.trim(), ...(booking.status === "accepted" ? { riskEventType: "owner_cancel_after_acceptance", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
+    addBookingStatusNotification(transaction, { bookingId: id, customerId: user.uid, bookingType: "shop-owner", providerId: booking.providerId, providerName: booking.providerName, status: "cancelled", message: `You cancelled your auto shop request. Reason: ${reason.trim().slice(0, 180)}` });
+    writeShopNotification(transaction, { bookingId: id, providerId: booking.providerId, customerId: user.uid, customerName: booking.customerName || "Customer", vehicle: booking.vehicle, problem: booking.problem, status: "cancelled", event: "customer_cancelled", reason: reason.trim().slice(0, 180) });
   });
 }

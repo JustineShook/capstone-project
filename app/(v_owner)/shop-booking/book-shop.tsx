@@ -125,18 +125,31 @@ function ShopBookingForm({ providerId, initialTimingMode }: { providerId?: strin
       {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
 
     </>}
-    <Modal visible={modal !== null} transparent animationType="slide" onRequestClose={() => { if (!saving) setModal(null); }}>
-      <View style={s.modalOverlay}><SafeAreaView style={s.modalSheet} edges={["bottom"]}>
+    <Modal visible={modal !== null} transparent animationType="fade" onRequestClose={() => { if (!saving) setModal(null); }}>
+      <View style={modal === "vehicle" ? [s.modalOverlay,{justifyContent:"center",alignItems:"center",padding:20,backgroundColor:"rgba(0,0,0,.68)"}] : ui.reviewOverlay}><SafeAreaView style={modal === "vehicle" ? [s.modalSheet,{width:"100%",maxWidth:480,maxHeight:"86%",flexShrink:1,borderRadius:22,borderWidth:1,borderColor:C.line}] : ui.reviewSheet} edges={["bottom"]}>
         <Text style={s.title}>{modal === "vehicle" ? "Select Vehicle" : "Confirm Service Request"}</Text>
-        <ScrollView contentContainerStyle={{ gap: 14 }} keyboardShouldPersistTaps="handled">
+        <ScrollView style={modal === "vehicle" ? {flexShrink:1} : ui.reviewScroll} contentContainerStyle={modal === "vehicle" ? { gap: 14 } : ui.reviewContent} keyboardShouldPersistTaps="handled">
           {modal === "vehicle" ? vehicles.map((item) => <Pressable key={item.vehicleId} style={[s.card, item.vehicleId === vehicleId && s.selected]}
             onPress={() => { setVehicleId(item.vehicleId); setModal(null); }}>
             <Text style={s.text}>{item.year} {item.make} {item.model}</Text><Text style={s.muted}>{item.type} · {item.plateNumber}</Text>
           </Pressable>) : <>
-            <RequestInfo label="Shop" value={provider?.businessName ?? ""} /><RequestInfo label="Vehicle" value={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}` : "Vehicle no longer available"} />
-            <RequestInfo label="Problem" value={problem} />{notes.trim() && <RequestInfo label="Notes" value={notes} />}
-            <RequestInfo label="Timing" value={formatBookingTimingLabel(timing)} />
-            <Text style={s.muted}>The shop will review your request. Scheduled times are subject to provider confirmation and reserve a start window, not service duration. Bring the vehicle only after acceptance. Agree on the final repair cost with the shop after its assessment.</Text>
+            <View style={ui.reviewGroup}>
+              <Text style={ui.reviewGroupTitle}>Shop & vehicle</Text>
+              <RequestInfo label="Shop" value={provider?.businessName ?? ""} /><RequestInfo label="Vehicle" value={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} \u00B7 ${vehicle.plateNumber}` : "Vehicle no longer available"} />
+            </View>
+            <View style={ui.reviewGroup}>
+              <Text style={ui.reviewGroupTitle}>Service details</Text>
+              <RequestInfo label="Problem" value={problem} />{notes.trim() && <RequestInfo label="Notes" value={notes} />}
+            </View>
+            <View style={ui.reviewGroup}>
+              <Text style={ui.reviewGroupTitle}>Schedule</Text>
+              <RequestInfo label="Timing" value={formatBookingTimingLabel(timing)} />
+              <Text style={s.muted}>The shop will review your request. Scheduled times are subject to provider confirmation and reserve a start window, not service duration. Bring the vehicle only after acceptance.</Text>
+            </View>
+            <View style={ui.reviewGroup}>
+              <Text style={ui.reviewGroupTitle}>Price & next steps</Text>
+              <Text style={s.muted}>Agree on the final repair cost with the shop after its assessment.</Text>
+            </View>
       {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
             <RequestButton title={saving ? "Sending…" : "Confirm Request"} disabled={!canSubmit || saving} onPress={() => void submit()} />
           </>}
@@ -155,6 +168,6 @@ function RequestLoadState({ loading, error, retry }: { loading: boolean; error: 
   if (!loading && !error) return null;
   return <View style={ui.loadCard}>{loading ? <ActivityIndicator color={C.red} /> : <><Text style={ui.loadError}>{error}</Text><RequestButton title="Try Again" onPress={retry} /></>}</View>;
 }
-const ui = StyleSheet.create({ button: { minHeight: 52, borderRadius: 10, backgroundColor: C.red, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }, buttonText: { color: "#F4F6F8", fontSize: 16, fontWeight: "800" }, secondaryButton: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line }, secondaryText: { color: C.text }, disabled: { opacity: 0.5 }, info: { gap: 4, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }, infoLabel: { color: C.muted, fontSize: 13, fontWeight: "600" }, infoValue: { color: C.text, fontSize: 16, lineHeight: 22 }, loadCard: { minHeight: 64, backgroundColor: C.card, borderRadius: 12, padding: 14, gap: 10 }, loadError: { color: "#FF9AA8", fontSize: 14, lineHeight: 20 } });
+const ui = StyleSheet.create({ button: { minHeight: 52, borderRadius: 10, backgroundColor: C.red, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }, buttonText: { color: "#F4F6F8", fontSize: 16, fontWeight: "800" }, secondaryButton: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line }, secondaryText: { color: C.text }, disabled: { opacity: 0.5 }, info: { gap: 4, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }, infoLabel: { color: C.muted, fontSize: 13, fontWeight: "600" }, infoValue: { color: C.text, fontSize: 16, lineHeight: 22 }, loadCard: { minHeight: 64, backgroundColor: C.card, borderRadius: 12, padding: 14, gap: 10 }, loadError: { color: "#FF9AA8", fontSize: 14, lineHeight: 20 }, reviewContent: { gap: 10, paddingBottom: 2 }, reviewGroup: { gap: 7, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 13 }, reviewGroupTitle: { color: C.muted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 }, reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,.55)", alignItems: "center", justifyContent: "center", padding: 16 }, reviewSheet: { width: "100%", maxHeight: "90%", flexShrink: 1, backgroundColor: C.background, borderRadius: 20, padding: 20, gap: 14 }, reviewScroll: { flexShrink: 1 } });
 
 

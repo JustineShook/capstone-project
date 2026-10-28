@@ -61,9 +61,10 @@ const ALLOWED_TRANSITIONS: Partial<Record<BookingStatus, BookingStatus[]>> = {
   in_progress: ["completed"],
 };
 
-export async function updateBookingStatus(id: string, status: BookingStatus) {
+export async function updateBookingStatus(id: string, status: BookingStatus, reason?: string) {
   if (status === "completed") throw new Error("Enter a final price to complete this service.");
-  await updateMechanicBooking(id, status);
+  if (status === "rejected" && !reason?.trim()) throw new Error("A decline reason is required.");
+  await updateMechanicBooking(id, status, undefined, status === "rejected" ? reason!.trim() : undefined);
 }
 
 export async function completeMechanicBooking(id: string, finalPrice: number) {
@@ -71,7 +72,7 @@ export async function completeMechanicBooking(id: string, finalPrice: number) {
   await updateMechanicBooking(id, "completed", finalPrice);
 }
 
-async function updateMechanicBooking(id: string, status: BookingStatus, finalPrice?: number) {
+async function updateMechanicBooking(id: string, status: BookingStatus, finalPrice?: number, declineReason?: string) {
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -86,10 +87,11 @@ async function updateMechanicBooking(id: string, status: BookingStatus, finalPri
     const completedAt = status === "completed" ? serverTimestamp() : undefined;
     transaction.update(reference, status === "completed"
       ? { status, finalPrice, completedAt, updatedAt: completedAt }
-      : { status, updatedAt: serverTimestamp() });
+      : { status, ...(status === "rejected" ? { declineReason, riskEventType: "provider_decline", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, {
       bookingId: id, customerId: booking.customerId, bookingType: "onsite-mechanic",
       providerId: user.uid, providerName: booking.providerName, status,
+      ...(status === "rejected" ? { message: `${booking.providerName} declined your request. Reason: ${declineReason!.slice(0, 180)}` } : {}),
       ...(status === "completed" ? { message: `${booking.providerName} completed your service. Final price recorded: ₱${finalPrice!.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` } : {}),
     });
     writeMechanicNotification(transaction, { bookingId: id, providerId: user.uid, customerId: booking.customerId, customerName: booking.customerName, vehicle: booking.vehicle, status, event: "provider_status" });
@@ -97,7 +99,8 @@ async function updateMechanicBooking(id: string, status: BookingStatus, finalPri
 }
 
 /** Lets the customer cancel their own onsite request before the mechanic is on the way. */
-export async function cancelMechanicBookingAsCustomer(id: string) {
+export async function cancelMechanicBookingAsCustomer(id: string, reason: string) {
+  if (!reason.trim()) throw new Error("A cancellation reason is required.");
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -111,9 +114,9 @@ export async function cancelMechanicBookingAsCustomer(id: string) {
       throw new Error("This request can no longer be cancelled because the mechanic may already be on the way.");
     }
     await releaseScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt instanceof Timestamp ? booking.scheduledAt : undefined);
-    transaction.update(reference, { status: "cancelled", updatedAt: serverTimestamp() });
+    transaction.update(reference, { status: "cancelled", cancellationReason: reason.trim(), ...(booking.status === "accepted" ? { riskEventType: "owner_cancel_after_acceptance", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, { bookingId: id, customerId: user.uid, bookingType: "onsite-mechanic", providerId: booking.providerId, providerName: booking.providerName, status: "cancelled" });
-    writeMechanicNotification(transaction, { bookingId: id, providerId: booking.providerId, customerId: user.uid, customerName: booking.customerName, vehicle: booking.vehicle, status: "cancelled", event: "customer_cancelled" });
+    writeMechanicNotification(transaction, { bookingId: id, providerId: booking.providerId, customerId: user.uid, customerName: booking.customerName, vehicle: booking.vehicle, status: "cancelled", event: "customer_cancelled", reason: reason.trim().slice(0, 180) });
   });
 }
 

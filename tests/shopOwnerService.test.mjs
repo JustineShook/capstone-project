@@ -136,8 +136,9 @@ test("a closed shop cannot accept, but can reject and finish existing work", asy
   const closed = { ...validProfile, status: "closed" };
   const pending = setup({ profile: closed });
   await assert.rejects(pending.service.updateShopBookingStatus("request", "accepted"), /Open your shop/);
-  await pending.service.updateShopBookingStatus("request", "rejected");
+  await pending.service.updateShopBookingStatus("request", "rejected", undefined, undefined, "Shop is temporarily closed.");
   assert.equal(pending.writes.length, 1);
+  assert.equal(pending.writes[0].values.declineReason, "Shop is temporarily closed.");
   const repairing = setup({ profile: closed, status: "repairing" });
   await repairing.service.updateShopBookingStatus("request", "completed", undefined, 80);
   assert.equal(repairing.writes[0].values.status, "completed");
@@ -243,7 +244,10 @@ test("creation rejects missing auth, blank problem, oversized notes and invalid 
 test("shop scheduling accepts opted-in offline providers and gates Emergency by support", async () => {
   const listing = { ...validListing, acceptsScheduledBookings: true, availability: "offline" };
   const fixture = setup({ listing });
-  const scheduledAt = new fixture.firestore.Timestamp(Date.parse("2026-10-25T02:00:00Z"));
+  const nextWholeHour = Math.ceil((Date.now() + 3_600_000) / 3_600_000) * 3_600_000;
+  const scheduledAt = new fixture.firestore.Timestamp(nextWholeHour);
+  assert.ok(scheduledAt.toMillis() > Date.now(), "scheduled appointment should be in the future");
+  assert.equal(scheduledAt.toMillis() % 3_600_000, 0, "scheduled appointment should start on the hour");
   await fixture.service.createShopBooking({ ...bookingInput, timing: { timingMode: "scheduled", urgency: "standard", scheduledAt } });
   assert.equal(fixture.writes.find((write) => write.path === "bookings/new-request").values.timingMode, "scheduled");
   assert.equal(fixture.writes.find((write) => write.path === "bookings/new-request").values.scheduledAt, scheduledAt);

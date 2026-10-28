@@ -21,6 +21,7 @@ import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
 import { CustomerRating } from "./CustomerRating";
 import { ServiceProgress } from "./ServiceProgress";
 import { formatPesoAmount } from "../../utils/finalPrice";
+import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
 
 export function CustomerShopHistoryDetail() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export function CustomerShopHistoryDetail() {
   const { bookingId } = useLocalSearchParams<{ bookingId?: string | string[] }>();
   const id = Array.isArray(bookingId) ? bookingId[0] : bookingId;
   const { booking, loading, error, retry } = useCustomerShopBooking(id);
-  const [mapError, setMapError] = useState<string | null>(null);
+  const [showMapsConfirmation, setShowMapsConfirmation] = useState(false);
   const [providerPhone, setProviderPhone] = useState("");
   const step = booking ? SHOP_STATUS_FLOW.findIndex((status) => status === booking.status) : -1;
 
@@ -72,12 +73,7 @@ export function CustomerShopHistoryDetail() {
 
   const openShopMap = async () => {
     if (!booking) return;
-    try {
-      setMapError(null);
-      await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`);
-    } catch {
-      setMapError("Unable to open maps. Please use the shop coordinates shown below.");
-    }
+    setShowMapsConfirmation(true);
   };
 
   return (
@@ -156,7 +152,6 @@ export function CustomerShopHistoryDetail() {
                       <Text style={s.mapButtonText}>View Shop Location</Text>
                     </Pressable>
                   </>}
-                  {mapError ? <Text accessibilityRole="alert" style={s.error}>{mapError}</Text> : null}
                 </View>
 
                 <View style={s.detailCard}>
@@ -167,6 +162,7 @@ export function CustomerShopHistoryDetail() {
                 </View>
               </ScrollView>
             </>}
+      {booking && <OpenGoogleMapsModal visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />}
     </View>
   );
 }

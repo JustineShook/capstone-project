@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Alert, Linking, StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { colors } from "../../constants/owner/theme";
 import { useCustomerShopBooking } from "../../hooks/useCustomerShopBooking";
 import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
@@ -12,20 +12,21 @@ import { ShopBookingScreen, styles as s } from "./ShopBookingScreen";
 import { BookingTimingBanner } from "./BookingTimingBanner";
 import { CancelRequestModal } from "./CancelRequestModal";
 import { cancelShopBookingAsCustomer } from "../../services/shopOwnerService";
+import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
 
 export function CustomerShopRequest({ confirmation = false, title, onBack }: { confirmation?: boolean; title?: string; onBack?: () => void }) {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string | string[] }>();
   const id = Array.isArray(bookingId) ? bookingId[0] : bookingId;
   const { booking, loading, error, retry } = useCustomerShopBooking(id);
-  const [mapError, setMapError] = useState<string | null>(null);
+  const [showMapsConfirmation, setShowMapsConfirmation] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const step = booking ? SHOP_STATUS_FLOW.findIndex((status) => status === booking.status) : -1;
   const openShopMap = async () => {
     if (!booking) return;
-    try { setMapError(null); await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`); }
-    catch { setMapError("Unable to open maps. Please use the shop coordinates shown above."); }
+    setShowMapsConfirmation(true);
   };
   return <ShopBookingScreen title={title ?? (confirmation ? "Request Sent" : "Request Status")} onBack={onBack}>
     <LoadState loading={loading} error={error} retry={retry} />
@@ -39,6 +40,8 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
           : booking.status === "completed" ? "Your service is completed."
           : booking.status === "cancelled" ? "This request was cancelled."
           : `Your service is now ${SHOP_STATUS_LABELS[booking.status]?.toLowerCase() ?? booking.status}.`}</Text>
+        {booking.declineReason ? <View style={d.completionNote}><Text style={d.completionLabel}>REASON FROM THE SHOP</Text><Text style={d.completionText}>{booking.declineReason}</Text></View> : null}
+        {booking.cancellationReason ? <View style={d.completionNote}><Text style={d.completionLabel}>YOUR CANCELLATION REASON</Text><Text style={d.completionText}>{booking.cancellationReason}</Text></View> : null}
         {booking.status === "completed" && booking.completionNote?.trim() ? <View style={d.completionNote}><Text style={d.completionLabel}>NOTE FROM THE SHOP</Text><Text style={d.completionText}>{booking.completionNote}</Text></View> : null}
       </View>
       <BookingTimingBanner booking={booking} />
@@ -51,18 +54,19 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
         <Info label="Shop area" value={booking.shopAreaLabel ?? ""} />
         {Number.isFinite(booking.shopLatitude) && Number.isFinite(booking.shopLongitude) && <>
           <Info label="Shop location" value={`${booking.shopLatitude}, ${booking.shopLongitude}`} /><Button title="View Shop Location" secondary onPress={() => void openShopMap()} />
-        </>}{mapError && <Text style={s.error}>{mapError}</Text>}
+        </>}
       </View>
       <View style={s.card}><Text style={d.sectionTitle}>Request details</Text><Info label="Customer" value={booking.customerName} /><Info label="Email" value={booking.customerEmail} /><Info label="Request ID" value={booking.id} /><Info label="Requested" value={formatTime(booking.createdAt)} /><Info label="Last updated" value={formatTime(booking.updatedAt)} /></View>
       {booking.status === "completed" && <CustomerRating bookingId={booking.id} bookingType="shop" providerName={booking.providerName} />}
       {["pending", "accepted"].includes(booking.status) && <Button title={isCancelling ? "Cancelling…" : "Cancel Request"} secondary onPress={() => setShowCancelConfirmation(true)} />}
       {["vehicle_arrived", "diagnosing", "repairing"].includes(booking.status) && <Text style={d.sectionHint}>The provider confirmed Vehicle arrived. Contact the shop to request cancellation.</Text>}
-      <CancelRequestModal visible={showCancelConfirmation} serviceName="Auto Shop service" explanation="You can cancel before the provider confirms Vehicle arrived. After that, contact the shop to request cancellation." isCancelling={isCancelling} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => { if (!booking) return; setIsCancelling(true); void cancelShopBookingAsCustomer(booking.id).then(() => setShowCancelConfirmation(false)).catch((error) => Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.")).finally(() => setIsCancelling(false)); }} />
+      <CancelRequestModal visible={showCancelConfirmation} serviceName="Auto Shop service" explanation="You can cancel before the provider confirms Vehicle arrived. After that, contact the shop to request cancellation." isCancelling={isCancelling} reason={cancelReason} onReasonChange={setCancelReason} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => { if (!booking) return; setIsCancelling(true); void cancelShopBookingAsCustomer(booking.id, cancelReason).then(() => { setShowCancelConfirmation(false); setCancelReason(""); }).catch((error) => Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.")).finally(() => setIsCancelling(false)); }} />
       {confirmation && <Button title="View Request Status" onPress={() => router.replace({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: booking.id } })} />}
       {(booking.status === "rejected" || booking.status === "cancelled") && <Button title="Find Another Shop" onPress={() => router.replace("/(v_owner)")} />}
     </>}
     <Button title="Back to History" secondary onPress={() => router.replace("/(v_owner)/history")} />
     <Button title="Back to Home" secondary onPress={() => router.replace("/(v_owner)")} />
+    {booking && <OpenGoogleMapsModal visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />}
   </ShopBookingScreen>;
 }
 

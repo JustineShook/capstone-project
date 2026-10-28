@@ -318,17 +318,26 @@ export default function BookMechanicScreen() {
       </SafeAreaView>
       </KeyboardAvoidingView>
 
-      <Modal visible={reviewVisible} transparent animationType="slide" onRequestClose={() => !submitting && setReviewVisible(false)}>
-        <View style={styles.modalOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
+      <Modal visible={reviewVisible} transparent animationType="fade" onRequestClose={() => !submitting && setReviewVisible(false)}>
+        <View style={styles.reviewOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
           <Text style={styles.reviewTitle}>Review Booking</Text>
-          <ScrollView contentContainerStyle={{ gap: 12 }}>
-            <Text style={styles.reviewText}>Provider · {provider.name}</Text>
-            <Text style={styles.reviewText}>Vehicle · {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} · ${selectedVehicle.plateNumber}` : "Select a vehicle"}</Text>
-            <Text style={styles.reviewText}>Problem · {selectedProblem ?? "Other / Unknown Problem"}</Text>
-            {notes.trim() ? <Text style={styles.reviewText}>Notes · {notes}</Text> : null}
-            <Text style={styles.reviewText}>Timing · {timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid hour" : timing ? formatBookingTimingLabel(timing) : "Choose a timing option"}</Text>
-            {timing?.urgency === "emergency" ? <Text style={styles.reviewMuted}>Acceptance and response time are not guaranteed.</Text> : null}
-            {timing?.timingMode === "scheduled" ? <Text style={styles.reviewMuted}>Subject to provider confirmation. This reserves a start window, not service duration.</Text> : null}
+          <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewContent}>
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Provider & vehicle</Text>
+              <Text style={styles.reviewText}>Provider · {provider.name}</Text>
+              <Text style={styles.reviewText}>Vehicle · {selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} · ${selectedVehicle.plateNumber}` : "Select a vehicle"}</Text>
+            </View>
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Service details</Text>
+              <Text style={styles.reviewText}>Problem · {selectedProblem ?? "Other / Unknown Problem"}</Text>
+              {notes.trim() ? <Text style={styles.reviewText}>Notes · {notes}</Text> : null}
+            </View>
+            <View style={styles.reviewGroup}>
+              <Text style={styles.reviewGroupTitle}>Schedule & notices</Text>
+              <Text style={styles.reviewText}>Timing · {timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid hour" : timing ? formatBookingTimingLabel(timing) : "Choose a timing option"}</Text>
+              {timing?.urgency === "emergency" ? <Text style={styles.reviewMuted}>Acceptance and response time are not guaranteed.</Text> : null}
+              {timing?.timingMode === "scheduled" ? <Text style={styles.reviewMuted}>Subject to provider confirmation. This reserves a start window, not service duration.</Text> : null}
+            </View>
           </ScrollView>
           <Pressable disabled={!canConfirm || submitting} style={[styles.confirmButton, (!canConfirm || submitting) && styles.confirmButtonDisabled]} onPress={() => void handleConfirm()}><Text style={styles.confirmButtonText}>{submitting ? "Sending..." : "Confirm Booking"}</Text></Pressable>
           <Pressable disabled={submitting} onPress={() => setReviewVisible(false)} style={styles.reviewCancel}><Text style={styles.validationText}>Back to edit</Text></Pressable>
@@ -342,7 +351,8 @@ export default function BookMechanicScreen() {
         transparent
         onRequestClose={() => setVehicleModalVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setVehicleModalVisible(false)} />
+        <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setVehicleModalVisible(false)} accessibilityLabel="Close vehicle selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
           <View style={styles.modalHeaderRow}>
@@ -352,7 +362,7 @@ export default function BookMechanicScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {vehiclesLoading ? <Text style={styles.validationText}>Loading your vehicles...</Text> : vehicles.length === 0 ? <Text style={styles.validationText}>{vehicleError || "No saved vehicles. Add one from My Vehicles first."}</Text> : vehicles.map((vehicle) => {
               const isSelected = vehicle.vehicleId === selectedVehicleId;
               return (
@@ -380,6 +390,7 @@ export default function BookMechanicScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Select Problem modal */}
@@ -389,7 +400,8 @@ export default function BookMechanicScreen() {
         transparent
         onRequestClose={() => setProblemModalVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setProblemModalVisible(false)} />
+        <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setProblemModalVisible(false)} accessibilityLabel="Close problem selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
           <View style={styles.modalHeaderRow}>
@@ -399,7 +411,7 @@ export default function BookMechanicScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {PROBLEM_CATEGORIES.map((problem) => {
               const isSelected = problem === selectedProblem;
               return (
@@ -422,6 +434,7 @@ export default function BookMechanicScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
+        </View>
       </Modal>
     </View>
   );
@@ -514,23 +527,36 @@ const styles = StyleSheet.create({
   },
   confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
   confirmButtonTextDisabled: { color: colors.textMuted },
-  reviewSheet: { maxHeight: "82%", backgroundColor: colors.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, gap: 12 },
+  reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 16 },
+  reviewSheet: { width: "100%", maxHeight: "90%", flexShrink: 1, backgroundColor: colors.background, borderRadius: 24, padding: 18, gap: 12 },
+  reviewScroll: { flexShrink: 1 },
+  reviewContent: { gap: 10, paddingBottom: 2 },
+  reviewGroup: { gap: 7, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 13 },
+  reviewGroupTitle: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 1 },
   reviewTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "800" },
   reviewText: { color: colors.textPrimary, fontSize: 14, lineHeight: 21 },
   reviewMuted: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
   reviewCancel: { minHeight: 36, alignItems: "center", justifyContent: "center" },
 
-  // Shared bottom-sheet modal (Vehicle + Problem)
+  // Centered selection dialog (Vehicle + Problem)
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.68)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
   },
   modalSheet: {
     backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: "70%",
-    paddingHorizontal: 16,
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "86%",
+    flexShrink: 1,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 18,
+    paddingBottom: 10,
   },
   modalHandle: {
     width: 40,
@@ -549,6 +575,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
   modalList: { gap: 10, paddingBottom: 20 },
+  modalScroll: { flexShrink: 1 },
 
   modalOptionCard: {
     flexDirection: "row",

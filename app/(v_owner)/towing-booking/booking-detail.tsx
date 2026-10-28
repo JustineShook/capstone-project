@@ -68,6 +68,7 @@ export default function TowingBookingDetailScreen() {
   const [providerRating, setProviderRating] = useState({ average: 0, count: 0 });
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   // --- Rating state --------------------------------------------------------
   const [selectedStars, setSelectedStars] = useState(0);
@@ -121,7 +122,8 @@ export default function TowingBookingDetailScreen() {
     if (!booking || !canCustomerCancel || isCancelling) return;
     setIsCancelling(true);
     try {
-      await cancelTowingBookingAsCustomer(booking.id);
+      await cancelTowingBookingAsCustomer(booking.id, cancelReason);
+      setCancelReason("");
       setShowCancelConfirmation(false);
     } catch (error) {
       setShowCancelConfirmation(false);
@@ -248,6 +250,8 @@ export default function TowingBookingDetailScreen() {
               currentStep={currentStepIndex}
               terminalLabel={isTerminalStatus ? getTowingStatusLabel(booking.status) : undefined}
             />
+            {booking.declineReason ? <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Reason from towing company: {booking.declineReason}</Text> : null}
+            {booking.cancellationReason ? <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Your cancellation reason: {booking.cancellationReason}</Text> : null}
             {canCustomerCancel && (
               <Pressable
                 style={[styles.cancelRequestButton, isCancelling && styles.cancelRequestButtonDisabled]}
@@ -516,6 +520,8 @@ export default function TowingBookingDetailScreen() {
         isCancelling={isCancelling}
         onKeep={() => setShowCancelConfirmation(false)}
         onConfirm={() => void cancelBooking()}
+        reason={cancelReason}
+        onReasonChange={setCancelReason}
       />
     </View>
   );

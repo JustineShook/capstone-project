@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
@@ -8,11 +9,13 @@ import { ShopNotificationBell } from "../../components/shop-owner/ShopNotificati
 import { setShopAvailability } from "../../services/shopOwnerService";
 import { getShopVerificationProfile, syncApprovedShopProviderProfile } from "../../services/shopVerificationService";
 import { isActiveShopService, SHOP_STATUS_LABELS, type ShopBookingRequest } from "../../types/shopBooking";
+import { useActionRisk } from "../../hooks/useActionRisk";
 
 const C = { canvas: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", red: "#F52239", line: "#28313A", green: "#39D98A", amber: "#F4A45D" };
 function label(status: ShopBookingRequest["status"]) { return SHOP_STATUS_LABELS[status]; }
 
 export default function ShopOwnerDashboard() {
+  const actionRisk = useActionRisk("provider");
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { account, profile, requests, profileLoading, requestsLoading, profileError, requestsError, retry } = useShopDashboard();
@@ -64,6 +67,7 @@ export default function ShopOwnerDashboard() {
     <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
     <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 20 }]} showsVerticalScrollIndicator={false}>
       <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>VeResc</Text></View><ShopNotificationBell style={s.bell} size={25} color={C.text} /></View>
+      <AccountActionWarning count={actionRisk.count} error={actionRisk.error} />
 
       <ImageBackground source={require("../../assets/images/towing-dashboard-bg.png")} imageStyle={s.heroImage} style={[s.hero, profile.status === "open" ? s.heroOpen : s.heroClosed]}>
         <View style={s.heroShade} />

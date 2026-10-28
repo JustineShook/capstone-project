@@ -4,6 +4,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Image,
   ImageBackground,
   PanResponder,
   Pressable,
@@ -15,14 +16,18 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { WebView } from "react-native-webview";
+// @ts-expect-error Expo Metro selects the .web or .native implementation by platform.
+import MapHtmlSurface from "../../components/maps/MapHtmlSurface";
 
 import { ProviderDetailCard } from "../../components/owner/ProviderDetailCard";
+import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { StatusPill } from "../../components/owner/StatusPill";
 import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "../../constants/owner/bottomSheet";
 import { colors } from "../../constants/owner/theme";
+import { useActionRisk } from "../../hooks/useActionRisk";
 import {
   CATEGORIES,
+  getCategoryIcon,
   getServiceLabel,
   MOCK_CENTER,
   MOCK_LOCATION_LABEL,
@@ -39,12 +44,14 @@ import { styles } from "../../components/owner/ownerMapStyles";
 // SCREEN
 // ---------------------------------------------------------------------------
 export default function OwnerDashboard() {
+  const actionRisk = useActionRisk("owner");
   const [selectedCategory, setSelectedCategory] = useState<ProviderCategory>("All");
   const [discoveryMode, setDiscoveryMode] = useState<"now" | "scheduled">("now");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [providers, setProviders] = useState<MockProvider[]>([]);
   const [shops, setShops] = useState<MockProvider[]>([]);
+  const [failedProviderPhotoUrls, setFailedProviderPhotoUrls] = useState<Set<string>>(() => new Set());
   const [shopError, setShopError] = useState<string | null>(null);
 
   // Real GPS position + permission/error state. `watch` keeps the user dot
@@ -141,7 +148,7 @@ export default function OwnerDashboard() {
   );
 
   // ---- Live GPS dot bridge ----
-  const webViewRef = useRef<WebView>(null);
+  const webViewRef = useRef<{ injectJavaScript: (script: string) => void }>(null);
 
   // Push GPS updates into the Leaflet page without a full WebView reload;
   // `recenter = false` so we never yank the map away while the user pans.
@@ -241,15 +248,11 @@ export default function OwnerDashboard() {
 
       {/* Fullscreen map — fills the entire screen behind everything, stays visible
           and interactive even while a provider's details are expanded below */}
-      <WebView
+      <MapHtmlSurface
         ref={webViewRef}
-        source={{ html: mapHtml }}
+        sourceHtml={mapHtml}
         style={styles.fullscreenMap}
-        scrollEnabled={false}
-        javaScriptEnabled
-        domStorageEnabled
-        originWhitelist={["*"]}
-        onMessage={(event) => {
+        onMessage={(event: { nativeEvent: { data: string } }) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data?.id) {
@@ -328,6 +331,7 @@ export default function OwnerDashboard() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.bottomPanelContent}
           >
+            <AccountActionWarning count={actionRisk.count} error={actionRisk.error} />
             <Pressable
               style={styles.welcomePressable}
               onPress={scrollToNearbyProviders}
@@ -412,6 +416,7 @@ export default function OwnerDashboard() {
               {filteredProviders.map((provider) => {
                 const isSelected = provider.id === selectedProviderId;
                 const distanceKm = distanceTo(provider);
+                const photoUrl = provider.photoUrls?.[0]?.trim();
                 return (
                   <Pressable
                     key={provider.id}
@@ -420,6 +425,25 @@ export default function OwnerDashboard() {
                       selectProvider(provider.id);
                     }}
                   >
+                    <View style={styles.listingImageWrap}>
+                      {photoUrl && !failedProviderPhotoUrls.has(photoUrl) ? (
+                        <Image
+                          source={{ uri: photoUrl }}
+                          style={styles.listingImage}
+                          resizeMode="cover"
+                          onError={() => setFailedProviderPhotoUrls((current) => {
+                            if (current.has(photoUrl)) return current;
+                            const next = new Set(current);
+                            next.add(photoUrl);
+                            return next;
+                          })}
+                        />
+                      ) : (
+                        <View style={styles.listingImageFallback}>
+                          <Ionicons name={getCategoryIcon(provider.category)} size={30} color={provider.color} />
+                        </View>
+                      )}
+                    </View>
                     <View style={styles.listingBody}>
                       <View style={styles.listingTopRow}>
                         <Text style={styles.listingName} numberOfLines={1}>

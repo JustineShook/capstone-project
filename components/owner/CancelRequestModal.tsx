@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { colors } from "../../constants/owner/theme";
 
 export function CancelRequestModal({
@@ -9,6 +9,8 @@ export function CancelRequestModal({
   isCancelling,
   onKeep,
   onConfirm,
+  reason,
+  onReasonChange,
 }: {
   visible: boolean;
   serviceName: string;
@@ -16,6 +18,8 @@ export function CancelRequestModal({
   isCancelling: boolean;
   onKeep: () => void;
   onConfirm: () => void;
+  reason: string;
+  onReasonChange: (value: string) => void;
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onKeep}>
@@ -30,6 +34,9 @@ export function CancelRequestModal({
           </View>
           <Text style={styles.title}>Cancel this request?</Text>
           <Text style={styles.description}>{explanation}</Text>
+          <Text style={styles.reasonLabel}>Reason (required)</Text>
+          <Text style={styles.sharedHint}>Your reason will be shared with the provider.</Text>
+          <TextInput value={reason} onChangeText={onReasonChange} editable={!isCancelling} multiline maxLength={500} placeholder="Tell the provider why you are cancelling" placeholderTextColor={colors.textSecondary} style={styles.reasonInput} accessibilityLabel="Required cancellation reason" />
           <View style={styles.serviceBadge}>
             <Ionicons name="construct-outline" size={16} color={colors.textSecondary} />
             <Text style={styles.serviceText}>{serviceName} request</Text>
@@ -37,7 +44,7 @@ export function CancelRequestModal({
           <Pressable
             style={[styles.cancelButton, isCancelling && styles.disabled]}
             onPress={onConfirm}
-            disabled={isCancelling}
+            disabled={isCancelling || !reason.trim()}
             accessibilityRole="button"
           >
             {isCancelling ? <ActivityIndicator color="#FFFFFF" /> : <>
@@ -67,6 +74,9 @@ const styles = StyleSheet.create({
   cancelButton: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, backgroundColor: colors.primary },
   cancelButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   disabled: { opacity: 0.65 },
+  reasonLabel: { color: colors.textPrimary, fontSize: 13, fontWeight: "800", marginBottom: 4 },
+  sharedHint: { color: colors.textSecondary, fontSize: 12, marginBottom: 8 },
+  reasonInput: { minHeight: 86, maxHeight: 150, textAlignVertical: "top", color: colors.textPrimary, backgroundColor: colors.surfaceAlt, borderRadius: 13, borderWidth: 1, borderColor: colors.border, padding: 12, marginBottom: 15 },
   keepButton: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 5 },
   keepButtonText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
 });

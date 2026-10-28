@@ -16,7 +16,8 @@ const rules = readFileSync(fileURLToPath(new URL("../firestore.rules", import.me
 let env;
 
 before(async () => {
-  env = await initializeTestEnvironment({ projectId, firestore: { host: "127.0.0.1", port: 8080, rules } });
+  const [host, port] = (process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080").split(":");
+  env = await initializeTestEnvironment({ projectId, firestore: { host, port: Number(port), rules } });
 });
 after(async () => { await env?.cleanup(); });
 
@@ -172,6 +173,300 @@ test("eligible owner cancellation atomically releases the reservation", async ()
   }
 });
 
+test("temporary booking reason compatibility accepts legacy writes and valid reasons but rejects invalid reasons", async () => {
+  await env.clearFirestore();
+  const services = [
+    { type: "onsite-mechanic", provider: "mechanic-reason-provider" },
+    { type: "shop-owner", provider: "shop-reason-provider" },
+    { type: "towing-company", provider: "tow-reason-provider" },
+    { type: "homegarage", provider: "garage-reason-provider" },
+  ];
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const { type, provider } of services) {
+      await db.doc(`users/${provider}`).set({ uid: provider, role: type, accountStatus: "active" });
+      if (type === "shop-owner") {
+        await db.doc(`providers/${provider}`).set({ uid: provider, role: type, verified: true, status: "open" });
+      }
+      if (type === "homegarage") {
+        await db.doc(`users/${provider}/homeGarageVerification/profile`).set({ uid: provider, role: type, verificationStatus: "VERIFIED" });
+      }
+    }
+  });
+
+  for (const { type, provider } of services) {
+    const stem = type.replaceAll("-", "_");
+    const cancellationDb = auth(customerId);
+    const providerDb = auth(provider);
+    const booking = (suffix) => `${stem}-reason-${suffix}`;
+
+    await seedBooking(booking("legacy-cancel"), { bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(cancellationDb, "bookings", booking("legacy-cancel")), {
+      status: "cancelled", updatedAt: serverTimestamp(),
+    }));
+
+    await seedBooking(booking("valid-cancel"), { bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(cancellationDb, "bookings", booking("valid-cancel")), {
+      status: "cancelled", cancellationReason: "I need to change my schedule.", updatedAt: serverTimestamp(),
+    }));
+
+    await seedBooking(booking("updated-client-cancel"), { status: "accepted", bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(cancellationDb, "bookings", booking("updated-client-cancel")), {
+      status: "cancelled", cancellationReason: "I need to change my schedule.",
+      riskEventType: "owner_cancel_after_acceptance", riskEventAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
+
+    for (const [index, reason] of ["", "   ", "\t\n ", 123, null, "x".repeat(501)].entries()) {
+      const id = booking(`invalid-cancel-${index}`);
+      await seedBooking(id, { bookingType: type, provider, timingMode: "now" });
+      await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(cancellationDb, "bookings", id), {
+        status: "cancelled", cancellationReason: reason, updatedAt: serverTimestamp(),
+      }), `${type} cancellation reason ${JSON.stringify(reason)}`);
+    }
+
+    await seedBooking(booking("legacy-decline"), { bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(providerDb, "bookings", booking("legacy-decline")), {
+      status: "rejected", updatedAt: serverTimestamp(),
+    }));
+
+    await seedBooking(booking("valid-decline"), { bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(providerDb, "bookings", booking("valid-decline")), {
+      status: "rejected", declineReason: "I cannot take this request today.", updatedAt: serverTimestamp(),
+    }));
+
+    await seedBooking(booking("updated-client-decline"), { bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(providerDb, "bookings", booking("updated-client-decline")), {
+      status: "rejected", declineReason: "I cannot take this request today.",
+      riskEventType: "provider_decline", riskEventAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
+
+    const mismatchedEvent = booking("mismatched-risk-event");
+    await seedBooking(mismatchedEvent, { bookingType: type, provider, timingMode: "now" });
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "bookings", mismatchedEvent), {
+      status: "rejected", declineReason: "Valid reason.", riskEventType: "owner_cancel_after_acceptance",
+      riskEventAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }), `${type} provider cannot forge another action type`);
+
+    const partialEvent = booking("partial-risk-event");
+    await seedBooking(partialEvent, { bookingType: type, provider, timingMode: "now" });
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "bookings", partialEvent), {
+      status: "rejected", declineReason: "Valid reason.", riskEventType: "provider_decline", updatedAt: serverTimestamp(),
+    }), `${type} incomplete event metadata is rejected`);
+
+    const repeatedEvent = booking("repeat-risk-event");
+    await seedBooking(repeatedEvent, { bookingType: type, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(providerDb, "bookings", repeatedEvent), {
+      status: "rejected", declineReason: "Valid reason.", riskEventType: "provider_decline",
+      riskEventAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "bookings", repeatedEvent), {
+      status: "rejected", declineReason: "Valid reason.", riskEventType: "provider_decline",
+      riskEventAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }), `${type} terminal decline cannot be counted twice`);
+
+    for (const [index, reason] of ["", "   ", "\t\n ", 123, null, "x".repeat(501)].entries()) {
+      const id = booking(`invalid-decline-${index}`);
+      await seedBooking(id, { bookingType: type, provider, timingMode: "now" });
+      await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "bookings", id), {
+        status: "rejected", declineReason: reason, updatedAt: serverTimestamp(),
+      }), `${type} decline reason ${JSON.stringify(reason)}`);
+    }
+
+    const unauthorizedCancel = booking("unauthorized-cancel");
+    const unauthorizedDecline = booking("unauthorized-decline");
+    await seedBooking(unauthorizedCancel, { bookingType: type, provider, timingMode: "now" });
+    await seedBooking(unauthorizedDecline, { bookingType: type, provider, timingMode: "now" });
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth("unrelated-user"), "bookings", unauthorizedCancel), {
+      status: "cancelled", cancellationReason: "Valid reason.", updatedAt: serverTimestamp(),
+    }), `${type} unrelated user cannot cancel`);
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth("unrelated-user"), "bookings", unauthorizedDecline), {
+      status: "rejected", declineReason: "Valid reason.", updatedAt: serverTimestamp(),
+    }), `${type} unrelated user cannot decline`);
+  }
+});
+
+test("auto shop, towing, and Home Garage keep their existing invalid status transitions denied", async () => {
+  await env.clearFirestore();
+  const cases = [
+    { type: "shop-owner", provider: "shop-transition-provider", ownerBadStatus: "vehicle_arrived" },
+    { type: "towing-company", provider: "tow-transition-provider", ownerBadStatus: "en_route" },
+    { type: "homegarage", provider: "garage-transition-provider", ownerBadStatus: "vehicle_arrived" },
+  ];
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const { type, provider } of cases) {
+      await db.doc(`users/${provider}`).set({ uid: provider, role: type });
+      if (type === "shop-owner") {
+        await db.doc(`providers/${provider}`).set({ uid: provider, role: type, verified: true, status: "open" });
+      }
+      if (type === "homegarage") {
+        await db.doc(`users/${provider}/homeGarageVerification/profile`).set({ uid: provider, role: type, verificationStatus: "VERIFIED" });
+      }
+    }
+  });
+
+  for (const { type, provider, ownerBadStatus } of cases) {
+    const stem = type.replaceAll("-", "_");
+    const ownerId = `${stem}-invalid-owner-transition`;
+    const providerId = `${stem}-invalid-provider-transition`;
+    await seedBooking(ownerId, { status: "accepted", bookingType: type, provider, timingMode: "now" });
+    await seedBooking(providerId, { status: "accepted", bookingType: type, provider, timingMode: "now" });
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth(customerId), "bookings", ownerId), {
+      status: ownerBadStatus, updatedAt: serverTimestamp(),
+    }), `${type} owner cannot cancel or advance to ${ownerBadStatus}`);
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth(provider), "bookings", providerId), {
+      status: "rejected", declineReason: "Cannot accept this request.", updatedAt: serverTimestamp(),
+    }), `${type} provider cannot decline after acceptance`);
+  }
+});
+
+test("suspension blocks new owner requests and provider progress, hides listings, and preserves existing cleanup", async () => {
+  await env.clearFirestore();
+  const owner = "suspended-owner";
+  const provider = "suspended-mechanic";
+  const acceptedId = "existing-accepted-booking";
+  const at = slotTimestamp();
+  const listing = {
+    providerId: provider, role: "onsite-mechanic", category: "Onsite Mechanics",
+    businessName: "Suspended Mechanic", location: { latitude: 14.67, longitude: 121.04 },
+    availability: "available", visibility: "active", ratingSummary: { average: 0, count: 0 },
+    services: ["Engine Diagnostics"], vehicleTypes: ["Car"], serviceAreaLabel: "Quezon City",
+    description: "", contactPhone: "09170000000", startingPrice: null, operatingHours: "Daily",
+    emergencyServiceAvailable: false, acceptsScheduledBookings: true,
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${owner}`).set({ uid: owner, role: "owner", accountStatus: "suspended" });
+    await db.doc(`users/${owner}/ownerProfile/profile`).set({ uid: owner, role: "owner", verificationStatus: "VERIFIED", personal: { phone: "09170000000" } });
+    await db.doc(`users/${provider}`).set({ uid: provider, role: "onsite-mechanic", accountStatus: "suspended" });
+    await db.doc(`users/${provider}/providerProfile/profile`).set({ uid: provider, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${provider}`).set({ ...listing, visibility: "inactive" });
+    await db.doc("users/booking-provider-active").set({ uid: "booking-provider-active", role: "onsite-mechanic" });
+    await db.doc("users/booking-provider-active/providerProfile/profile").set({ uid: "booking-provider-active", role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc("providerListings/booking-provider-active").set({ ...listing, providerId: "booking-provider-active", businessName: "Available Mechanic" });
+    await db.doc("providerListings/visible-provider").set({ ...listing, providerId: "visible-provider", businessName: "Visible Mechanic" });
+    await db.doc(`bookings/${acceptedId}`).set({
+      bookingType: "onsite-mechanic", customerId: owner, customerName: "Owner", customerEmail: "owner@example.test",
+      providerId: provider, providerName: listing.businessName, providerPhone: listing.contactPhone,
+      vehicleId: "vehicle-1", vehicle: "Toyota Vios", vehicleYear: 2020, vehiclePlate: "ABC123",
+      latitude: 14.6, longitude: 121.0, problem: "Engine issue", notes: "", startingPrice: "",
+      status: "accepted", createdAt: Timestamp.now(), updatedAt: Timestamp.now(), timingMode: "scheduled",
+      urgency: "standard", scheduledAt: at,
+    });
+    await db.doc(`providerScheduleReservations/${slotId(provider, at)}`).set({ providerId: provider, bookingId: acceptedId, scheduledAt: at, createdAt: Timestamp.now() });
+    await db.doc("providerListings/garage-for-parking").set({ providerId: "garage-for-parking", role: "homegarage", visibility: "active", availability: "available" });
+    await db.doc("parkingSlots/garage-slot-1").set({ providerId: "garage-for-parking", slotNumber: 1, status: "available", customerId: null, bookingId: null });
+    await db.doc("parkingBookings/existing-owner-parking").set({
+      providerId: "garage-for-parking", providerName: "Garage", customerId: owner, customerName: "Owner",
+      vehicleId: "vehicle-1", vehicle: "Toyota Vios", vehiclePlate: "ABC123", vehicleType: "Car",
+      slotId: "garage-slot-active", slotNumber: 2, notes: "", status: "active",
+      bookedAt: Timestamp.now(), updatedAt: Timestamp.now(), parkingStartedAt: Timestamp.now(),
+    });
+    await db.doc("parkingSlots/garage-slot-active").set({ providerId: "garage-for-parking", slotNumber: 2, status: "reserved", customerId: owner, bookingId: "existing-owner-parking" });
+  });
+
+  const ownerDb = auth(owner);
+  await assertDeniedWithoutExpressionLimit(() => setDoc(doc(ownerDb, "bookings", "suspended-owner-new-booking"), {
+    bookingType: "onsite-mechanic", customerId: owner, customerName: "Owner", customerEmail: "owner@example.test",
+    providerId: "booking-provider-active", providerName: "Available Mechanic", providerPhone: "09170000000",
+    vehicleId: "vehicle-1", vehicle: "Toyota Vios", vehicleYear: 2020, vehiclePlate: "ABC123",
+    latitude: 14.6, longitude: 121.0, problem: "Engine issue", notes: "", startingPrice: "",
+    status: "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp(), timingMode: "now", urgency: "standard",
+  }), "suspended owner cannot create a new service booking");
+  const newParking = doc(ownerDb, "parkingBookings", "suspended-owner-parking");
+  const slot = doc(ownerDb, "parkingSlots", "garage-slot-1");
+  await assertDeniedWithoutExpressionLimit(() => runTransaction(ownerDb, async (transaction) => {
+    const current = await transaction.get(slot);
+    transaction.update(slot, { status: "reserved", customerId: owner, bookingId: "suspended-owner-parking", updatedAt: serverTimestamp() });
+    transaction.set(newParking, {
+      providerId: "garage-for-parking", providerName: "Garage", customerId: owner, customerName: "Owner",
+      vehicleId: "vehicle-1", vehicle: "Toyota Vios", vehiclePlate: "ABC123", vehicleType: "Car",
+      slotId: current.id, slotNumber: 1, notes: "", status: "reserved", bookedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+  }), "suspended owner cannot reserve a new parking slot");
+
+  const providerDb = auth(provider);
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "bookings", acceptedId), { status: "en_route", updatedAt: serverTimestamp() }), "suspended provider cannot progress an existing booking");
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "providerListings", provider), { visibility: "active" }), "suspended provider cannot republish its listing");
+
+  const visible = await getDocs(query(collection(ownerDb, "providerListings"), where("visibility", "==", "active"), where("availability", "==", "available")));
+  assert.deepEqual(visible.docs.map((item) => item.id).sort(), ["booking-provider-active", "garage-for-parking", "visible-provider"]);
+
+  await assertSucceeds(runTransaction(ownerDb, async (transaction) => {
+    const bookingRef = doc(ownerDb, "bookings", acceptedId);
+    const reservationRef = doc(ownerDb, "providerScheduleReservations", slotId(provider, at));
+    await Promise.all([transaction.get(bookingRef), transaction.get(reservationRef)]);
+    transaction.delete(reservationRef);
+    transaction.update(bookingRef, { status: "cancelled", cancellationReason: "Provider account is suspended.", updatedAt: serverTimestamp() });
+  }));
+  assert.equal((await getDoc(doc(ownerDb, "bookings", acceptedId))).data()?.status, "cancelled");
+  await assertSucceeds(runTransaction(ownerDb, async (transaction) => {
+    const parkingRef = doc(ownerDb, "parkingBookings", "existing-owner-parking");
+    const slotRef = doc(ownerDb, "parkingSlots", "garage-slot-active");
+    await Promise.all([transaction.get(parkingRef), transaction.get(slotRef)]);
+    transaction.update(parkingRef, { status: "completed", parkingEndedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    transaction.update(slotRef, { status: "available", customerId: null, bookingId: null, updatedAt: serverTimestamp() });
+  }));
+  assert.equal((await getDoc(doc(ownerDb, "parkingBookings", "existing-owner-parking"))).data()?.status, "completed");
+});
+
+test("Stage 1 denies new parking reservations but lets an existing session complete and release its slot", async () => {
+  await env.clearFirestore();
+  const owner = "parking-stage-one-owner";
+  const provider = "parking-stage-one-garage";
+  const bookingId = "parking-stage-one-existing";
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${owner}`).set({ uid: owner, role: "owner", accountStatus: "active" });
+    await db.doc(`users/${owner}/ownerProfile/profile`).set({ uid: owner, role: "owner", verificationStatus: "VERIFIED" });
+    await db.doc(`users/${provider}`).set({ uid: provider, role: "homegarage", accountStatus: "active" });
+    await db.doc(`providerListings/${provider}`).set({ providerId: provider, role: "homegarage", category: "Parking Lots", visibility: "active", availability: "available" });
+    await db.doc("parkingSlots/available-slot").set({ providerId: provider, slotNumber: 1, status: "available", customerId: null, bookingId: null });
+    await db.doc(`parkingBookings/${bookingId}`).set({
+      providerId: provider, providerName: "Garage", customerId: owner, customerName: "Owner",
+      vehicleId: "vehicle-1", vehicle: "Toyota Vios", vehiclePlate: "ABC123", vehicleType: "Car",
+      slotId: "active-slot", slotNumber: 2, notes: "", status: "reserved",
+      bookedAt: Timestamp.now(), updatedAt: Timestamp.now(),
+    });
+    await db.doc("parkingSlots/active-slot").set({ providerId, slotNumber: 2, status: "reserved", customerId: owner, bookingId });
+  });
+
+  const ownerDb = auth(owner);
+  const newBooking = {
+    providerId: provider, providerName: "Garage", customerId: owner, customerName: "Owner",
+    vehicleId: "vehicle-1", vehicle: "Toyota Vios", vehiclePlate: "ABC123", vehicleType: "Car",
+    slotId: "available-slot", slotNumber: 1, notes: "", status: "reserved",
+    bookedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  };
+  await assertDeniedWithoutExpressionLimit(
+    () => setDoc(doc(ownerDb, "parkingBookings", "parking-stage-one-new"), newBooking),
+    "Stage 1 denies new parking booking documents",
+  );
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(doc(ownerDb, "parkingSlots", "available-slot"), {
+      status: "reserved", customerId: owner, bookingId: "parking-stage-one-new", updatedAt: serverTimestamp(),
+    }),
+    "Stage 1 denies new parking slot claims",
+  );
+
+  await assertSucceeds(runTransaction(ownerDb, async (transaction) => {
+    const bookingRef = doc(ownerDb, "parkingBookings", bookingId);
+    const slotRef = doc(ownerDb, "parkingSlots", "active-slot");
+    await Promise.all([transaction.get(bookingRef), transaction.get(slotRef)]);
+    transaction.update(bookingRef, { status: "active", parkingStartedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  }));
+  assert.equal((await getDoc(doc(ownerDb, "parkingBookings", bookingId))).data()?.status, "active");
+  await assertSucceeds(runTransaction(ownerDb, async (transaction) => {
+    const bookingRef = doc(ownerDb, "parkingBookings", bookingId);
+    const slotRef = doc(ownerDb, "parkingSlots", "active-slot");
+    await Promise.all([transaction.get(bookingRef), transaction.get(slotRef)]);
+    transaction.update(bookingRef, { status: "completed", parkingEndedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    transaction.update(slotRef, { status: "available", customerId: null, bookingId: null, updatedAt: serverTimestamp() });
+  }));
+  assert.equal((await getDoc(doc(ownerDb, "parkingBookings", bookingId))).data()?.status, "completed");
+  assert.equal((await getDoc(doc(ownerDb, "parkingSlots", "active-slot"))).data()?.status, "available");
+});
+
 test("assigned providers can start scheduled services early and unauthorized transitions remain denied", async () => {
   await env.clearFirestore();
   const at = slotTimestamp();
@@ -306,6 +601,264 @@ test("public shop listing saves keep their independently selected map point and 
   assert.equal(saved.data()?.visibility, "inactive");
   assert.deepEqual(saved.data()?.ratingSummary, ratingSummary);
   await assertFails(updateDoc(doc(auth("unrelated-user"), "providerListings", uid), { description: "unauthorized" }));
+});
+
+test("exact Auto Shop save passes without visibility; protected fields and suspended publishing stay denied", async () => {
+  await env.clearFirestore();
+  const uid = "GD7wHEGfuRPeVgFciUq0JoInu3g1";
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const weeklyHours = days.map((day) => ({ day, open: true, openingTime: "8:00 AM", closingTime: "6:00 PM" }));
+  const photos = [
+    "https://res.cloudinary.com/rfhd9sez/image/upload/v1792398632/ym0ezcrfqqh22lxwko2w.jpg",
+    "https://res.cloudinary.com/rfhd9sez/image/upload/v1792662122/ftef6jlwv5kzzmwmrhy5.jpg",
+    "https://res.cloudinary.com/rfhd9sez/image/upload/v1792662120/h04lv6vjv7isxrkzzjz6.jpg",
+  ];
+  const payload = {
+    businessName: "LIBIOS AUTOSHOP",
+    location: { latitude: 10.268323119032482, longitude: 123.84366619817413 },
+    availability: "available",
+    serviceAreaLabel: "Talisay, Central Visayas",
+    description: "We offer reliable vehicle repairs and maintenance, from oil change to engine and brake services.",
+    contactPhone: "09224238091",
+    services: ["Preventive maintenance", "Tire service", "Battery service", "Oil change", "Engine repair"],
+    vehicleTypes: ["Motorcycle", "Car", "SUV", "Pickup Truck"],
+    operatingHours: "Open 24/7",
+    startingPrice: null,
+    emergencyServiceAvailable: true,
+    acceptsScheduledBookings: true,
+    visibility: "active",
+    photoUrls: photos,
+    hoursType: "24_7",
+    is24Hours: true,
+    weeklyHours,
+  };
+  const existing = {
+    providerId: uid, role: "shop-owner", category: "Auto Shops", businessName: "LIBIOS AUTOSHOP",
+    location: { latitude: 10.2, longitude: 123.8 }, availability: "available",
+    ratingSummary: { average: 4.8, count: 12 }, services: payload.services, vehicleTypes: payload.vehicleTypes,
+    serviceAreaLabel: "Talisay, Central Visayas", description: "Existing listing", contactPhone: "09224238091",
+    startingPrice: null, operatingHours: "Open 24/7", emergencyServiceAvailable: true,
+    acceptsScheduledBookings: true, photoUrls: photos, hoursType: "24_7", is24Hours: true, weeklyHours,
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "shop-owner", accountStatus: "active" });
+    await db.doc(`users/${uid}/shopVerification/profile`).set({
+      uid, role: "shop-owner", verificationStatus: "VERIFIED",
+      business: { name: "LIBIOS AUTOSHOP", phone: "09224238091", address: "Talisay, Central Visayas" },
+    });
+    await db.doc(`providers/${uid}`).set({ uid, role: "shop-owner", verified: true, status: "open" });
+    // Deliberately omit visibility, matching the existing listing that failed.
+    await db.doc(`providerListings/${uid}`).set(existing);
+  });
+
+  const listingRef = doc(auth(uid), "providerListings", uid);
+  await assertSucceeds(updateDoc(listingRef, payload));
+  for (const [field, value] of [
+    ["providerId", "attacker"],
+    ["role", "homegarage"],
+    ["category", "Parking Lots"],
+    ["ratingSummary", { average: 5, count: 99 }],
+  ]) {
+    await assertDeniedWithoutExpressionLimit(
+      () => updateDoc(listingRef, { [field]: value }),
+      `Auto Shop cannot change protected ${field}`,
+    );
+  }
+
+  const suspendedUid = "suspended-exact-shop-owner";
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${suspendedUid}`).set({ uid: suspendedUid, role: "shop-owner", accountStatus: "suspended" });
+    await db.doc(`providers/${suspendedUid}`).set({ uid: suspendedUid, role: "shop-owner", verified: true, status: "open" });
+    await db.doc(`providerListings/${suspendedUid}`).set({ ...existing, providerId: suspendedUid, visibility: "inactive" });
+  });
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(doc(auth(suspendedUid), "providerListings", suspendedUid), payload),
+    "suspended Auto Shop cannot publish its listing",
+  );
+});
+
+test("Home Garage saves new and existing repair listings with form services; invalid or ineligible writes are denied", async () => {
+  await env.clearFirestore();
+  const uid = "home-garage-listing-save";
+  const repairServices = ["Oil change", "Brake service", "Engine repair", "Battery service", "Tire service", "Air-conditioning service"];
+  const listingPayload = {
+    providerId: uid, role: "homegarage", category: "Parking Lots", businessName: "Home Garage Repairs",
+    location: { latitude: 10.2683, longitude: 123.8437 }, availability: "available", visibility: "active",
+    ratingSummary: { average: 0, count: 0 }, services: repairServices, vehicleTypes: ["Car", "SUV"],
+    serviceAreaLabel: "Talisay, Central Visayas", description: "Home vehicle repairs and maintenance.",
+    contactPhone: "09123456789", startingPrice: null, operatingHours: "Open 24/7",
+    emergencyServiceAvailable: true, acceptsScheduledBookings: true,
+    photoUrls: ["https://example.invalid/home-garage.jpg"],
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "homegarage", accountStatus: "active" });
+    await db.doc(`users/${uid}/homeGarageVerification/profile`).set({
+      uid, role: "homegarage", verificationStatus: "VERIFIED", business: { name: "Home Garage Repairs" },
+    });
+  });
+  const listingRef = doc(auth(uid), "providerListings", uid);
+  await assertSucceeds(setDoc(listingRef, listingPayload));
+  assert.deepEqual((await getDoc(listingRef)).data()?.services, repairServices);
+
+  // The app uses setDoc for subsequent saves too, so an existing listing is evaluated as an update.
+  await assertSucceeds(setDoc(listingRef, { ...listingPayload, description: "Updated Home Garage repair listing." }));
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(listingRef, { services: ["Parking"] }),
+    "Home Garage cannot publish a parking-only service instead of repair services",
+  );
+
+  const unverifiedUid = "unverified-home-garage-listing";
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${unverifiedUid}`).set({ uid: unverifiedUid, role: "homegarage", accountStatus: "active" });
+    await db.doc(`users/${unverifiedUid}/homeGarageVerification/profile`).set({
+      uid: unverifiedUid, role: "homegarage", verificationStatus: "PENDING", business: { name: "Unverified Garage" },
+    });
+  });
+  await assertDeniedWithoutExpressionLimit(
+    () => setDoc(doc(auth(unverifiedUid), "providerListings", unverifiedUid), { ...listingPayload, providerId: unverifiedUid }),
+    "unverified Home Garage cannot create a repair listing",
+  );
+
+  const suspendedUid = "suspended-home-garage-listing";
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${suspendedUid}`).set({ uid: suspendedUid, role: "homegarage", accountStatus: "suspended" });
+    await db.doc(`users/${suspendedUid}/homeGarageVerification/profile`).set({
+      uid: suspendedUid, role: "homegarage", verificationStatus: "VERIFIED", business: { name: "Suspended Garage" },
+    });
+    await db.doc(`providerListings/${suspendedUid}`).set({ ...listingPayload, providerId: suspendedUid, visibility: "inactive" });
+  });
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(doc(auth(suspendedUid), "providerListings", suspendedUid), { ...listingPayload, providerId: suspendedUid }),
+    "suspended Home Garage cannot publish its repair listing",
+  );
+});
+
+test("Home Garage availability sync preserves legacy listing fields and rejects inactive accounts", async () => {
+  await env.clearFirestore();
+  const uid = "legacy-home-garage-availability";
+  const listing = {
+    providerId: uid, role: "homegarage", category: "Parking Lots", businessName: "Legacy Home Garage",
+    location: { latitude: 10.2683, longitude: 123.8437 }, availability: "available", visibility: "active",
+    ratingSummary: { average: 4.7, count: 19 }, services: ["Oil change"], vehicleTypes: ["Car"],
+    serviceAreaLabel: "Talisay, Central Visayas", description: "Home vehicle repairs.",
+    contactPhone: "09123456789", startingPrice: null, operatingHours: "Open daily",
+    emergencyServiceAvailable: true, acceptsScheduledBookings: true, legacyOperatingNote: "Imported listing",
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "homegarage", accountStatus: "active" });
+    await db.doc(`users/${uid}/homeGarageVerification/profile`).set({
+      uid, role: "homegarage", verificationStatus: "VERIFIED", business: { name: listing.businessName },
+    });
+    await db.doc(`providerListings/${uid}`).set(listing);
+  });
+
+  const listingRef = doc(auth(uid), "providerListings", uid);
+  await assertSucceeds(updateDoc(listingRef, { availability: "offline" }));
+  const saved = (await getDoc(listingRef)).data();
+  assert.equal(saved?.availability, "offline");
+  assert.equal(saved?.visibility, "active");
+  assert.deepEqual(saved?.ratingSummary, listing.ratingSummary);
+  assert.equal(saved?.legacyOperatingNote, listing.legacyOperatingNote);
+  await assertSucceeds(updateDoc(listingRef, { availability: "available" }));
+
+  for (const accountStatus of ["inactive", "suspended"]) {
+    const blockedUid = `home-garage-${accountStatus}-availability`;
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.doc(`users/${blockedUid}`).set({ uid: blockedUid, role: "homegarage", accountStatus });
+      await db.doc(`users/${blockedUid}/homeGarageVerification/profile`).set({
+        uid: blockedUid, role: "homegarage", verificationStatus: "VERIFIED", business: { name: listing.businessName },
+      });
+      await db.doc(`providerListings/${blockedUid}`).set({ ...listing, providerId: blockedUid });
+    });
+    await assertDeniedWithoutExpressionLimit(
+      () => updateDoc(doc(auth(blockedUid), "providerListings", blockedUid), { availability: "offline" }),
+      `${accountStatus} Home Garage cannot change availability`,
+    );
+  }
+});
+
+test("Auto Shop availability toggles atomically sync profile and listing and require an active account", async () => {
+  await env.clearFirestore();
+  const uid = "atomic-shop-availability";
+  const listing = {
+    providerId: uid, role: "shop-owner", category: "Auto Shops", businessName: "Atomic Auto Shop",
+    location: { latitude: 1.32, longitude: 103.81 }, availability: "available", visibility: "active",
+    ratingSummary: { average: 4.8, count: 22 }, services: ["Engine repair"], vehicleTypes: ["Car"],
+    serviceAreaLabel: "Central", description: "Vehicle repairs.", contactPhone: "12345678901",
+    startingPrice: null, operatingHours: "09:00-18:00", emergencyServiceAvailable: true,
+    acceptsScheduledBookings: true, legacyImported: true,
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "shop-owner", accountStatus: "active" });
+    await db.doc(`users/${uid}/shopVerification/profile`).set({
+      uid, role: "shop-owner", verificationStatus: "VERIFIED",
+      business: { name: listing.businessName, phone: listing.contactPhone, address: "Central", latitude: 1.3, longitude: 103.8 },
+    });
+    await db.doc(`providers/${uid}`).set({ uid, role: "shop-owner", verified: true, status: "open" });
+    await db.doc(`providerListings/${uid}`).set(listing);
+  });
+
+  const db = auth(uid);
+  const providerRef = doc(db, "providers", uid);
+  const listingRef = doc(db, "providerListings", uid);
+  async function toggleShopAvailability(nextStatus, nextAvailability) {
+    await runTransaction(db, async (transaction) => {
+      await transaction.get(providerRef);
+      await transaction.get(listingRef);
+      transaction.update(providerRef, { status: nextStatus });
+      transaction.update(listingRef, { availability: nextAvailability });
+    });
+  }
+
+  await assertSucceeds(toggleShopAvailability("closed", "offline"));
+  let savedProvider = (await getDoc(providerRef)).data();
+  let savedListing = (await getDoc(listingRef)).data();
+  assert.equal(savedProvider?.status, "closed");
+  assert.equal(savedListing?.availability, "offline");
+  assert.equal(savedListing?.visibility, "active");
+  assert.deepEqual(savedListing?.ratingSummary, listing.ratingSummary);
+  assert.equal(savedListing?.legacyImported, true);
+
+  await assertSucceeds(toggleShopAvailability("open", "available"));
+  savedProvider = (await getDoc(providerRef)).data();
+  savedListing = (await getDoc(listingRef)).data();
+  assert.equal(savedProvider?.status, "open");
+  assert.equal(savedListing?.availability, "available");
+  assert.equal(savedListing?.visibility, "active");
+  assert.deepEqual(savedListing?.ratingSummary, listing.ratingSummary);
+
+  for (const accountStatus of ["inactive", "suspended"]) {
+    const blockedUid = `shop-${accountStatus}-availability`;
+    await env.withSecurityRulesDisabled(async (context) => {
+      const blockedDb = context.firestore();
+      await blockedDb.doc(`users/${blockedUid}`).set({ uid: blockedUid, role: "shop-owner", accountStatus });
+      await blockedDb.doc(`users/${blockedUid}/shopVerification/profile`).set({
+        uid: blockedUid, role: "shop-owner", verificationStatus: "VERIFIED",
+      });
+      await blockedDb.doc(`providers/${blockedUid}`).set({ uid: blockedUid, role: "shop-owner", verified: true, status: "open" });
+      await blockedDb.doc(`providerListings/${blockedUid}`).set({ ...listing, providerId: blockedUid });
+    });
+    const blockedDb = auth(blockedUid);
+    await assertDeniedWithoutExpressionLimit(
+      () => runTransaction(blockedDb, async (transaction) => {
+        const blockedProviderRef = doc(blockedDb, "providers", blockedUid);
+        const blockedListingRef = doc(blockedDb, "providerListings", blockedUid);
+        await transaction.get(blockedProviderRef);
+        await transaction.get(blockedListingRef);
+        transaction.update(blockedProviderRef, { status: "closed" });
+        transaction.update(blockedListingRef, { availability: "offline" });
+      }),
+      `${accountStatus} Auto Shop cannot change availability`,
+    );
+  }
 });
 
 test("Mechanic listing saves Emergency-only and Schedule flags; both booking modes pass existing rules", async () => {

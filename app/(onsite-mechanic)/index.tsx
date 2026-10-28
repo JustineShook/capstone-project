@@ -1,10 +1,12 @@
 import { Feather } from "@expo/vector-icons";
 import { MechanicNotificationBell } from "../../components/onsite-mechanic/MechanicNotificationBell";
+import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../services/firebase";
+import { useActionRisk } from "../../hooks/useActionRisk";
 import { subscribeToMechanicRequests } from "../../services/owner/bookingService";
 import { getPublicProviderListing, updateMechanicAvailability } from "../../services/publicProviderListingService";
 import { getProviderProfile } from "../../services/providerProfileService";
@@ -33,6 +35,7 @@ function money(value: number) {
 }
 
 export default function OnsiteMechanicDashboard() {
+  const actionRisk = useActionRisk("provider");
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [online, setOnline] = useState(false);
@@ -133,6 +136,7 @@ export default function OnsiteMechanicDashboard() {
           <View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>VeResc</Text></View>
           <MechanicNotificationBell style={s.bell} size={26} color={C.text} />
         </View>
+        <AccountActionWarning count={actionRisk.count} error={actionRisk.error} />
 
         <ImageBackground
           source={require("../../assets/images/towing-dashboard-bg.png")}

@@ -8,10 +8,11 @@ import type { TowingBookingRequest } from "../../types/owner/towing";
 import { formatPesoAmount } from "../../utils/finalPrice";
 
 const C = { canvas: "#08090B", card: "#151D24", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#2C3944" };
-type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
+type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED" | "DECLINED";
 
-function isCancelled(status: TowingBookingRequest["status"]) { return status === "cancelled" || status === "rejected"; }
-function statusLabel(status: TowingBookingRequest["status"]) { return isCancelled(status) ? "Cancelled" : "Completed"; }
+function isCancelled(status: TowingBookingRequest["status"]) { return status === "cancelled"; }
+function isDeclined(status: TowingBookingRequest["status"]) { return status === "rejected"; }
+function statusLabel(status: TowingBookingRequest["status"]) { return status === "completed" ? "Completed" : status === "rejected" ? "Declined" : "Cancelled"; }
 function historyDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
@@ -25,13 +26,14 @@ export default function TowingHistoryScreen() {
   const [search, setSearch] = useState("");
   useEffect(() => subscribeToTowingRequests(setBookings), []);
 
-  const history = useMemo(() => bookings.filter((booking) => booking.status === "completed" || isCancelled(booking.status)), [bookings]);
+  const history = useMemo(() => bookings.filter((booking) => booking.status === "completed" || isCancelled(booking.status) || isDeclined(booking.status)), [bookings]);
   const completedCount = history.filter((booking) => booking.status === "completed").length;
   const cancelledCount = history.filter((booking) => isCancelled(booking.status)).length;
+  const declinedCount = history.filter((booking) => isDeclined(booking.status)).length;
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return history.filter((booking) => {
-      const matchesFilter = filter === "ALL" || (filter === "COMPLETED" ? booking.status === "completed" : isCancelled(booking.status));
+      const matchesFilter = filter === "ALL" || (filter === "COMPLETED" ? booking.status === "completed" : filter === "CANCELLED" ? isCancelled(booking.status) : isDeclined(booking.status));
       const matchesSearch = !query || `${booking.customerName} ${booking.vehicle} ${booking.pickupLocation} ${booking.destination}`.toLocaleLowerCase().includes(query);
       return matchesFilter && matchesSearch;
     });
@@ -51,14 +53,14 @@ export default function TowingHistoryScreen() {
 
       <View style={s.searchBox}><Feather name="search" size={19} color={C.muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Search customer or vehicle" placeholderTextColor={C.muted} style={s.searchInput} returnKeyType="search" clearButtonMode="while-editing" /></View>
 
-      <View style={s.historyHeading}><View><Text style={s.historyTitle}>Past jobs</Text><Text style={s.historyHint}>Your completed and cancelled towing services</Text></View><View style={s.historyCount}><Text style={s.historyCountText}>{visible.length} records</Text></View></View>
+      <View style={s.historyHeading}><View><Text style={s.historyTitle}>Past jobs</Text><Text style={s.historyHint}>{completedCount} completed · {cancelledCount} cancelled · {declinedCount} declined</Text></View><View style={s.historyCount}><Text style={s.historyCountText}>{visible.length} records</Text></View></View>
 
-      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : "Cancelled"}</Text></TouchableOpacity>)}</View>
+      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED", "DECLINED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : key === "CANCELLED" ? "Cancelled" : "Declined"}</Text></TouchableOpacity>)}</View>
 
-      {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={29} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No service history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer or vehicle name." : "Completed and cancelled towing jobs will appear here."}</Text></View> : visible.map((booking) => (
+      {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={29} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No service history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer or vehicle name." : "Completed, cancelled, and declined towing jobs will appear here."}</Text></View> : visible.map((booking) => (
         <View key={booking.id} style={s.card}>
-          <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{statusLabel(booking.status)}</Text></View></View>
-          <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.completedAt || booking.updatedAt || booking.createdAt)}</Text></View>
+          <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle || "Vehicle not recorded"}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{statusLabel(booking.status)}</Text></View></View>
+          <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D7D9" /><Text style={s.infoText}>{booking.status === "completed" && booking.completedAt ? `Completed · ${historyDate(booking.completedAt)}` : `Last updated · ${historyDate(booking.updatedAt || booking.createdAt)}`}</Text></View>
           <View style={s.infoRow}><Feather name="map-pin" size={18} color={C.red} /><Text style={s.infoText} numberOfLines={2}>{booking.pickupLocation}</Text><Text style={s.routeLabel}>Pickup</Text></View>
           <View style={s.infoRow}><Feather name="flag" size={18} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={2}>{booking.destination}</Text><Text style={s.routeLabel}>Drop-off</Text></View>
           {booking.status === "completed" ? <View style={s.infoRow}><Feather name="dollar-sign" size={18} color="#D6D7D9" /><Text style={s.infoText}>{typeof booking.finalPrice === "number" ? `Final Price · ${formatPesoAmount(booking.finalPrice)}` : "Final price not recorded"}</Text></View> : null}

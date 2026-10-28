@@ -8,8 +8,9 @@ import { subscribeToMechanicRequests } from "../../services/owner/bookingService
 import type { BookingRequest } from "../../types/owner/booking";
 
 const C = { canvas: "#08090B", card: "#191A1D", text: "#ECE8E6", muted: "#B4AFAD", red: "#F52239", border: "#303135" };
-type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
-function isCancelled(status: BookingRequest["status"]) { return status === "cancelled" || status === "rejected"; }
+type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED" | "DECLINED";
+function isCancelled(status: BookingRequest["status"]) { return status === "cancelled"; }
+function isDeclined(status: BookingRequest["status"]) { return status === "rejected"; }
 function historyDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
 function peso(value: number) { return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value); }
 
@@ -21,13 +22,14 @@ export default function MechanicHistoryScreen() {
   const [search, setSearch] = useState("");
   useEffect(() => subscribeToMechanicRequests(setBookings), []);
 
-  const history = useMemo(() => bookings.filter((booking) => booking.status === "completed" || isCancelled(booking.status)), [bookings]);
+  const history = useMemo(() => bookings.filter((booking) => booking.status === "completed" || isCancelled(booking.status) || isDeclined(booking.status)), [bookings]);
   const completedCount = history.filter((booking) => booking.status === "completed").length;
   const cancelledCount = history.filter((booking) => isCancelled(booking.status)).length;
+  const declinedCount = history.filter((booking) => isDeclined(booking.status)).length;
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return history.filter((booking) => {
-      const matchesFilter = filter === "ALL" || (filter === "COMPLETED" ? booking.status === "completed" : isCancelled(booking.status));
+      const matchesFilter = filter === "ALL" || (filter === "COMPLETED" ? booking.status === "completed" : filter === "CANCELLED" ? isCancelled(booking.status) : isDeclined(booking.status));
       const matchesSearch = !query || `${booking.customerName} ${booking.vehicle} ${booking.problem} ${booking.customerAddress}`.toLocaleLowerCase().includes(query);
       return matchesFilter && matchesSearch;
     });
@@ -44,11 +46,11 @@ export default function MechanicHistoryScreen() {
       </ImageBackground>
       <View style={s.statsRow}><View style={s.earningsCard}><View style={s.statIconGreen}><Feather name="trending-up" size={17} color="#76E0A4" /></View><Text style={s.earningsLabel}>Completed earnings</Text><Text style={s.earningsValue}>{peso(completedEarnings)}</Text></View><View style={s.jobsCard}><View style={s.statIconBlue}><Feather name="check" size={17} color="#76C9FF" /></View><Text style={s.earningsLabel}>Jobs completed</Text><Text style={s.earningsValue}>{completedCount}</Text></View></View>
       <View style={s.searchBox}><Feather name="search" size={20} color={C.muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Search customer or vehicle" placeholderTextColor={C.muted} style={s.searchInput} returnKeyType="search" clearButtonMode="while-editing" /></View>
-      <View style={s.historyHeading}><View><Text style={s.historyTitle}>Past jobs</Text><Text style={s.historyHint}>Your completed and cancelled services</Text></View><View style={s.historyCount}><Text style={s.historyCountText}>{visible.length} records</Text></View></View>
-      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : "Cancelled"}</Text></TouchableOpacity>)}</View>
-      {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name={search ? "search" : "clock"} size={27} color="#FF8995" /></View><Text style={s.emptyTitle}>{search ? "No matches this time" : "Your story starts here"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or service." : "Finished and cancelled services will be collected here so you can look back anytime."}</Text><View style={s.emptyAccent}><Feather name="archive" size={14} color="#76C9FF" /><Text style={s.emptyAccentText}>History stays organized in one place</Text></View></View> : visible.map((booking) => <View key={booking.id} style={s.card}>
-        <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={21} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{booking.status === "completed" ? "Completed" : "Cancelled"}</Text></View></View>
-        <View style={s.infoRow}><Feather name="calendar" size={19} color="#D6D7D9" /><Text style={s.infoText}>{historyDate(booking.completedAt || booking.updatedAt || booking.createdAt)}</Text></View>
+      <View style={s.historyHeading}><View><Text style={s.historyTitle}>Past jobs</Text><Text style={s.historyHint}>{completedCount} completed · {cancelledCount} cancelled · {declinedCount} declined</Text></View><View style={s.historyCount}><Text style={s.historyCountText}>{visible.length} records</Text></View></View>
+      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED", "DECLINED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : key === "CANCELLED" ? "Cancelled" : "Declined"}</Text></TouchableOpacity>)}</View>
+      {visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name={search ? "search" : "clock"} size={27} color="#FF8995" /></View><Text style={s.emptyTitle}>{search ? "No matches this time" : "Your story starts here"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or service." : "Completed, cancelled, and declined services will be collected here so you can look back anytime."}</Text><View style={s.emptyAccent}><Feather name="archive" size={14} color="#76C9FF" /><Text style={s.emptyAccentText}>History stays organized in one place</Text></View></View> : visible.map((booking) => <View key={booking.id} style={s.card}>
+        <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={21} color="#FFFFFF" /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{booking.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{booking.vehicle || "Vehicle not recorded"}{booking.vehicleYear ? ` · ${booking.vehicleYear}` : ""}</Text></View></View><View style={[s.status, booking.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{booking.status === "completed" ? "Completed" : booking.status === "rejected" ? "Declined" : "Cancelled"}</Text></View></View>
+        <View style={s.infoRow}><Feather name="calendar" size={19} color="#D6D7D9" /><Text style={s.infoText}>{booking.status === "completed" && booking.completedAt ? `Completed · ${historyDate(booking.completedAt)}` : `Last updated · ${historyDate(booking.updatedAt || booking.createdAt)}`}</Text></View>
         <View style={s.infoRow}><Feather name="tool" size={19} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={2}>{booking.problem || "Mechanic service"}</Text></View>
         <View style={s.infoRow}><Feather name="map-pin" size={19} color="#D6D7D9" /><Text style={s.infoText} numberOfLines={2}>{booking.customerAddress || "Customer location"}</Text></View>
         {booking.status === "cancelled" ? <View style={s.cancelledNote}><Feather name="info" size={16} color="#FF8995" /><Text style={s.cancelledNoteText}>The customer cancelled this service. No further action is needed.</Text></View> : null}

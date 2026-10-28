@@ -9,8 +9,9 @@ import type { ShopBookingRequest } from "../../types/shopBooking";
 import { formatPesoAmount } from "../../utils/finalPrice";
 
 const C = { canvas: "#08090B", card: "#17191C", text: "#F5F2F0", muted: "#B7B2B0", red: "#F52239", border: "#303135", green: "#25C47A" };
-type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED";
-function isCancelled(status: ShopBookingRequest["status"]) { return status === "cancelled" || status === "rejected"; }
+type HistoryFilter = "ALL" | "COMPLETED" | "CANCELLED" | "DECLINED";
+function isCancelled(status: ShopBookingRequest["status"]) { return status === "cancelled"; }
+function isDeclined(status: ShopBookingRequest["status"]) { return status === "rejected"; }
 function dateLabel(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }); }
 
 export default function ShopServiceHistoryScreen() {
@@ -19,13 +20,14 @@ export default function ShopServiceHistoryScreen() {
   const { requests, requestsLoading, requestsError, retry } = useShopDashboard();
   const [filter, setFilter] = useState<HistoryFilter>("ALL");
   const [search, setSearch] = useState("");
-  const history = useMemo(() => requests.filter((item) => item.status === "completed" || isCancelled(item.status)), [requests]);
+  const history = useMemo(() => requests.filter((item) => item.status === "completed" || isCancelled(item.status) || isDeclined(item.status)), [requests]);
   const completedCount = history.filter((item) => item.status === "completed").length;
   const cancelledCount = history.filter((item) => isCancelled(item.status)).length;
+  const declinedCount = history.filter((item) => isDeclined(item.status)).length;
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return history.filter((item) => {
-      const matchFilter = filter === "ALL" || (filter === "COMPLETED" ? item.status === "completed" : isCancelled(item.status));
+      const matchFilter = filter === "ALL" || (filter === "COMPLETED" ? item.status === "completed" : filter === "CANCELLED" ? isCancelled(item.status) : isDeclined(item.status));
       const matchSearch = !query || `${item.customerName} ${item.vehicle} ${item.problem} ${item.shopAreaLabel}`.toLocaleLowerCase().includes(query);
       return matchFilter && matchSearch;
     });
@@ -38,19 +40,19 @@ export default function ShopServiceHistoryScreen() {
       <View style={s.header}><View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>Ve<Text style={s.brandRed}>Resc</Text></Text></View><ShopNotificationBell style={s.bell} size={22} color={C.text} /></View>
       <ImageBackground source={require("../../assets/images/towing-dashboard-bg.png")} style={s.summary} imageStyle={s.summaryImage}>
         <View style={s.summaryShade} />
-        <View style={s.summaryCopy}><Text style={s.summaryEyebrow}>AUTO SHOP WORKSPACE</Text><Text style={s.summaryTitle}>Service history</Text><Text style={s.summarySubtitle}>Review completed and cancelled bookings.</Text></View>
+        <View style={s.summaryCopy}><Text style={s.summaryEyebrow}>AUTO SHOP WORKSPACE</Text><Text style={s.summaryTitle}>Service history</Text><Text style={s.summarySubtitle}>Review completed, cancelled, and declined bookings.</Text></View>
       </ImageBackground>
       <View style={s.statsRow}>
         <View style={s.statCard}><View style={[s.statIcon, { backgroundColor: "rgba(37,196,122,0.15)" }]}><Feather name="check-circle" size={20} color={C.green} /></View><Text style={s.statLabel}>COMPLETED</Text><Text style={s.statValue}>{completedCount}</Text></View>
         <View style={s.statCard}><View style={[s.statIcon, { backgroundColor: "rgba(245,34,57,0.15)" }]}><Feather name="x-circle" size={20} color={C.red} /></View><Text style={s.statLabel}>CANCELLED</Text><Text style={s.statValue}>{cancelledCount}</Text></View>
       </View>
-      <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>Past bookings</Text><Text style={s.sectionSubtitle}>Search and open a booking to see its full details.</Text></View><View style={s.historyCount}><Feather name="archive" size={15} color={C.red} /><Text style={s.historyCountText}>{history.length}</Text></View></View>
+      <View style={s.sectionHeading}><View><Text style={s.sectionTitle}>Past bookings</Text><Text style={s.sectionSubtitle}>{completedCount} completed · {cancelledCount} cancelled · {declinedCount} declined</Text></View><View style={s.historyCount}><Feather name="archive" size={15} color={C.red} /><Text style={s.historyCountText}>{history.length}</Text></View></View>
       <View style={s.searchBox}><Feather name="search" size={20} color={C.muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Search customer or vehicle" placeholderTextColor={C.muted} style={s.searchInput} returnKeyType="search" clearButtonMode="while-editing" /></View>
-      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Feather name={key === "ALL" ? "list" : key === "COMPLETED" ? "check-circle" : "x-circle"} size={16} color={filter === key ? "#FFFFFF" : C.muted} /><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : "Cancelled"}</Text>{key === "ALL" && <Text style={[s.filterCount, filter === key && s.filterTextActive]}>{history.length}</Text>}</TouchableOpacity>)}</View>
+      <View style={s.filters}>{(["ALL", "COMPLETED", "CANCELLED", "DECLINED"] as HistoryFilter[]).map((key) => <TouchableOpacity key={key} style={[s.filter, filter === key && s.filterActive]} onPress={() => setFilter(key)} activeOpacity={0.8}><Feather name={key === "ALL" ? "list" : key === "COMPLETED" ? "check-circle" : key === "DECLINED" ? "slash" : "x-circle"} size={16} color={filter === key ? "#FFFFFF" : C.muted} /><Text style={[s.filterText, filter === key && s.filterTextActive]}>{key === "ALL" ? "All" : key === "COMPLETED" ? "Completed" : key === "CANCELLED" ? "Cancelled" : "Declined"}</Text>{key === "ALL" && <Text style={[s.filterCount, filter === key && s.filterTextActive]}>{history.length}</Text>}</TouchableOpacity>)}</View>
 
       {requestsLoading ? <View style={s.empty}><ActivityIndicator size="large" color={C.red} /><Text style={s.emptyTitle}>Loading service history…</Text></View> : requestsError ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="alert-circle" size={28} color={C.red} /></View><Text style={s.emptyTitle}>{requestsError}</Text><TouchableOpacity style={s.retry} onPress={retry}><Text style={s.retryText}>Try Again</Text></TouchableOpacity></View> : visible.length === 0 ? <View style={s.empty}><View style={s.emptyIcon}><Feather name="clock" size={28} color={C.muted} /></View><Text style={s.emptyTitle}>{search ? "No matching history" : "No service history yet"}</Text><Text style={s.emptyText}>{search ? "Try another customer, vehicle, or service." : "Completed and cancelled bookings will appear here."}</Text></View> : visible.map((item) => <View key={item.id} style={s.card}>
-        <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color={C.text} /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{item.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{item.vehicle}</Text></View></View><View style={[s.status, item.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{item.status === "completed" ? "Completed" : "Cancelled"}</Text></View></View>
-        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{dateLabel(item.completedAt || item.updatedAt || item.createdAt)}</Text></View>
+        <View style={s.cardHeader}><View style={s.person}><View style={s.avatar}><Feather name="user" size={20} color={C.text} /></View><View style={s.personCopy}><Text style={s.customerName} numberOfLines={1}>{item.customerName || "Customer"}</Text><Text style={s.vehicle} numberOfLines={1}>{item.vehicle || "Vehicle not recorded"}</Text></View></View><View style={[s.status, item.status === "completed" ? s.completed : s.cancelled]}><Text style={s.statusText}>{item.status === "completed" ? "Completed" : item.status === "rejected" ? "Declined" : "Cancelled"}</Text></View></View>
+        <View style={s.infoRow}><Feather name="calendar" size={18} color="#D6D2D0" /><Text style={s.infoText}>{item.status === "completed" && item.completedAt ? `Completed · ${dateLabel(item.completedAt)}` : `Last updated · ${dateLabel(item.updatedAt || item.createdAt)}`}</Text></View>
         <View style={s.infoRow}><Feather name="map-pin" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={1}>{item.shopAreaLabel || "Auto shop service"}</Text></View>
         <View style={s.infoRow}><Feather name="tool" size={18} color="#D6D2D0" /><Text style={s.infoText} numberOfLines={2}>{item.problem}</Text></View>
         {item.status === "completed" && <View style={s.infoRow}><Feather name="dollar-sign" size={18} color="#D6D2D0" /><Text style={s.infoText}>{typeof item.finalPrice === "number" ? formatPesoAmount(item.finalPrice) : "Final price not recorded"}</Text></View>}
