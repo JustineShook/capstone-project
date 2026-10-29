@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "../../constants/owner/theme";
 import { useCustomerShopBooking } from "../../hooks/useCustomerShopBooking";
 import { getPublicProviderListing } from "../../services/publicProviderListingService";
+import { getProviderContactPhone } from "../../services/providerContactService";
 import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
 import { CustomerRating } from "./CustomerRating";
 import { ServiceProgress } from "./ServiceProgress";
@@ -48,7 +49,11 @@ export function CustomerShopHistoryDetail() {
     }
     let active = true;
     void getPublicProviderListing(booking.providerId)
-      .then((listing) => { if (active) setProviderPhone(listing?.contactPhone?.trim() ?? ""); })
+      .then(async (listing) => {
+        let phone = listing?.contactPhone?.trim() ?? "";
+        try { phone = await getProviderContactPhone(booking.providerId) || phone; } catch { /* Legacy fallback during migration. */ }
+        if (active) setProviderPhone(phone);
+      })
       .catch(() => { if (active) setProviderPhone(""); });
     return () => { active = false; };
   }, [booking?.providerId]));

@@ -25,6 +25,7 @@ import { BookingTimingBanner } from "../../../components/owner/BookingTimingBann
 import { formatPesoAmount } from "../../../utils/finalPrice";
 import { getServiceLabel } from "../../../data/owner/mockProviders";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
+import { getProviderContactPhone } from "../../../services/providerContactService";
 import { cancelMechanicBookingAsCustomer, subscribeToBooking } from "../../../services/owner/bookingService";
 import { getProviderReviewSummary, getRating, mergeRating, submitRating } from "../../../services/owner/ratingService";
 import {
@@ -95,8 +96,10 @@ export default function BookingDetailScreen() {
     }
     let isCurrent = true;
     void getPublicProviderListing(booking.providerId)
-      .then((listing) => {
-        if (isCurrent) setLegacyProviderPhone(listing?.contactPhone?.trim() ?? "");
+      .then(async (listing) => {
+        let phone = listing?.contactPhone?.trim() ?? "";
+        try { phone = await getProviderContactPhone(booking.providerId) || phone; } catch { /* Use legacy booking/listing phone during migration. */ }
+        if (isCurrent) setLegacyProviderPhone(phone);
       })
       .catch(() => {
         if (isCurrent) setLegacyProviderPhone("");

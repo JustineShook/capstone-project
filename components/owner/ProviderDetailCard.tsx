@@ -16,12 +16,14 @@ import {
   supportsBooking,
 } from "../../data/owner/mockProviders";
 import { auth } from "../../services/firebase";
+import { Button } from "../shop-owner/ShopUI";
 import { getActiveMechanicBooking, subscribeToActiveMechanicBooking } from "../../services/owner/bookingService";
 import { getActiveTowingBooking, subscribeToActiveTowingBooking } from "../../services/owner/towingService";
 import { requireVerifiedOwner } from "../../services/ownerVerificationProfileService";
 import { getActiveHomeGarageBooking, subscribeToActiveHomeGarageBooking } from "../../services/homeGarageBookingService";
 import { getActiveShopBooking } from "../../services/shopOwnerService";
 import { getTowingPricing } from "../../services/towingPricingService";
+import { getProviderContactPhone } from "../../services/providerContactService";
 import { StatusPill } from "./StatusPill";
 import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
 
@@ -67,6 +69,7 @@ export function ProviderDetailCard({
   onClose: () => void;
 }) {
   const badge = getCategoryBadge(provider.category);
+  const ratingStatus = provider.ratingStatus ?? "visible";
   const [hasActiveMechanicBooking, setHasActiveMechanicBooking] = useState(false);
   const [hasActiveTowingBooking, setHasActiveTowingBooking] = useState(false);
   const [hasActiveHomeGarageBooking, setHasActiveHomeGarageBooking] = useState(false);
@@ -81,21 +84,23 @@ export function ProviderDetailCard({
     ? provider.acceptsScheduledBookings === true
     : provider.isPositiveStatus && mechanicHasBookingOption;
   const showBookButton = supportsBooking(provider.category)
-    && (provider.category === "Onsite Mechanics"
+    && (!auth.currentUser || (provider.category === "Onsite Mechanics"
       ? (canOpenMechanicBooking || hasActiveMechanicBooking)
       : provider.category === "Towing"
         ? (eligibleForTiming || hasActiveTowingBooking)
         : provider.category === "Parking Lots"
           ? (eligibleForTiming || hasActiveHomeGarageBooking)
-        : eligibleForTiming);
+        : eligibleForTiming));
   const [towingBasePrice, setTowingBasePrice] = useState<number | null>(null);
   const [isLoadingTowingPrice, setIsLoadingTowingPrice] = useState(false);
   const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [showGuestAuthPrompt, setShowGuestAuthPrompt] = useState(false);
   const [showMapsConfirmation, setShowMapsConfirmation] = useState(false);
 
   const checkBookingAccess = () => canBookAsOwner(() => setShowVerificationPrompt(true));
 
   useEffect(() => {
+    if (!auth.currentUser) { setHasActiveMechanicBooking(false); return; }
     if (provider.category !== "Onsite Mechanics") {
       setHasActiveMechanicBooking(false);
       return;
@@ -104,6 +109,7 @@ export function ProviderDetailCard({
   }, [provider.category, provider.id]);
 
   useEffect(() => {
+    if (!auth.currentUser) { setHasActiveHomeGarageBooking(false); return; }
     if (provider.category !== "Parking Lots") {
       setHasActiveHomeGarageBooking(false);
       return;
@@ -112,6 +118,7 @@ export function ProviderDetailCard({
   }, [provider.category, provider.id]);
 
   useEffect(() => {
+    if (!auth.currentUser) { setHasActiveTowingBooking(false); return; }
     if (provider.category !== "Towing") {
       setHasActiveTowingBooking(false);
       return;
@@ -120,11 +127,15 @@ export function ProviderDetailCard({
   }, [provider.category, provider.id]);
 
   const contactProvider = async (kind: "call" | "message") => {
+    if (!auth.currentUser) { setShowGuestAuthPrompt(true); return; }
     if (!provider.isPositiveStatus) {
       Alert.alert("Provider unavailable", "This provider is offline or unavailable right now.");
       return;
     }
-    const phoneNumber = provider.phone.trim().replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
+    let publishedPhone = provider.phone;
+    try { publishedPhone = await getProviderContactPhone(provider.id) || provider.phone; }
+    catch { /* Keep legacy listing numbers working until the approved data migration. */ }
+    const phoneNumber = publishedPhone.trim().replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "");
     if (phoneNumber.replace(/\D/g, "").length < 7) {
       Alert.alert("Contact unavailable", "This provider has not published a contact number.");
       return;
@@ -145,6 +156,7 @@ export function ProviderDetailCard({
     setShowMapsConfirmation(true);
   };
   const openBooking = async () => {
+    if (!auth.currentUser) { setShowGuestAuthPrompt(true); return; }
     if (provider.category === "Onsite Mechanics") {
       const existing = await getActiveMechanicBooking(provider.id);
       if (existing) {
@@ -207,7 +219,7 @@ export function ProviderDetailCard({
 
   useEffect(() => {
     let active = true;
-    if (provider.category !== "Towing") {
+    if (provider.category !== "Towing" || !auth.currentUser) {
       setTowingBasePrice(null);
       setIsLoadingTowingPrice(false);
       return () => { active = false; };
@@ -244,10 +256,12 @@ export function ProviderDetailCard({
               {provider.name}
             </Text>
             <View style={styles.metaRow}>
-              <Ionicons name="star" size={13} color={colors.rating} />
-              <Text style={styles.metaText}>
-                {provider.rating.toFixed(1)} ({provider.reviewCount})
-              </Text>
+              {ratingStatus === "visible" && <>
+                <Ionicons name="star" size={13} color={colors.rating} />
+                <Text style={styles.metaText}>{provider.rating.toFixed(1)} ({provider.reviewCount})</Text>
+              </>}
+              {ratingStatus === "unavailable" && <Text style={styles.metaText}>Reviews unavailable</Text>}
+              {ratingStatus === "loading" && <Text style={styles.metaText}>Loading reviews…</Text>}
               <Text style={styles.metaDot}>{"\u2022"}</Text>
               <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
               <Text style={styles.metaText}>{distanceKm?.toFixed(1) ?? provider.distanceKm} km</Text>
@@ -353,39 +367,45 @@ export function ProviderDetailCard({
           </Text>
         </View>
 
-        {/* Reviews */}
-        <Text style={styles.sectionLabel}>Reviews</Text>
-        <View style={styles.reviewsSummaryRow}>
-          <Ionicons name="star" size={16} color={colors.rating} />
-          <Text style={styles.reviewsSummaryRating}>{provider.rating.toFixed(1)}</Text>
-          <Text style={styles.reviewsSummaryCount}>{provider.reviewCount} reviews</Text>
-        </View>
-        <View style={styles.reviewsList}>
-          {provider.reviews.slice(0, 2).map((review) => (
-            <View key={review.id} style={styles.reviewCard}>
-              <Text style={styles.reviewStars}>{renderStars(review.rating)}</Text>
-              <Text style={styles.reviewComment}>&ldquo;{review.comment}&rdquo;</Text>
-              <View style={styles.reviewFooterRow}>
-                <Text style={styles.reviewAuthor}>{review.customerName}</Text>
-                <Text style={styles.metaDot}>{"\u2022"}</Text>
-                <Text style={styles.reviewDate}>{review.date}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-        {provider.reviews.length > 2 && (
-          <Pressable
-            style={styles.seeMoreReviews}
-            accessibilityRole="button"
-            onPress={() => router.push({
-              pathname: "/(v_owner)/provider-reviews",
-              params: { providerId: provider.id, providerName: provider.name, rating: String(provider.rating), reviewCount: String(provider.reviewCount) },
-            })}
-          >
-            <Text style={styles.seeMoreReviewsText}>See more reviews</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.primary} />
-          </Pressable>
-        )}
+        {/* Guest listing snapshots carry unmaintained rating totals; hide those until they are reliable. */}
+        {ratingStatus !== "hidden" && <>
+          <Text style={styles.sectionLabel}>Reviews</Text>
+          {ratingStatus === "unavailable" ? <Text style={styles.metaText}>Reviews unavailable</Text>
+            : ratingStatus === "loading" ? <Text style={styles.metaText}>Loading reviews…</Text>
+              : <>
+                <View style={styles.reviewsSummaryRow}>
+                  <Ionicons name="star" size={16} color={colors.rating} />
+                  <Text style={styles.reviewsSummaryRating}>{provider.rating.toFixed(1)}</Text>
+                  <Text style={styles.reviewsSummaryCount}>{provider.reviewCount} reviews</Text>
+                </View>
+                {provider.reviews.length ? <View style={styles.reviewsList}>
+                  {provider.reviews.slice(0, 2).map((review) => (
+                    <View key={review.id} style={styles.reviewCard}>
+                      <Text style={styles.reviewStars}>{renderStars(review.rating)}</Text>
+                      <Text style={styles.reviewComment}>&ldquo;{review.comment}&rdquo;</Text>
+                      <View style={styles.reviewFooterRow}>
+                        <Text style={styles.reviewAuthor}>{review.customerName}</Text>
+                        <Text style={styles.metaDot}>{"\u2022"}</Text>
+                        <Text style={styles.reviewDate}>{review.date}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View> : <Text style={styles.metaText}>No reviews yet</Text>}
+                {provider.reviews.length > 2 && (
+                  <Pressable
+                    style={styles.seeMoreReviews}
+                    accessibilityRole="button"
+                    onPress={() => router.push({
+                      pathname: "/(v_owner)/provider-reviews",
+                      params: { providerId: provider.id, providerName: provider.name, rating: String(provider.rating), reviewCount: String(provider.reviewCount) },
+                    })}
+                  >
+                    <Text style={styles.seeMoreReviewsText}>See more reviews</Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                  </Pressable>
+                )}
+              </>}
+        </>}
 
       </ScrollView>
 
@@ -400,14 +420,13 @@ export function ProviderDetailCard({
             <Text style={styles.directionsButtonText}>Get Directions</Text>
           </Pressable>
         )}
-        {provider.isPositiveStatus && provider.phone ? (
+        {(!auth.currentUser || (provider.isPositiveStatus && provider.phone)) ? (
           <View style={styles.actionsRow}>
-            <Pressable style={styles.callButton} onPress={() => void contactProvider("call")} accessibilityRole="button" accessibilityLabel={`Call ${provider.name}`}>
+            <Pressable style={styles.contactIconButton} onPress={() => void contactProvider("call")} accessibilityRole="button" accessibilityLabel={`Call ${provider.name}`}>
               <Ionicons name="call-outline" size={18} color={colors.primary} />
             </Pressable>
-            <Pressable style={[styles.messageButton, !showBookButton && styles.messageButtonWide]} onPress={() => void contactProvider("message")} accessibilityRole="button">
-              <Ionicons name="chatbubble-outline" size={16} color={colors.primary} />
-              <Text style={styles.messageButtonText}>Message</Text>
+            <Pressable style={styles.contactIconButton} onPress={() => void contactProvider("message")} accessibilityRole="button" accessibilityLabel={`Send SMS to ${provider.name}`}>
+              <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
             </Pressable>
             {showBookButton && (
               <Pressable style={styles.bookButton} onPress={() => void openBooking()} accessibilityRole="button">
@@ -439,6 +458,29 @@ export function ProviderDetailCard({
         url={`https://www.google.com/maps/dir/?api=1&destination=${provider.lat},${provider.lng}&travelmode=driving`}
         onCancel={() => setShowMapsConfirmation(false)}
       />
+      <Modal visible={showGuestAuthPrompt} transparent animationType="fade" onRequestClose={() => setShowGuestAuthPrompt(false)}>
+        <View style={styles.verificationBackdrop}>
+          <View style={styles.verificationModal}>
+            <View style={styles.guestPromptHeader}>
+              <Text style={styles.verificationTitle}>Account required</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close account required message"
+                hitSlop={10}
+                onPress={() => setShowGuestAuthPrompt(false)}
+                style={styles.guestPromptClose}
+              >
+                <Ionicons name="close" size={21} color={colors.textMuted} />
+              </Pressable>
+            </View>
+            <Text style={styles.verificationDescription}>Log in or sign up to contact a provider or book a service.</Text>
+            <Button title="Continue" onPress={() => {
+              setShowGuestAuthPrompt(false);
+              router.push({ pathname: "/(auth)/login", params: { providerId: provider.id, category: provider.category, timingMode } });
+            }} />
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={showVerificationPrompt}
         transparent
@@ -730,6 +772,8 @@ const styles = StyleSheet.create({
   verificationBadgeText: { color: "#F7A4AE", fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
   verificationTitle: { color: colors.textPrimary, fontSize: 24, lineHeight: 30, fontWeight: "800" },
   verificationDescription: { color: colors.textSecondary, fontSize: 15, lineHeight: 22, marginTop: 9, marginBottom: 20 },
+  guestPromptHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  guestPromptClose: { width: 32, height: 32, alignItems: "center", justifyContent: "center", marginRight: -7 },
   verificationSteps: {
     flexDirection: "row",
     alignItems: "center",
@@ -769,7 +813,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   directionsButtonText: { fontSize: 16, fontWeight: "800", color: colors.primary },
-  callButton: {
+  contactIconButton: {
     width: 54,
     height: 54,
     borderRadius: 14,
@@ -778,21 +822,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  messageButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    height: 54,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-  },
-  messageButtonWide: {
-    flex: 2.4,
-  },
-  messageButtonText: { fontSize: 15, fontWeight: "800", color: colors.primary },
   bookButton: {
     flex: 1.7,
     minWidth: 0,

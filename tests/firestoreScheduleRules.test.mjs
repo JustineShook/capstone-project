@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const isolatedRequire = createRequire(new URL(`file:///${process.env.VERESC_TEST_NODE_MODULES.replaceAll("\\", "/")}/package.json`));
 const { initializeTestEnvironment, assertFails, assertSucceeds } = isolatedRequire("@firebase/rules-unit-testing");
-const { Timestamp, doc, getDoc, getDocs, collection, query, where, runTransaction, serverTimestamp, updateDoc, setDoc } = isolatedRequire("firebase/firestore");
+const { Timestamp, doc, getDoc, getDocs, collection, query, where, runTransaction, serverTimestamp, updateDoc, setDoc, deleteDoc } = isolatedRequire("firebase/firestore");
 const providerId = "mechanic-provider";
 const customerId = "vehicle-owner";
 const projectId = "demo-veresc-schedule-rules";
@@ -54,6 +54,188 @@ async function seedBooking(id, { status = "pending", bookingType = "onsite-mecha
   });
   return at;
 }
+async function seedBusyProvider(provider, role, availability = "available") {
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${provider}`).set({ uid: provider, role, accountStatus: "active" });
+    if (role === "onsite-mechanic") {
+      await db.doc(`users/${provider}/providerProfile/profile`).set({ uid: provider, role, verificationStatus: "VERIFIED" });
+    } else {
+      await db.doc(`users/${provider}/towingCompanyProfile/profile`).set({ uid: provider, role, verificationStatus: "VERIFIED" });
+    }
+    await db.doc(`providerListings/${provider}`).set({ providerId: provider, role,
+      category: role === "onsite-mechanic" ? "Onsite Mechanics" : "Towing",
+      businessName: "Active service provider", visibility: "active", availability });
+  });
+}
+async function acquireActiveService(db, provider, bookingId, status = "accepted") {
+  const bookingRef = doc(db, "bookings", bookingId);
+  const lockRef = doc(db, "providerActiveServices", provider);
+  const listingRef = doc(db, "providerListings", provider);
+  await runTransaction(db, async (transaction) => {
+    const [booking, lock, listing] = await Promise.all([
+      transaction.get(bookingRef), transaction.get(lockRef), transaction.get(listingRef),
+    ]);
+    if (lock.exists()) throw new Error("provider already has an active service");
+    transaction.set(lockRef, { providerId: provider, bookingId,
+      previousAvailability: listing.data().availability, acquiredAt: serverTimestamp() });
+    transaction.update(listingRef, { availability: "busy" });
+    transaction.update(bookingRef, { status, updatedAt: serverTimestamp() });
+  });
+}
+async function finishActiveService(db, provider, bookingId, finalStatus = "completed") {
+  const bookingRef = doc(db, "bookings", bookingId);
+  const lockRef = doc(db, "providerActiveServices", provider);
+  const listingRef = doc(db, "providerListings", provider);
+  await runTransaction(db, async (transaction) => {
+    const booking = await transaction.get(bookingRef);
+    if (finalStatus === "completed") {
+      transaction.update(bookingRef, { status: finalStatus, finalPrice: 125, completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    } else {
+      transaction.update(bookingRef, { status: finalStatus, updatedAt: serverTimestamp() });
+    }
+  });
+  await runTransaction(db, async (transaction) => {
+    const [booking, lock] = await Promise.all([
+      transaction.get(bookingRef), transaction.get(lockRef),
+    ]);
+    if (!lock.exists() || lock.data()?.bookingId !== bookingId || !["completed", "cancelled"].includes(booking.data()?.status)) return;
+    transaction.delete(lockRef);
+    transaction.update(listingRef, { availability: lock.data().previousAvailability });
+  });
+}
+
+test("mechanic and towing busy locks serialize active jobs, release only their owner, and preserve scheduled requests", async () => {
+  for (const [role, provider] of [["onsite-mechanic", "busy-mechanic"], ["towing-company", "busy-tow"]]) {
+    await env.clearFirestore();
+    await seedBusyProvider(provider, role, "available");
+    const bookingType = role;
+    const first = `${provider}-first`;
+    const second = `${provider}-second`;
+    const unrelated = `${provider}-unrelated`;
+    await seedBooking(first, { bookingType, provider, timingMode: "now" });
+    await seedBooking(second, { bookingType, provider, timingMode: "now" });
+    const providerDb = auth(provider);
+    const competing = await Promise.allSettled([
+      acquireActiveService(providerDb, provider, first),
+      acquireActiveService(providerDb, provider, second),
+    ]);
+    assert.equal(competing.filter((result) => result.status === "fulfilled").length, 1, `${role}: exactly one service acquires the lock`);
+    assert.equal(competing.filter((result) => result.status === "rejected").length, 1, `${role}: competing service cannot acquire the lock`);
+    const winner = competing[0].status === "fulfilled" ? first : second;
+    const loser = winner === first ? second : first;
+    assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "busy");
+    assert.equal((await getDoc(doc(providerDb, "providerActiveServices", provider))).data()?.bookingId, winner);
+
+    // A future booking can still be accepted and reserve its own time while
+    // the provider's current service owns the busy lock.
+    const scheduled = `${provider}-scheduled`;
+    const at = slotTimestamp();
+    await seedBooking(scheduled, { bookingType, provider, timingMode: "scheduled", at });
+    await assertSucceeds(acceptAsProvider(providerDb, scheduled, at, provider));
+    assert.equal((await getDoc(doc(providerDb, "providerActiveServices", provider))).data()?.bookingId, winner);
+    assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "busy");
+
+    await seedBooking(unrelated, { status: "accepted", bookingType, provider, timingMode: "now" });
+    await assertSucceeds(updateDoc(doc(providerDb, "bookings", unrelated), { status: "cancelled", updatedAt: serverTimestamp() }));
+    assert.equal((await getDoc(doc(providerDb, "providerActiveServices", provider))).data()?.bookingId, winner,
+      `${role}: cancelling a different booking cannot clear the active lock`);
+    assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "busy");
+
+    const guest = env.unauthenticatedContext().firestore();
+    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerActiveServices", provider)), `${role}: guest cannot read private active-service data`);
+    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(auth("unrelated-customer"), "providerActiveServices", provider)), `${role}: unrelated user cannot read private active-service data`);
+  }
+});
+
+test("only due scheduled starts acquire busy; cancellation, completion, and suspension preserve lock ownership", async () => {
+  await env.clearFirestore();
+  const provider = "scheduled-lock-mechanic";
+  await seedBusyProvider(provider, "onsite-mechanic", "offline");
+  const futureAt = Timestamp.fromMillis(Date.now() + 3_600_000);
+  await seedBooking("future-to-start", { status: "accepted", provider, bookingType: "onsite-mechanic", timingMode: "scheduled", at: futureAt });
+  await assertDeniedWithoutExpressionLimit(
+    () => acquireActiveService(auth(provider), provider, "future-to-start", "en_route"),
+    "a future scheduled service cannot become busy before its appointment",
+  );
+  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "offline");
+  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).exists(), false);
+
+  const dueId = "due-to-start";
+  await seedBooking(dueId, { status: "accepted", provider, bookingType: "onsite-mechanic", timingMode: "scheduled", at: Timestamp.fromMillis(Date.now() - 3_600_000) });
+  await assertSucceeds(acquireActiveService(auth(provider), provider, dueId, "en_route"));
+  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "busy");
+
+  await seedBooking("different-active-request", { status: "accepted", provider, bookingType: "onsite-mechanic", timingMode: "now" });
+  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", "different-active-request"), { status: "cancelled", updatedAt: serverTimestamp() }));
+  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).data()?.bookingId, dueId);
+
+  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", dueId), { status: "arrived", updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", dueId), { status: "in_progress", updatedAt: serverTimestamp() }));
+  await finishActiveService(auth(provider), provider, dueId);
+  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).exists(), false);
+  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "offline",
+    "completion restores the provider's prior offline state");
+
+  // Customer cancellation releases only their own accepted immediate service.
+  const cancelId = "customer-own-cancel";
+  await assertSucceeds(updateDoc(doc(auth(provider), "providerListings", provider), { availability: "available" }));
+  await seedBooking(cancelId, { status: "pending", provider, bookingType: "onsite-mechanic", customer: "cancel-owner", timingMode: "now" });
+  await assertSucceeds(acquireActiveService(auth(provider), provider, cancelId, "accepted"));
+  const customerDb = auth("cancel-owner");
+  const cancelBooking = doc(customerDb, "bookings", cancelId);
+  const cancelLock = doc(customerDb, "providerActiveServices", provider);
+  const cancelListing = doc(customerDb, "providerListings", provider);
+  await assertSucceeds(updateDoc(cancelBooking, { status: "cancelled", updatedAt: serverTimestamp() }));
+  await assertSucceeds(runTransaction(customerDb, async (transaction) => {
+    const lock = await transaction.get(cancelLock);
+    assert.equal(lock.data()?.bookingId, cancelId);
+    transaction.delete(cancelLock);
+    transaction.update(cancelListing, { availability: lock.data().previousAvailability });
+  }));
+  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "available");
+
+  // Suspension prevents new acquisitions and provider progress. It leaves an
+  // existing lock intact; after guarded restoration the owner can finish it.
+  const suspendedActive = "suspended-active-service";
+  await seedBooking(suspendedActive, { status: "pending", provider, bookingType: "onsite-mechanic", timingMode: "now" });
+  await assertSucceeds(acquireActiveService(auth(provider), provider, suspendedActive, "accepted"));
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`users/${provider}`).update({ accountStatus: "suspended" });
+  });
+  const beforeSuspend = await getDoc(doc(auth(provider), "providerListings", provider));
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "en_route", updatedAt: serverTimestamp() }),
+    "suspended provider cannot start a service",
+  );
+  await assertDeniedWithoutExpressionLimit(
+    () => finishActiveService(auth(provider), provider, suspendedActive),
+    "suspended provider cannot release the guarded busy lock",
+  );
+  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).data()?.bookingId, suspendedActive);
+  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, beforeSuspend.data()?.availability);
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`users/${provider}`).update({ accountStatus: "active" });
+  });
+  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "en_route", updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "arrived", updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "in_progress", updatedAt: serverTimestamp() }));
+  await assertSucceeds(finishActiveService(auth(provider), provider, suspendedActive));
+});
+
+test("active-service markers cannot be forged or released without the matching booking transition", async () => {
+  await env.clearFirestore();
+  const provider = "forged-lock-mechanic";
+  await seedBusyProvider(provider, "onsite-mechanic", "available");
+  await seedBooking("forged-lock-booking", { provider, bookingType: "onsite-mechanic", timingMode: "now" });
+  const providerDb = auth(provider);
+  await assertDeniedWithoutExpressionLimit(() => setDoc(doc(auth("fake-provider"), "providerActiveServices", provider), {
+    providerId: provider, bookingId: "forged-lock-booking", previousAvailability: "available", acquiredAt: serverTimestamp(),
+  }), "lock cannot be created without matching booking and listing writes");
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "providerListings", provider), { availability: "busy" }),
+    "listing cannot be set busy by itself");
+  assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "available");
+});
 async function acceptAsProvider(db, id, at, provider = providerId) {
   const reservation = doc(db, "providerScheduleReservations", slotId(provider, at));
   const booking = doc(db, "bookings", id);
@@ -71,6 +253,19 @@ async function startWithNotifications(db, id, status, notificationCollection) {
   await runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(bookingRef);
     const booking = snapshot.data();
+    const isBusyProvider = ["onsite-mechanic", "towing-company"].includes(booking.bookingType);
+    const lockRef = doc(db, "providerActiveServices", booking.providerId);
+    const listingRef = doc(db, "providerListings", booking.providerId);
+    const [lock, listing] = isBusyProvider
+      ? await Promise.all([transaction.get(lockRef), transaction.get(listingRef)])
+      : [null, null];
+    if (isBusyProvider && !lock.exists()) {
+      transaction.set(lockRef, {
+        providerId: booking.providerId, bookingId: id,
+        previousAvailability: listing.data().availability, acquiredAt: serverTimestamp(),
+      });
+      transaction.update(listingRef, { availability: "busy" });
+    }
     transaction.update(bookingRef, { status, updatedAt: serverTimestamp() });
     transaction.set(doc(db, `users/${booking.customerId}/notifications/${id}`), {
       customerId: booking.customerId, bookingId: id, bookingType: booking.bookingType,
@@ -467,12 +662,18 @@ test("Stage 1 denies new parking reservations but lets an existing session compl
   assert.equal((await getDoc(doc(ownerDb, "parkingSlots", "active-slot"))).data()?.status, "available");
 });
 
-test("assigned providers can start scheduled services early and unauthorized transitions remain denied", async () => {
+test("future scheduled mechanic and tow services cannot start early; shop and garage timing stays unchanged", async () => {
   await env.clearFirestore();
   const at = slotTimestamp();
   await seedBooking("early-start", { status: "accepted", at });
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
+    await db.doc(`users/${providerId}`).set({ uid: providerId, role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc(`users/${providerId}/providerProfile/profile`).set({ uid: providerId, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${providerId}`).set({ providerId, role: "onsite-mechanic", category: "Onsite Mechanics", visibility: "active", availability: "available" });
+    await db.doc("users/tow-provider").set({ uid: "tow-provider", role: "towing-company", accountStatus: "active" });
+    await db.doc("users/tow-provider/towingCompanyProfile/profile").set({ uid: "tow-provider", role: "towing-company", verificationStatus: "VERIFIED" });
+    await db.doc("providerListings/tow-provider").set({ providerId: "tow-provider", role: "towing-company", category: "Towing", visibility: "active", availability: "available" });
     await db.doc("users/shop-provider").set({ role: "shop-owner" });
     await db.doc("providers/shop-provider").set({ uid: "shop-provider", role: "shop-owner", verified: true });
     await db.doc("bookings/early-shop").set({ bookingType: "shop-owner", customerId, customerName: "Owner", providerId: "shop-provider", status: "accepted", timingMode: "scheduled", urgency: "standard", scheduledAt: at, providerName: "Shop", vehicle: "Vehicle", problem: "Repair", updatedAt: Timestamp.now() });
@@ -511,25 +712,21 @@ test("assigned providers can start scheduled services early and unauthorized tra
     );
   }
 
-  await seedProgressNotifications("early-start", "mechanicNotifications");
-  await seedProgressNotifications("early-tow", "towingNotifications");
   await seedProgressNotifications("early-shop", "shopNotifications");
-  await assertSucceeds(startWithNotifications(provider, "early-start", "en_route", "mechanicNotifications"));
-  await assertSucceeds(startWithNotifications(auth("tow-provider"), "early-tow", "en_route", "towingNotifications"));
+  await assertDeniedWithoutExpressionLimit(() => startWithNotifications(provider, "early-start", "en_route", "mechanicNotifications"), "mechanic cannot begin a future scheduled service");
+  await assertDeniedWithoutExpressionLimit(() => startWithNotifications(auth("tow-provider"), "early-tow", "en_route", "towingNotifications"), "towing cannot begin a future scheduled service");
   await assertSucceeds(startWithNotifications(auth("shop-provider"), "early-shop", "vehicle_arrived", "shopNotifications"));
   // The existing Home Garage Vehicle Arrived service updates only the booking;
   // keep that notification behavior unchanged.
   await assertSucceeds(updateDoc(doc(auth("garage-provider"), "bookings", "early-garage"), { status: "vehicle_arrived", updatedAt: serverTimestamp() }));
   for (const [providerUid, id, status] of [
-    [providerId, "early-start", "en_route"], ["tow-provider", "early-tow", "en_route"],
+    [providerId, "early-start", "accepted"], ["tow-provider", "early-tow", "accepted"],
     ["shop-provider", "early-shop", "vehicle_arrived"], ["garage-provider", "early-garage", "vehicle_arrived"],
   ]) {
     assert.equal((await getDoc(doc(auth(providerUid), "bookings", id))).data()?.status, status);
     assert.equal((await getDoc(doc(auth(providerUid), "providerScheduleReservations", slotId(providerUid, at)))).exists(), true);
   }
   for (const [providerUid, id, collectionName, status] of [
-    [providerId, "early-start", "mechanicNotifications", "en_route"],
-    ["tow-provider", "early-tow", "towingNotifications", "en_route"],
     ["shop-provider", "early-shop", "shopNotifications", "vehicle_arrived"],
   ]) {
     assert.equal((await getDoc(doc(auth(customerId), "users", customerId, "notifications", id))).data()?.status, status);
@@ -638,7 +835,7 @@ test("exact Auto Shop save passes without visibility; protected fields and suspe
     ratingSummary: { average: 4.8, count: 12 }, services: payload.services, vehicleTypes: payload.vehicleTypes,
     serviceAreaLabel: "Talisay, Central Visayas", description: "Existing listing", contactPhone: "09224238091",
     startingPrice: null, operatingHours: "Open 24/7", emergencyServiceAvailable: true,
-    acceptsScheduledBookings: true, photoUrls: photos, hoursType: "24_7", is24Hours: true, weeklyHours,
+    acceptsScheduledBookings: true, photoUrls: photos, hoursType: "24_7", is24Hours: true, weeklyHours, legacyImported: true,
   };
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -654,6 +851,9 @@ test("exact Auto Shop save passes without visibility; protected fields and suspe
 
   const listingRef = doc(auth(uid), "providerListings", uid);
   await assertSucceeds(updateDoc(listingRef, payload));
+  const savedExistingShop = (await getDoc(listingRef)).data();
+  assert.deepEqual(savedExistingShop?.ratingSummary, existing.ratingSummary);
+  assert.equal(savedExistingShop?.legacyImported, true);
   for (const [field, value] of [
     ["providerId", "attacker"],
     ["role", "homegarage"],
@@ -688,7 +888,7 @@ test("Home Garage saves new and existing repair listings with form services; inv
     location: { latitude: 10.2683, longitude: 123.8437 }, availability: "available", visibility: "active",
     ratingSummary: { average: 0, count: 0 }, services: repairServices, vehicleTypes: ["Car", "SUV"],
     serviceAreaLabel: "Talisay, Central Visayas", description: "Home vehicle repairs and maintenance.",
-    contactPhone: "09123456789", startingPrice: null, operatingHours: "Open 24/7",
+    startingPrice: null, operatingHours: "Open 24/7",
     emergencyServiceAvailable: true, acceptsScheduledBookings: true,
     photoUrls: ["https://example.invalid/home-garage.jpg"],
   };
@@ -702,6 +902,10 @@ test("Home Garage saves new and existing repair listings with form services; inv
   const listingRef = doc(auth(uid), "providerListings", uid);
   await assertSucceeds(setDoc(listingRef, listingPayload));
   assert.deepEqual((await getDoc(listingRef)).data()?.services, repairServices);
+  await assertDeniedWithoutExpressionLimit(
+    () => setDoc(doc(auth(uid), "providerListings", `${uid}-legacy-phone`), { ...listingPayload, providerId: `${uid}-legacy-phone`, contactPhone: "09123456789" }),
+    "new public listings cannot publish a phone field",
+  );
 
   // The app uses setDoc for subsequent saves too, so an existing listing is evaluated as an update.
   await assertSucceeds(setDoc(listingRef, { ...listingPayload, description: "Updated Home Garage repair listing." }));
@@ -759,6 +963,16 @@ test("Home Garage availability sync preserves legacy listing fields and rejects 
   });
 
   const listingRef = doc(auth(uid), "providerListings", uid);
+  await assertSucceeds(updateDoc(listingRef, {
+    businessName: listing.businessName, location: listing.location, availability: "available", visibility: "active",
+    serviceAreaLabel: listing.serviceAreaLabel, description: "Updated Home Garage repair services.",
+    contactPhone: listing.contactPhone, services: listing.services, vehicleTypes: listing.vehicleTypes,
+    operatingHours: listing.operatingHours, startingPrice: null, emergencyServiceAvailable: true,
+    acceptsScheduledBookings: true,
+  }));
+  const savedAfterProfile = (await getDoc(listingRef)).data();
+  assert.deepEqual(savedAfterProfile?.ratingSummary, listing.ratingSummary);
+  assert.equal(savedAfterProfile?.legacyOperatingNote, listing.legacyOperatingNote);
   await assertSucceeds(updateDoc(listingRef, { availability: "offline" }));
   const saved = (await getDoc(listingRef)).data();
   assert.equal(saved?.availability, "offline");
@@ -868,10 +1082,10 @@ test("Mechanic listing saves Emergency-only and Schedule flags; both booking mod
   const listing = {
     providerId: provider, role: "onsite-mechanic", category: "Onsite Mechanics",
     businessName: "Verified Mechanic", location: { latitude: 14.67, longitude: 121.04 },
-    availability: "available", visibility: "active", ratingSummary: { average: 0, count: 0 },
+    availability: "available", visibility: "active", ratingSummary: { average: 4.2, count: 8 },
     services: ["Engine Diagnostics"], vehicleTypes: ["Car"], serviceAreaLabel: "Quezon City",
     description: "", contactPhone: "09170000000", startingPrice: null, operatingHours: "Daily, 8 AM-6 PM",
-    emergencyServiceAvailable: false, acceptsScheduledBookings: false,
+    emergencyServiceAvailable: false, acceptsScheduledBookings: false, legacyImported: "keep-me",
   };
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -888,9 +1102,23 @@ test("Mechanic listing saves Emergency-only and Schedule flags; both booking mod
 
   const providerDb = auth(provider);
   const listingRef = doc(providerDb, "providerListings", provider);
+  await assertSucceeds(updateDoc(listingRef, {
+    businessName: listing.businessName, location: listing.location, availability: "available", visibility: "active",
+    serviceAreaLabel: listing.serviceAreaLabel, description: "Updated mechanic listing.", contactPhone: listing.contactPhone,
+    services: listing.services, vehicleTypes: listing.vehicleTypes, operatingHours: listing.operatingHours,
+    startingPrice: null, emergencyServiceAvailable: false, acceptsScheduledBookings: false,
+  }));
+  let savedListing = (await getDoc(listingRef)).data();
+  assert.deepEqual(savedListing?.ratingSummary, listing.ratingSummary);
+  assert.equal(savedListing?.legacyImported, listing.legacyImported);
+  await assertSucceeds(updateDoc(listingRef, { availability: "offline" }));
+  await assertSucceeds(updateDoc(listingRef, { availability: "available" }));
+  savedListing = (await getDoc(listingRef)).data();
+  assert.deepEqual(savedListing?.ratingSummary, listing.ratingSummary);
+  assert.equal(savedListing?.legacyImported, listing.legacyImported);
   // Emergency only explicitly enables Emergency and leaves Schedule disabled.
   await assertSucceeds(updateDoc(listingRef, { emergencyServiceAvailable: true, acceptsScheduledBookings: false }));
-  let savedListing = (await getDoc(listingRef)).data();
+  savedListing = (await getDoc(listingRef)).data();
   assert.equal(savedListing?.emergencyServiceAvailable, true);
   assert.equal(savedListing?.acceptsScheduledBookings, false);
   // Enabling Schedule changes only its own flag and preserves Emergency.
@@ -995,6 +1223,18 @@ test("due scheduled service starts and notifications succeed for all four provid
   const at = Timestamp.fromMillis(Date.now() - 3_600_000);
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
+    await db.doc(`users/${providerId}`).set({ uid: providerId, role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc(`users/${providerId}/providerProfile/profile`).set({ uid: providerId, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${providerId}`).set({ providerId, role: "onsite-mechanic", category: "Onsite Mechanics", visibility: "active", availability: "available" });
+    await db.doc("users/tow-provider").set({ uid: "tow-provider", role: "towing-company", accountStatus: "active" });
+    await db.doc("users/tow-provider/towingCompanyProfile/profile").set({ uid: "tow-provider", role: "towing-company", verificationStatus: "VERIFIED" });
+    await db.doc("providerListings/tow-provider").set({ providerId: "tow-provider", role: "towing-company", category: "Towing", visibility: "active", availability: "available" });
+    await db.doc(`users/${providerId}`).set({ uid: providerId, role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc(`users/${providerId}/providerProfile/profile`).set({ uid: providerId, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${providerId}`).set({ providerId, role: "onsite-mechanic", category: "Onsite Mechanics", visibility: "active", availability: "available" });
+    await db.doc("users/tow-provider").set({ uid: "tow-provider", role: "towing-company", accountStatus: "active" });
+    await db.doc("users/tow-provider/towingCompanyProfile/profile").set({ uid: "tow-provider", role: "towing-company", verificationStatus: "VERIFIED" });
+    await db.doc("providerListings/tow-provider").set({ providerId: "tow-provider", role: "towing-company", category: "Towing", visibility: "active", availability: "available" });
     await db.doc("users/shop-provider").set({ role: "shop-owner" });
     await db.doc("users/garage-provider").set({ role: "homegarage" });
     await db.doc("users/garage-provider/homeGarageVerification/profile").set({ uid: "garage-provider", role: "homegarage", verificationStatus: "VERIFIED" });
@@ -1027,6 +1267,12 @@ test("legacy bookings without timing fields progress as Now without reservations
   const at = slotTimestamp();
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
+    await db.doc(`users/${providerId}`).set({ uid: providerId, role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc(`users/${providerId}/providerProfile/profile`).set({ uid: providerId, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${providerId}`).set({ providerId, role: "onsite-mechanic", category: "Onsite Mechanics", visibility: "active", availability: "available" });
+    await db.doc("users/tow-provider").set({ uid: "tow-provider", role: "towing-company", accountStatus: "active" });
+    await db.doc("users/tow-provider/towingCompanyProfile/profile").set({ uid: "tow-provider", role: "towing-company", verificationStatus: "VERIFIED" });
+    await db.doc("providerListings/tow-provider").set({ providerId: "tow-provider", role: "towing-company", category: "Towing", visibility: "active", availability: "available" });
     await db.doc("users/shop-provider").set({ role: "shop-owner" });
     await db.doc("users/garage-provider").set({ role: "homegarage" });
     await db.doc("users/garage-provider/homeGarageVerification/profile").set({ uid: "garage-provider", role: "homegarage", verificationStatus: "VERIFIED" });
@@ -1039,7 +1285,13 @@ test("legacy bookings without timing fields progress as Now without reservations
   ];
   for (const [id, bookingType, provider, status] of cases) {
     await seedBooking(id, { status: "accepted", bookingType, provider, timingMode: null });
-    await assertSucceeds(updateDoc(doc(auth(provider), "bookings", id), { status, updatedAt: serverTimestamp() }));
+    if (bookingType === "onsite-mechanic" || bookingType === "towing-company") {
+      const collectionName = bookingType === "onsite-mechanic" ? "mechanicNotifications" : "towingNotifications";
+      await seedProgressNotifications(id, collectionName);
+      await assertSucceeds(startWithNotifications(auth(provider), id, status, collectionName));
+    } else {
+      await assertSucceeds(updateDoc(doc(auth(provider), "bookings", id), { status, updatedAt: serverTimestamp() }));
+    }
     await env.withSecurityRulesDisabled(async (context) => {
       assert.equal((await context.firestore().doc(`providerScheduleReservations/${slotId(provider, at)}`).get()).exists, false);
     });
@@ -1128,4 +1380,385 @@ test("completion authorization, amount precision, and final-price immutability a
   }
   await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth("other-provider"), "bookings", "unauthorized-complete"), { status: "completed", finalPrice: 50, completedAt: serverTimestamp(), updatedAt: serverTimestamp() }), "unassigned provider completion");
   await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth("garage-provider"), "bookings", "immutable-price"), { finalPrice: 60, updatedAt: serverTimestamp() }), "post-completion price edit");
+});
+test("Towing listing saves preserve ratings and legacy fields; availability toggles only the narrow field", async () => {
+  await env.clearFirestore();
+  const uid = "towing-save-and-toggle";
+  const listing = {
+    providerId: uid, role: "towing-company", category: "Towing", businessName: "Tow Service",
+    location: { latitude: 14.6, longitude: 121.0 }, availability: "offline", visibility: "active",
+    ratingSummary: { average: 4.6, count: 11 }, services: ["Flatbed Towing"], vehicleTypes: ["Car"],
+    serviceAreaLabel: "Quezon City", description: "Roadside towing support.", contactPhone: "09123456789",
+    startingPrice: null, operatingHours: "Open daily", emergencyServiceAvailable: true,
+    acceptsScheduledBookings: true, legacyImported: "keep-me",
+  };
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "towing-company", accountStatus: "active" });
+    await db.doc(`users/${uid}/towingCompanyProfile/profile`).set({ uid, role: "towing-company", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${uid}`).set(listing);
+  });
+  const listingRef = doc(auth(uid), "providerListings", uid);
+  await assertSucceeds(updateDoc(listingRef, {
+    businessName: "Updated Tow Service", location: listing.location, availability: "offline", visibility: "active",
+    serviceAreaLabel: listing.serviceAreaLabel, description: "Updated roadside towing support.",
+    contactPhone: listing.contactPhone, services: listing.services, vehicleTypes: listing.vehicleTypes,
+    operatingHours: listing.operatingHours, startingPrice: null, emergencyServiceAvailable: true,
+    acceptsScheduledBookings: true,
+  }));
+  let saved = (await getDoc(listingRef)).data();
+  assert.deepEqual(saved?.ratingSummary, listing.ratingSummary);
+  assert.equal(saved?.legacyImported, listing.legacyImported);
+  await assertSucceeds(updateDoc(listingRef, { availability: "available" }));
+  await assertSucceeds(updateDoc(listingRef, { availability: "offline" }));
+  saved = (await getDoc(listingRef)).data();
+  assert.equal(saved?.availability, "offline");
+  assert.deepEqual(saved?.ratingSummary, listing.ratingSummary);
+  assert.equal(saved?.legacyImported, listing.legacyImported);
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(listingRef, { ratingSummary: { average: 5, count: 99 } }),
+    "Towing provider cannot change system ratings",
+  );
+});
+
+test("guest map query filters exclude phone-bearing rows while guest list access remains disabled", async () => {
+  await env.clearFirestore();
+  const uid = "contact-provider";
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "onsite-mechanic", accountStatus: "active" });
+    const safeListing = {
+      providerId: uid, role: "onsite-mechanic", category: "Onsite Mechanics", businessName: "Mechanic",
+      location: { latitude: 14.6, longitude: 121 }, availability: "available", visibility: "active",
+      ratingSummary: { average: 4.5, count: 3 }, services: ["Engine Diagnostics"], vehicleTypes: ["Car"],
+      serviceAreaLabel: "Quezon City", description: "Repairs", startingPrice: null,
+      operatingHours: "Daily", emergencyServiceAvailable: true, acceptsScheduledBookings: true, contactPhone: "",
+    };
+    await db.doc(`providerListings/${uid}`).set(safeListing);
+    await db.doc("providerListings/unsafe-phone").set({ ...safeListing, providerId: "unsafe-phone", contactPhone: "09123456789" });
+    await db.doc("providerListings/safe-scheduled").set({ ...safeListing, providerId: "safe-scheduled", availability: "offline" });
+    await db.doc("providerListings/unsafe-scheduled").set({ ...safeListing, providerId: "unsafe-scheduled", availability: "offline", contactPhone: "09123456789" });
+    await db.doc("providerListings/hidden-safe").set({ ...safeListing, providerId: "hidden-safe", visibility: "inactive" });
+    await db.doc(`providerContacts/${uid}`).set({ providerId: uid, phone: "09123456789" });
+    await db.doc(`users/${uid}/providerProfile/profile`).set({ personal: { phone: "09123456789", address: "Private address" } });
+  });
+  const guest = env.unauthenticatedContext().firestore();
+  await assertSucceeds(getDoc(doc(guest, "providerListings", uid)));
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerListings", "unsafe-phone")), "guest cannot read a listing carrying a phone");
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerListings", "hidden-safe")), "guest cannot read a hidden listing");
+
+  const marker = where("contactPhone", "==", "");
+  const filters = [
+    [where("visibility", "==", "active"), where("availability", "==", "available"), marker],
+    [where("visibility", "==", "active"), where("acceptsScheduledBookings", "==", true), marker],
+    [where("visibility", "==", "active"), where("role", "==", "shop-owner"), where("availability", "==", "available"), marker],
+    [where("visibility", "==", "active"), where("role", "==", "shop-owner"), where("acceptsScheduledBookings", "==", true), marker],
+  ];
+  const queries = filters.map((conditions) => query(collection(guest, "providerListings"), ...conditions));
+  await env.withSecurityRulesDisabled(async (context) => {
+    const unrestricted = context.firestore();
+    const actualFilters = filters.map((conditions) => query(collection(unrestricted, "providerListings"), ...conditions));
+    const results = await Promise.all(actualFilters.map((candidate) => getDocs(candidate)));
+    assert.deepEqual(results[0].docs.map((item) => item.id).sort(), [uid]);
+    assert.deepEqual(results[1].docs.map((item) => item.id).sort(), [uid, "safe-scheduled"]);
+    assert.equal(results[2].size, 0);
+    assert.equal(results[3].size, 0);
+  });
+  for (const candidate of queries) {
+    await assertDeniedWithoutExpressionLimit(() => getDocs(candidate), "guest collection read remains disabled pending migration and rollout review");
+  }
+  await assertDeniedWithoutExpressionLimit(
+    () => getDocs(query(collection(guest, "providerListings"), where("visibility", "==", "active"), where("availability", "==", "available"))),
+    "guest map query without the empty-phone equality filter is denied",
+  );
+
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerContacts", uid)), "guest contact read denied");
+  await assertSucceeds(setDoc(doc(auth(uid), "providerContacts", uid), { providerId: uid, phone: "09123456789" }));
+  await assertDeniedWithoutExpressionLimit(
+    () => setDoc(doc(auth(uid), "providerContacts", uid), { providerId: "another-provider", phone: "09123456789" }),
+    "provider cannot forge a contact document identity",
+  );
+  const owner = auth("vehicle-owner");
+  await assertSucceeds(getDoc(doc(owner, "providerContacts", uid)));
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(owner, "users", uid, "providerProfile", "profile")), "customer cannot read full provider profile");
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`providerListings/${uid}`).update({ visibility: "inactive" });
+  });
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(owner, "providerContacts", uid)), "suspended or hidden listing contact is inaccessible");
+});
+
+test("ID-only provider directory is atomic, immutable, and still gated by individual listing reads", async () => {
+  await env.clearFirestore();
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const providers = [
+    ["directory-mechanic", "onsite-mechanic", "Onsite Mechanics", "Engine Diagnostics"],
+    ["directory-towing", "towing-company", "Towing", "Flatbed Towing"],
+    ["directory-shop", "shop-owner", "Auto Shops", "Engine repair"],
+    ["directory-garage", "homegarage", "Parking Lots", "Oil change"],
+  ];
+  const listingFor = ([uid, role, category, service]) => ({
+    providerId: uid, role, category, businessName: "Verified Directory Provider",
+    location: { latitude: 14.6, longitude: 121 }, availability: "available", visibility: "active",
+    ratingSummary: { average: 0, count: 0 }, services: [service], vehicleTypes: ["Car"],
+    serviceAreaLabel: "Test service area", description: "Test listing", startingPrice: null,
+    operatingHours: "Open daily", emergencyServiceAvailable: true, acceptsScheduledBookings: true, contactPhone: "",
+    ...(role === "shop-owner" ? { photoUrls: ["https://example.invalid/shop.jpg"], hoursType: "24_7", is24Hours: true, weeklyHours: days.map((day) => ({ day })) } : {}),
+  });
+
+  for (const [uid, role] of providers) {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.doc(`users/${uid}`).set({ uid, role, accountStatus: "active" });
+      if (role === "onsite-mechanic") await db.doc(`users/${uid}/providerProfile/profile`).set({ uid, role, verificationStatus: "VERIFIED" });
+      if (role === "towing-company") await db.doc(`users/${uid}/towingCompanyProfile/profile`).set({ uid, role, verificationStatus: "VERIFIED" });
+      if (role === "homegarage") await db.doc(`users/${uid}/homeGarageVerification/profile`).set({ uid, role, verificationStatus: "VERIFIED", business: { name: "Verified Directory Provider" } });
+      if (role === "shop-owner") {
+        await db.doc(`users/${uid}/shopVerification/profile`).set({ uid, role, verificationStatus: "VERIFIED", business: { name: "Verified Directory Provider", phone: "09123456789", address: "Test area" } });
+        await db.doc(`providers/${uid}`).set({ uid, role, verified: true, status: "open" });
+      }
+    });
+
+    const db = auth(uid);
+    const listingRef = doc(db, "providerListings", uid);
+    const contactRef = doc(db, "providerContacts", uid);
+    const directoryRef = doc(db, "publicProviderDirectory", uid);
+    await assertSucceeds(runTransaction(db, async (transaction) => {
+      if (role === "shop-owner") await transaction.get(doc(db, "providers", uid));
+      const [listing, contact, directory] = await Promise.all([
+        transaction.get(listingRef), transaction.get(contactRef), transaction.get(directoryRef),
+      ]);
+      assert.equal(listing.exists(), false);
+      assert.equal(contact.exists(), false);
+      assert.equal(directory.exists(), false);
+      transaction.set(listingRef, listingFor([uid, role, ...providers.find((item) => item[0] === uid).slice(2)]));
+      transaction.set(contactRef, { providerId: uid, phone: "09123456789" });
+      transaction.set(directoryRef, {});
+    }));
+  }
+
+  const forgedUid = "directory-forged-atomic";
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${forgedUid}`).set({ uid: forgedUid, role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc(`users/${forgedUid}/providerProfile/profile`).set({ uid: forgedUid, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+  });
+  const forgedDb = auth(forgedUid);
+  await assertDeniedWithoutExpressionLimit(() => runTransaction(forgedDb, async (transaction) => {
+    const listingRef = doc(forgedDb, "providerListings", forgedUid);
+    const contactRef = doc(forgedDb, "providerContacts", forgedUid);
+    const directoryRef = doc(forgedDb, "publicProviderDirectory", forgedUid);
+    await Promise.all([transaction.get(listingRef), transaction.get(contactRef), transaction.get(directoryRef)]);
+    transaction.set(listingRef, listingFor([forgedUid, "onsite-mechanic", "Onsite Mechanics", "Engine Diagnostics"]));
+    transaction.set(contactRef, { providerId: forgedUid, phone: "09123456789" });
+    transaction.set(directoryRef, { phone: "must-not-be-public" });
+  }), "forged directory fields reject the entire first-publish transaction");
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    assert.equal((await getDoc(doc(db, "providerListings", forgedUid))).exists(), false);
+    assert.equal((await getDoc(doc(db, "providerContacts", forgedUid))).exists(), false);
+  });
+
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const [uid, role, category, service] of [["directory-phone", "onsite-mechanic", "Onsite Mechanics", "Engine Diagnostics"], ["directory-hidden", "onsite-mechanic", "Onsite Mechanics", "Engine Diagnostics"]]) {
+      await db.doc(`providerListings/${uid}`).set({ ...listingFor([uid, role, category, service]), ...(uid === "directory-phone" ? { contactPhone: "09123456789" } : { visibility: "inactive" }) });
+      await db.doc(`publicProviderDirectory/${uid}`).set({});
+    }
+    await db.doc("providerContacts/directory-mechanic").set({ providerId: "directory-mechanic", phone: "09123456789" });
+    await db.doc("bookings/directory-private-booking").set({ customerId: "vehicle-owner", providerId: "directory-mechanic", bookingType: "onsite-mechanic", status: "pending" });
+    await db.doc("users/directory-prepublish-contact").set({ uid: "directory-prepublish-contact", role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc("providerContacts/directory-prepublish-contact").set({ providerId: "directory-prepublish-contact", phone: "09123456789" });
+  });
+
+  const guest = env.unauthenticatedContext().firestore();
+  const entries = await assertSucceeds(getDocs(collection(guest, "publicProviderDirectory")));
+  assert.ok(entries.docs.some((entry) => entry.id === "directory-mechanic"));
+  assert.ok(entries.docs.every((entry) => Object.keys(entry.data()).length === 0));
+  for (const [uid] of providers) await assertSucceeds(getDoc(doc(guest, "providerListings", uid)));
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerListings", "directory-phone")), "phone-bearing listing remains unreadable through the ID directory");
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerListings", "directory-hidden")), "hidden listing remains unreadable through the ID directory");
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerContacts", "directory-mechanic")), "guest cannot read private provider contacts");
+  await assertDeniedWithoutExpressionLimit(() => getDocs(collection(guest, "providerContacts")), "guest cannot list private provider contacts");
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "bookings", "directory-private-booking")), "guest cannot read bookings");
+  await assertDeniedWithoutExpressionLimit(() => getDocs(collection(guest, "bookings")), "guest cannot list bookings");
+  await assertDeniedWithoutExpressionLimit(() => getDocs(collection(guest, "providerListings")), "guest cannot query listings without directory IDs");
+
+  const ownerDb = auth("directory-mechanic");
+  await assertDeniedWithoutExpressionLimit(() => setDoc(doc(ownerDb, "publicProviderDirectory", "forged-target"), {}), "provider cannot forge another provider's directory ID");
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(ownerDb, "publicProviderDirectory", "directory-mechanic"), { extra: "field" }), "directory entries cannot be changed");
+  await assertDeniedWithoutExpressionLimit(() => deleteDoc(doc(ownerDb, "publicProviderDirectory", "directory-mechanic")), "directory entries cannot be deleted by clients");
+  const prepublishOwnerDb = auth("directory-prepublish-contact");
+  await assertSucceeds(getDoc(doc(prepublishOwnerDb, "providerContacts", "directory-prepublish-contact")));
+});
+
+test("provider listing writes cannot create or restore a public phone field; clearing it and availability updates remain valid", async () => {
+  await env.clearFirestore();
+  const uid = "phone-field-provider";
+  const base = {
+    providerId: uid, role: "onsite-mechanic", category: "Onsite Mechanics", businessName: "Phone Safe Mechanic",
+    location: { latitude: 14.6, longitude: 121.0 }, availability: "available", visibility: "active",
+    ratingSummary: { average: 0, count: 0 }, services: ["Engine Diagnostics"], vehicleTypes: ["Car"],
+    serviceAreaLabel: "Quezon City", description: "Repairs", startingPrice: null, operatingHours: "Daily",
+    emergencyServiceAvailable: true, acceptsScheduledBookings: true,
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "onsite-mechanic", accountStatus: "active" });
+    await db.doc(`users/${uid}/providerProfile/profile`).set({ uid, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+  });
+  const listingRef = doc(auth(uid), "providerListings", uid);
+  await assertDeniedWithoutExpressionLimit(
+    () => setDoc(listingRef, { ...base, contactPhone: "09123456789" }),
+    "new listing cannot contain a phone",
+  );
+  await assertSucceeds(setDoc(listingRef, base));
+  await assertSucceeds(updateDoc(listingRef, { contactPhone: "" }));
+
+  // Simulate a legacy listing that predates the rule safeguard.
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`providerListings/${uid}`).update({ contactPhone: "09123456789" });
+  });
+  await assertSucceeds(updateDoc(listingRef, { ...base, description: "A normal full save with the old phone unchanged." }));
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(listingRef, { contactPhone: "09999999999" }),
+    "older writer cannot replace a listing phone",
+  );
+  await assertSucceeds(setDoc(listingRef, { ...base, description: "Phone moved to the private contact document.", contactPhone: "" }));
+  assert.equal((await getDoc(listingRef)).data()?.contactPhone, "");
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(listingRef, { contactPhone: "09123456789" }),
+    "older writer cannot restore a phone after cleanup",
+  );
+  await assertSucceeds(updateDoc(listingRef, { availability: "offline" }));
+  await assertSucceeds(updateDoc(listingRef, { availability: "available" }));
+
+  const hidden = { ...base, providerId: "admin-phone-provider", visibility: "inactive" };
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc("providerListings/admin-phone-provider").set(hidden);
+  });
+  await assertDeniedWithoutExpressionLimit(
+    () => updateDoc(doc(env.authenticatedContext("rules-admin", { admin: true }).firestore(), "providerListings", "admin-phone-provider"), { contactPhone: "09123456789" }),
+    "admin lifecycle write cannot restore a phone field",
+  );
+});
+
+test("eligible availability transitions atomically create directory IDs for all four roles without changing ratings or visibility", async () => {
+  await env.clearFirestore();
+  const providers = [
+    ["directory-toggle-mechanic", "onsite-mechanic", "Onsite Mechanics"],
+    ["directory-toggle-towing", "towing-company", "Towing"],
+    ["directory-toggle-shop", "shop-owner", "Auto Shops"],
+    ["directory-toggle-garage", "homegarage", "Parking Lots"],
+  ];
+  const ratings = { average: 4.7, count: 19 };
+  const listingFor = (uid, role, category) => ({
+    providerId: uid, role, category, businessName: "Existing approved provider",
+    location: { latitude: 14.6, longitude: 121 }, visibility: "active", availability: "offline",
+    ratingSummary: ratings, services: role === "homegarage" ? ["Oil change"] : ["Service"],
+    vehicleTypes: ["Car"], serviceAreaLabel: "Central", description: "Existing listing",
+    contactPhone: "", startingPrice: null, operatingHours: "Daily",
+    emergencyServiceAvailable: true, acceptsScheduledBookings: false,
+    ...(role === "shop-owner" ? { photoUrls: ["https://example.invalid/shop.jpg"], hoursType: "24_7", is24Hours: true, weeklyHours: [{ day: "Monday" }] } : {}),
+    ...(role === "homegarage" ? { totalSlots: 5, availableSlots: 5 } : {}),
+  });
+
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const [uid, role, category] of providers) {
+      await db.doc(`users/${uid}`).set({ uid, role, accountStatus: "active" });
+      if (role === "onsite-mechanic") await db.doc(`users/${uid}/providerProfile/profile`).set({ uid, role, verificationStatus: "VERIFIED" });
+      if (role === "towing-company") await db.doc(`users/${uid}/towingCompanyProfile/profile`).set({ uid, role, verificationStatus: "VERIFIED" });
+      if (role === "shop-owner") {
+        await db.doc(`providers/${uid}`).set({ uid, role, verified: true, status: "closed", businessName: "Approved Shop", phone: "09123456789", address: "Central", latitude: 14.6, longitude: 121 });
+        await db.doc(`users/${uid}/shopVerification/profile`).set({ uid, role, verificationStatus: "VERIFIED" });
+      }
+      if (role === "homegarage") await db.doc(`users/${uid}/homeGarageVerification/profile`).set({ uid, role, verificationStatus: "VERIFIED", business: { name: "Approved Garage" } });
+      await db.doc(`providerListings/${uid}`).set(listingFor(uid, role, category));
+    }
+  });
+
+  for (const [uid, role] of providers) {
+    const db = auth(uid);
+    const listingRef = doc(db, "providerListings", uid);
+    const directoryRef = doc(db, "publicProviderDirectory", uid);
+    const providerRef = doc(db, "providers", uid);
+    await assertDeniedWithoutExpressionLimit(() => setDoc(directoryRef, {}), `${role} cannot index an offline non-scheduled listing`);
+    await assertSucceeds(runTransaction(db, async (transaction) => {
+      const [listing, directory] = await Promise.all([transaction.get(listingRef), transaction.get(directoryRef)]);
+      assert.ok(listing.exists());
+      assert.equal(directory.exists(), false);
+      if (role === "shop-owner") {
+        const provider = await transaction.get(providerRef);
+        assert.equal(provider.data().status, "closed");
+        transaction.update(providerRef, { status: "open" });
+      }
+      transaction.update(listingRef, { availability: "available" });
+      transaction.set(directoryRef, {});
+    }));
+    assert.equal((await getDoc(directoryRef)).exists(), true, `${role} directory entry created with its eligible transition`);
+    const afterAvailable = (await getDoc(listingRef)).data();
+    assert.equal(afterAvailable.visibility, "active");
+    assert.deepEqual(afterAvailable.ratingSummary, ratings);
+
+    // Existing IDs stay in place as availability changes in both directions.
+    await assertSucceeds(runTransaction(db, async (transaction) => {
+      await transaction.get(directoryRef);
+      if (role === "shop-owner") transaction.update(providerRef, { status: "closed" });
+      transaction.update(listingRef, { availability: "offline" });
+    }));
+    await assertSucceeds(runTransaction(db, async (transaction) => {
+      await transaction.get(directoryRef);
+      if (role === "shop-owner") transaction.update(providerRef, { status: "open" });
+      transaction.update(listingRef, { availability: "available" });
+    }));
+    assert.equal((await getDoc(directoryRef)).exists(), true, `${role} directory entry survives availability toggles`);
+    const finalListing = (await getDoc(listingRef)).data();
+    assert.equal(finalListing.visibility, "active");
+    assert.equal(finalListing.availability, "available");
+    assert.deepEqual(finalListing.ratingSummary, ratings);
+  }
+});
+
+test("listing and provider contact changes are atomic; failed contact validation leaves the published phone intact", async () => {
+  await env.clearFirestore();
+  const uid = "atomic-contact-provider";
+  const oldPhone = "09123456789";
+  const listing = {
+    providerId: uid, role: "onsite-mechanic", category: "Onsite Mechanics", businessName: "Atomic Mechanic",
+    location: { latitude: 14.6, longitude: 121 }, availability: "available", visibility: "active",
+    ratingSummary: { average: 4.2, count: 8 }, services: ["Engine Diagnostics"], vehicleTypes: ["Car"],
+    serviceAreaLabel: "Central", description: "Repairs", contactPhone: oldPhone, startingPrice: null,
+    operatingHours: "Daily", emergencyServiceAvailable: true, acceptsScheduledBookings: true,
+  };
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`users/${uid}`).set({ uid, role: "onsite-mechanic", accountStatus: "active" });
+    await context.firestore().doc(`users/${uid}/providerProfile/profile`).set({ uid, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await context.firestore().doc(`providerListings/${uid}`).set(listing);
+  });
+  const db = auth(uid);
+  const listingRef = doc(db, "providerListings", uid);
+  const contactRef = doc(db, "providerContacts", uid);
+  await assertSucceeds(runTransaction(db, async (transaction) => {
+    const currentListing = await transaction.get(listingRef);
+    const currentContact = await transaction.get(contactRef);
+    const keepPhone = currentContact.data()?.phone || currentListing.data()?.contactPhone;
+    transaction.update(listingRef, { contactPhone: "" });
+    transaction.set(contactRef, { providerId: uid, phone: keepPhone });
+  }));
+  assert.equal((await getDoc(listingRef)).data()?.contactPhone, "");
+  assert.equal((await getDoc(contactRef)).data()?.phone, oldPhone);
+
+  await env.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`providerListings/${uid}`).update({ contactPhone: oldPhone });
+    await context.firestore().doc(`providerContacts/${uid}`).delete();
+  });
+  await assertDeniedWithoutExpressionLimit(() => runTransaction(db, async (transaction) => {
+    const currentListing = await transaction.get(listingRef);
+    const currentContact = await transaction.get(contactRef);
+    const keepPhone = currentContact.data()?.phone || currentListing.data()?.contactPhone;
+    transaction.update(listingRef, { contactPhone: "" });
+    transaction.set(contactRef, { providerId: "forged-provider-id", phone: keepPhone });
+  }), "invalid private contact causes the atomic listing transaction to fail");
+  assert.equal((await getDoc(listingRef)).data()?.contactPhone, oldPhone, "failed transaction did not clear the published number");
+  assert.equal((await getDoc(contactRef)).exists(), false, "failed transaction did not create an invalid private contact");
 });

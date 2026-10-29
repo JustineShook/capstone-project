@@ -121,6 +121,8 @@ export interface MockProvider {
   category: Exclude<ProviderCategory, "All">;
   rating: number;
   reviewCount: number;
+  /** Controls whether map surfaces should show this value or its load state. */
+  ratingStatus?: "visible" | "hidden" | "loading" | "unavailable";
   distanceKm: number;
   startingPrice: string;
   isPositiveStatus: boolean; // Available/Open when true, Busy/Closed when false

@@ -64,7 +64,7 @@ export interface ProviderListing {
   weeklyHours?: { day: string; open: boolean; openingTime: string | null; closingTime: string | null }[];
   totalSlots?: number;
   availableSlots?: number;
-  visibility: "active";
+  visibility: "active" | "inactive";
 }
 
 /** Shop listings can only be published after admin approval (enforced by rules). */

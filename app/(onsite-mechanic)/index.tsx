@@ -100,10 +100,17 @@ export default function OnsiteMechanicDashboard() {
 
   const pending = useMemo(() => bookings.filter((booking) => booking.status === "pending"), [bookings]);
   const active = useMemo(() => bookings.find((booking) => ACTIVE_STATUSES.includes(booking.status)), [bookings]);
+  const serviceInProgress = useMemo(() => bookings.some((booking) =>
+    booking.status === "en_route" || booking.status === "arrived" || booking.status === "in_progress"
+    || (booking.status === "accepted" && booking.timingMode !== "scheduled")), [bookings]);
   const completed = useMemo(() => bookings.filter((booking) => booking.status === "completed").length, [bookings]);
   const open = (id: string) => router.push({ pathname: "/(onsite-mechanic)/request-details", params: { id } });
 
   const toggleAvailability = async (next: boolean) => {
+    if (serviceInProgress) {
+      Alert.alert("Service in progress", "Availability will return to its previous state when this service ends.");
+      return;
+    }
     const uid = auth.currentUser?.uid;
     if (!uid || !listingSettings || !hasPublicListing) {
       Alert.alert("Listing required", "Set up your public listing before becoming available.", [
@@ -146,13 +153,13 @@ export default function OnsiteMechanicDashboard() {
           <View style={s.heroShade} />
           <View style={s.heroTop}>
             <View style={s.heroCopy}>
-              <View style={s.locationRow}><Feather name="map-pin" size={13} color={online ? C.green : "#F4A45D"} /><Text style={s.locationLabel} numberOfLines={1}>{listingSettings?.serviceAreaLabel || "Onsite mechanic"}</Text></View>
-              <Text style={s.heroTitle}>{online ? "Ready to assist" : "You're offline"}</Text>
-              <Text style={s.heroHint}>{online ? "Customers can find you and send requests." : "Switch on when you're ready for work."}</Text>
+              <View style={s.locationRow}><Feather name="map-pin" size={13} color={serviceInProgress ? C.red : online ? C.green : "#F4A45D"} /><Text style={s.locationLabel} numberOfLines={1}>{listingSettings?.serviceAreaLabel || "Onsite mechanic"}</Text></View>
+              <Text style={s.heroTitle}>{serviceInProgress ? "Service in progress" : online ? "Ready to assist" : "You're offline"}</Text>
+              <Text style={s.heroHint}>{serviceInProgress ? "New immediate jobs are paused until this service ends." : online ? "Customers can find you and send requests." : "Switch on when you're ready for work."}</Text>
             </View>
             <View style={s.availabilityToggle}>
-              <View style={[s.statusDot, online && s.statusDotOnline]} /><Text style={s.availableLabel}>{online ? "Online" : "Offline"}</Text>
-              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
+              <View style={[s.statusDot, online && s.statusDotOnline]} /><Text style={s.availableLabel}>{serviceInProgress ? "Busy" : online ? "Online" : "Offline"}</Text>
+              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability || serviceInProgress} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
             </View>
           </View>
           <View style={s.heroDivider} />

@@ -38,6 +38,7 @@ const notificationStubs = {
 
 function createFixture(providerId, role, category, listingOverrides = {}) {
   const writes = [];
+  const reads = [];
   const listing = {
     providerId, role, category, businessName: `${role} provider`, visibility: "active", availability: "available",
     emergencyServiceAvailable: true, acceptsScheduledBookings: false,
@@ -61,6 +62,10 @@ function createFixture(providerId, role, category, listingOverrides = {}) {
     serverTimestamp: () => "SERVER_TIMESTAMP",
     runTransaction: async (_db, action) => action({
       get: async (reference) => {
+        reads.push(reference.path);
+        if (reference.path.startsWith("providerActiveServices/")) {
+          throw new Error("Missing or insufficient permissions: deployed-rules baseline denies providerActiveServices reads");
+        }
         const data = reference.path === `providerListings/${providerId}` ? listing
           : reference.path === "users/owner" ? { role: "owner", displayName: "Owner" }
             : reference.path === "users/owner/vehicles/vehicle" ? vehicle : undefined;
@@ -89,8 +94,25 @@ function createFixture(providerId, role, category, listingOverrides = {}) {
     "../utils/finalPrice": load("../utils/finalPrice.ts", {}),
     "../../utils/finalPrice": load("../utils/finalPrice.ts", {}),
   };
-  return { writes, firestore, deps: { ...common, "./firebase": firebase } };
+  return { writes, reads, firestore, deps: { ...common, "./firebase": firebase } };
 }
+
+test("mechanic and towing customer booking creation succeeds without active-service reads", async () => {
+  for (const item of [createCases[0], createCases[2]]) {
+    const providerId = `provider-${item.role}`;
+    const fixture = createFixture(providerId, item.role, item.category);
+    const service = load(item.file, fixture.deps);
+    const args = item.input(providerId);
+    if (item.role === "onsite-mechanic") args.timing = { timingMode: "now", urgency: "emergency" };
+
+    const booking = await service[item.exportName](args);
+
+    assert.equal(booking.providerId, providerId);
+    assert.ok(fixture.writes.some((write) => write.path === "bookings/new-booking"), `${item.name} writes the booking`);
+    assert.deepEqual(fixture.reads, [`providerListings/${providerId}`], `${item.name} reads only the listing in its creation transaction`);
+    assert.equal(fixture.reads.some((path) => path.startsWith("providerActiveServices/")), false);
+  }
+});
 
 const createCases = [
   {
@@ -205,6 +227,199 @@ test("Mechanic listing form persists Emergency-only and preserves Emergency when
     "the selected Schedule flag must be saved");
   assert.match(form, /if\s*\(role\s*===\s*"onsite-mechanic"\s*&&\s*!schedulingEnabled\)[\s\S]{0,70}setEmergencyServiceAvailable\(true\)/,
     "enabling Schedule must not reset Emergency support");
+});
+
+function createStatusFixture({ file, role, booking, listing, userId = "provider" }) {
+  let transactionNumber = 0;
+  let providerSnapshotListener;
+  const reads = [];
+  const writes = [];
+  const notifications = [];
+  const reservationCalls = [];
+  const records = new Map([
+    [`bookings/${booking.id}`, { ...booking }],
+    [`providerListings/${booking.providerId}`, { ...listing }],
+  ]);
+  const auth = { currentUser: { uid: userId, displayName: "Provider" } };
+  class TestTimestamp {
+    constructor(value) { this.value = value; }
+    toMillis() { return this.value; }
+    toDate() { return new Date(this.value); }
+  }
+  const firestore = {
+    Timestamp: TestTimestamp,
+    doc: (_db, ...parts) => ({ path: parts.join("/"), id: parts.at(-1) }),
+    collection: (_db, name) => ({ path: name }),
+    where: (...parts) => parts,
+    query: (...parts) => parts,
+    getDocs: async () => ({ docs: [] }),
+    serverTimestamp: () => "SERVER_TIME",
+    onSnapshot: (_query, callback) => { providerSnapshotListener = callback; return () => {}; },
+    runTransaction: async (_db, action) => {
+      transactionNumber += 1;
+      return action({
+        get: async (reference) => {
+          reads.push(reference.path);
+          if (reference.path.startsWith("providerActiveServices/")) {
+            throw new Error("Missing or insufficient permissions: deployed-rules baseline denies providerActiveServices reads");
+          }
+          const value = records.get(reference.path);
+          return { exists: () => value !== undefined, data: () => value };
+        },
+        set: (reference, values) => {
+          if (reference.path.startsWith("providerActiveServices/")) throw new Error("Deployed-rules baseline denies providerActiveServices writes");
+          writes.push({ type: "set", path: reference.path, values });
+          records.set(reference.path, { ...values });
+        },
+        update: (reference, values) => {
+          if (reference.path.startsWith("providerActiveServices/")) throw new Error("Deployed-rules baseline denies providerActiveServices writes");
+          writes.push({ type: "update", path: reference.path, values });
+          records.set(reference.path, { ...records.get(reference.path), ...values });
+        },
+        delete: (reference) => {
+          if (reference.path.startsWith("providerActiveServices/")) throw new Error("Deployed-rules baseline denies providerActiveServices writes");
+          writes.push({ type: "delete", path: reference.path });
+          records.delete(reference.path);
+        },
+      });
+    },
+    updateDoc: async (reference, values) => records.set(reference.path, { ...records.get(reference.path), ...values }),
+  };
+  const timingTypes = {};
+  const timing = load("../utils/bookingTiming.ts", {
+    "firebase/firestore": { Timestamp: TestTimestamp }, "../types/bookingTiming": timingTypes,
+  });
+  const service = load(file, {
+    "firebase/firestore": firestore,
+    "../firebase": { auth, db: {} },
+    "../types/bookingTiming": timingTypes,
+    "../../types/owner/booking": {}, "../../types/owner/towing": {},
+    "../../utils/bookingTiming": timing,
+    "../ownerVerificationProfileService": { getOwnerVerificationProfile: async () => ({}), requireVerifiedOwner: async () => {} },
+    "../customerNotificationService": { addBookingStatusNotification: (...args) => notifications.push({ kind: "customer-status", args }) },
+    "../mechanicNotificationService": { writeMechanicNotification: (...args) => notifications.push({ kind: "mechanic", args }) },
+    "../towingNotificationService": { writeTowingNotification: (...args) => notifications.push({ kind: "towing", args }) },
+    "../scheduledBookingReservationService": {
+      claimScheduledReservation: async (...args) => reservationCalls.push({ kind: "claim", args }),
+      releaseScheduledReservation: async (...args) => reservationCalls.push({ kind: "release", args }),
+    },
+    "../../utils/finalPrice": { isValidFinalPrice: (amount) => Number.isFinite(amount) && amount >= 0 },
+  });
+  return {
+    service, records, auth, TestTimestamp, reads, writes, notifications, reservationCalls,
+    get transactionCount() { return transactionNumber; },
+    emitProviderSnapshot() {
+      const docs = [...records.entries()].filter(([path]) => path.startsWith("bookings/")).map(([path, data]) => ({ id: path.slice("bookings/".length), data: () => data }));
+      providerSnapshotListener?.({ docs });
+    },
+  };
+}
+
+test("mechanic and towing customer-to-provider flows work with deployed-rules lock denial", async () => {
+  const cases = [
+    { role: "onsite-mechanic", name: "Mechanic", category: "Onsite Mechanics", file: "../services/owner/bookingService.ts",
+      create: "createBooking", update: "updateBookingStatus", complete: "completeMechanicBooking", cancel: "cancelMechanicBookingAsCustomer", createCase: createCases[0] },
+    { role: "towing-company", name: "Towing", category: "Towing", file: "../services/owner/towingService.ts",
+      create: "createTowingBooking", update: "updateTowingBookingStatus", complete: "completeTowingBooking", cancel: "cancelTowingBookingAsCustomer", createCase: createCases[2] },
+  ];
+
+  for (const item of cases) {
+    const providerId = `provider-${item.role}`;
+    const createFixtureForOwner = createFixture(providerId, item.role, item.category);
+    const customerService = load(item.file, createFixtureForOwner.deps);
+    const input = item.createCase.input(providerId);
+    if (item.role === "onsite-mechanic") input.timing = { timingMode: "now", urgency: "emergency" };
+    const created = await customerService[item.create](input);
+    assert.equal(created.status, "pending", `${item.name} creation starts pending`);
+    assert.deepEqual(createFixtureForOwner.reads, [`providerListings/${providerId}`], `${item.name} customer transaction reads no lock`);
+
+    const providerFixture = createStatusFixture({ file: item.file, role: item.role, booking: created,
+      listing: { providerId, role: item.role, visibility: "active", availability: "available" }, userId: providerId });
+    await providerFixture.service[item.update](created.id, "accepted");
+    assert.equal(providerFixture.records.get(`bookings/${created.id}`).status, "accepted", `${item.name} provider accepts`);
+    await providerFixture.service[item.update](created.id, "en_route");
+    await providerFixture.service[item.update](created.id, "arrived");
+    await providerFixture.service[item.update](created.id, "in_progress");
+    await providerFixture.service[item.complete](created.id, 125.5);
+    const completed = providerFixture.records.get(`bookings/${created.id}`);
+    assert.equal(completed.status, "completed", `${item.name} provider completes`);
+    assert.equal(completed.finalPrice, 125.5, `${item.name} final price is retained`);
+    assert.ok(providerFixture.notifications.some((event) => event.kind === "customer-status"), `${item.name} customer notifications remain emitted`);
+    assert.ok(providerFixture.notifications.some((event) => event.kind === (item.role === "onsite-mechanic" ? "mechanic" : "towing")), `${item.name} provider notifications remain emitted`);
+    assert.equal(providerFixture.reads.some((path) => path.startsWith("providerActiveServices/")), false, `${item.name} transitions never read a lock`);
+    assert.equal(providerFixture.writes.some((write) => write.path.startsWith("providerActiveServices/")), false, `${item.name} transitions never write a lock`);
+
+    const declineCreate = createFixture(providerId, item.role, item.category);
+    const declineCustomer = load(item.file, declineCreate.deps);
+    const declineInput = item.createCase.input(providerId);
+    if (item.role === "onsite-mechanic") declineInput.timing = { timingMode: "now", urgency: "emergency" };
+    const pendingDecline = await declineCustomer[item.create](declineInput);
+    const declineProvider = createStatusFixture({ file: item.file, role: item.role, booking: pendingDecline,
+      listing: { providerId, role: item.role, visibility: "active", availability: "available" }, userId: providerId });
+    await declineProvider.service[item.update](pendingDecline.id, "rejected", "Outside service area");
+    assert.equal(declineProvider.records.get(`bookings/${pendingDecline.id}`).declineReason, "Outside service area", `${item.name} decline reason persists`);
+
+    const cancelCreate = createFixture(providerId, item.role, item.category);
+    const cancelCustomer = load(item.file, cancelCreate.deps);
+    const cancelInput = item.createCase.input(providerId);
+    if (item.role === "onsite-mechanic") cancelInput.timing = { timingMode: "now", urgency: "emergency" };
+    const pendingCancel = await cancelCustomer[item.create](cancelInput);
+    const cancelFixture = createStatusFixture({ file: item.file, role: item.role, booking: pendingCancel,
+      listing: { providerId, role: item.role, visibility: "active", availability: "available" }, userId: "owner" });
+    await cancelFixture.service[item.cancel](pendingCancel.id, "No longer needed");
+    assert.equal(cancelFixture.records.get(`bookings/${pendingCancel.id}`).status, "cancelled", `${item.name} customer cancellation succeeds`);
+    assert.equal(cancelFixture.records.get(`bookings/${pendingCancel.id}`).cancellationReason, "No longer needed", `${item.name} cancellation reason persists`);
+    assert.equal(cancelFixture.reads.some((path) => path.startsWith("providerActiveServices/")), false, `${item.name} cancellation never reads a lock`);
+  }
+});
+
+test("scheduled mechanic and towing services retain timing and reservation behavior without locks", async () => {
+  const cases = [
+    { role: "onsite-mechanic", category: "Onsite Mechanics", file: "../services/owner/bookingService.ts", create: "createBooking", update: "updateBookingStatus", createCase: createCases[0] },
+    { role: "towing-company", category: "Towing", file: "../services/owner/towingService.ts", create: "createTowingBooking", update: "updateTowingBookingStatus", createCase: createCases[2] },
+  ];
+  for (const item of cases) {
+    const providerId = `provider-${item.role}`;
+    const slotMs = Math.ceil((Date.now() + 1) / 3_600_000) * 3_600_000;
+    const createFixtureForOwner = createFixture(providerId, item.role, item.category, { acceptsScheduledBookings: true });
+    const customerService = load(item.file, createFixtureForOwner.deps);
+    const input = item.createCase.input(providerId);
+    input.timing = { timingMode: "scheduled", urgency: "standard", scheduledAt: { toMillis: () => slotMs } };
+    const created = await customerService[item.create](input);
+    const providerFixture = createStatusFixture({ file: item.file, role: item.role, booking: created,
+      listing: { providerId, role: item.role, visibility: "active", availability: "offline" }, userId: providerId });
+    providerFixture.records.get(`bookings/${created.id}`).scheduledAt = new providerFixture.TestTimestamp(slotMs);
+    await providerFixture.service[item.update](created.id, "accepted");
+    assert.equal(providerFixture.reservationCalls.filter((call) => call.kind === "claim").length, 1, `${item.role} scheduled acceptance still claims its reservation`);
+    await assert.rejects(providerFixture.service[item.update](created.id, "en_route"), /cannot start before its appointment/);
+    providerFixture.records.get(`bookings/${created.id}`).scheduledAt = new providerFixture.TestTimestamp(Date.now() - 60_000);
+    await providerFixture.service[item.update](created.id, "en_route");
+    assert.equal(providerFixture.records.get(`bookings/${created.id}`).status, "en_route");
+    assert.equal(providerFixture.reads.some((path) => path.startsWith("providerActiveServices/")), false);
+    assert.equal(providerFixture.writes.some((write) => write.path.startsWith("providerActiveServices/")), false);
+  }
+});
+
+test("mechanic and towing booking refresh subscriptions emit terminal bookings without lock cleanup", () => {
+  const cases = [
+    { role: "onsite-mechanic", file: "../services/owner/bookingService.ts", subscribe: "subscribeToMechanicRequests" },
+    { role: "towing-company", file: "../services/owner/towingService.ts", subscribe: "subscribeToTowingRequests" },
+  ];
+  for (const item of cases) {
+    const booking = { id: "terminal", providerId: "provider", customerId: "owner", bookingType: item.role,
+      status: "completed", createdAt: "2026-10-29T00:00:00.000Z", updatedAt: "2026-10-29T00:00:00.000Z" };
+    const fixture = createStatusFixture({ file: item.file, role: item.role, booking,
+      listing: { providerId: "provider", role: item.role, visibility: "active", availability: "available" } });
+    let received;
+
+    fixture.service[item.subscribe]((bookings) => { received = bookings; });
+    fixture.emitProviderSnapshot();
+
+    assert.equal(received.length, 1, `${item.role} subscription still emits bookings`);
+    assert.equal(received[0].id, "terminal");
+    assert.equal(fixture.transactionCount, 0, `${item.role} refresh performs no cleanup transaction`);
+    assert.equal(fixture.reads.some((path) => path.startsWith("providerActiveServices/")), false, `${item.role} refresh reads no active-service lock`);
+  }
 });
 
 test("Towing phone snapshot is preserved and only contact URIs are normalized", async () => {

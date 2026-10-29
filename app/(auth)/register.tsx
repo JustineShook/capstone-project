@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { Link, useRouter } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -27,6 +27,7 @@ const SELECTABLE_ROLES: { label: string; value: UserRole }[] = [
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ providerId?: string; category?: string; timingMode?: string }>();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -62,7 +63,7 @@ export default function RegisterScreen() {
         role,
       });
       await logout();
-      router.replace("/(auth)/login");
+      router.replace({ pathname: "/(auth)/login", params } as any);
     } catch (err) {
       setError((err as Error).message);
     } finally {

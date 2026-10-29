@@ -19,6 +19,7 @@ export default function ProviderReviewsScreen() {
   const [average, setAverage] = useState(Number(rating) || 0);
   const [count, setCount] = useState(Number(reviewCount) || 0);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const returnToProvider = useCallback(() => {
     router.replace("/(v_owner)");
@@ -40,6 +41,9 @@ export default function ProviderReviewsScreen() {
       return;
     }
     let active = true;
+    setLoading(true);
+    setLoadFailed(false);
+    setReviews([]);
     getProviderReviewSummary(providerId)
       .then((summary) => {
         if (!active) return;
@@ -48,7 +52,10 @@ export default function ProviderReviewsScreen() {
         setCount(summary.count);
       })
       .catch(() => {
-        if (active) setReviews([]);
+        if (active) {
+          setReviews([]);
+          setLoadFailed(true);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -70,15 +77,21 @@ export default function ProviderReviewsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.summary}>
-          <Ionicons name="star" size={20} color={colors.rating} />
-          <Text style={styles.average}>{average.toFixed(1)}</Text>
-          <Text style={styles.count}>{count} {count === 1 ? "review" : "reviews"}</Text>
-        </View>
-
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
+        ) : loadFailed ? (
+          <View style={styles.empty}>
+            <Ionicons name="alert-circle-outline" size={30} color={colors.textMuted} />
+            <Text style={styles.emptyTitle}>Reviews unavailable</Text>
+            <Text style={styles.emptyCopy}>Please check your connection and try again.</Text>
+          </View>
         ) : reviews.length ? (
+          <>
+          <View style={styles.summary}>
+            <Ionicons name="star" size={20} color={colors.rating} />
+            <Text style={styles.average}>{average.toFixed(1)}</Text>
+            <Text style={styles.count}>{count} {count === 1 ? "review" : "reviews"}</Text>
+          </View>
           <View style={styles.list}>
             {reviews.map((review) => (
               <View key={review.id} style={styles.reviewCard}>
@@ -92,12 +105,20 @@ export default function ProviderReviewsScreen() {
               </View>
             ))}
           </View>
+          </>
         ) : (
-          <View style={styles.empty}>
-            <Ionicons name="chatbubble-ellipses-outline" size={30} color={colors.textMuted} />
-            <Text style={styles.emptyTitle}>No reviews yet</Text>
-            <Text style={styles.emptyCopy}>Customer reviews will appear here.</Text>
-          </View>
+          <>
+            <View style={styles.summary}>
+              <Ionicons name="star" size={20} color={colors.rating} />
+              <Text style={styles.average}>{average.toFixed(1)}</Text>
+              <Text style={styles.count}>{count} {count === 1 ? "review" : "reviews"}</Text>
+            </View>
+            <View style={styles.empty}>
+              <Ionicons name="chatbubble-ellipses-outline" size={30} color={colors.textMuted} />
+              <Text style={styles.emptyTitle}>No reviews yet</Text>
+              <Text style={styles.emptyCopy}>Customer reviews will appear here.</Text>
+            </View>
+          </>
         )}
       </ScrollView>
     </SafeAreaView>

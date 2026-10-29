@@ -42,7 +42,7 @@ const bookingInput = { providerId: "another-shop", providerName: "Stale shop nam
   problem: " Engine won't start ", notes: " Needs diagnosis ", startingPrice: "Free" };
 
 function setup({ status = "pending", providerId = "shop", bookingType = "shop-owner", profile = validProfile,
-  signedIn = true, exists = true, listing = null, vehicle = validVehicle, accountRole = "owner" } = {}) {
+  signedIn = true, exists = true, listing = null, vehicle = validVehicle, accountRole = "owner", directoryExists = true } = {}) {
   const writes = [];
   const auth = { currentUser: signedIn ? { uid: "shop", displayName: "Shop Owner", email: "shop@example.test" } : null };
   const booking = { status, providerId, bookingType };
@@ -62,12 +62,13 @@ function setup({ status = "pending", providerId = "shop", bookingType = "shop-ow
       get: async (path) => {
         const data = path.startsWith("bookings/") ? (exists ? booking : undefined)
           : path.startsWith("providerListings/") ? listing
+          : path.startsWith("publicProviderDirectory/") ? (directoryExists ? {} : undefined)
           : path.includes("/vehicles/") ? vehicle
           : path.startsWith("users/") ? { role: accountRole, displayName: "Vehicle Owner" } : profile;
         return { exists: () => Boolean(data), data: () => data };
       },
       update: (path, values) => writes.push({ path, values }),
-      set: (reference, values) => writes.push({ path: reference.path, values }),
+      set: (reference, values) => writes.push({ path: typeof reference === "string" ? reference : reference.path, values }),
     }),
     updateDoc: async (path, values) => { writes.push({ path, values }); },
     addDoc: async (path, values) => { writes.push({ path, values }); return { id: "new-request" }; },
@@ -477,7 +478,8 @@ test("current map subscriptions never fall back to demo providers", () => {
       "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
         onSnapshot: (_query, next, error) => { listener = next; onError = error; return () => {}; } },
       "../../data/owner/mockProviders": { MOCK_PROVIDERS: [{ id: "demo-tow", category: "Towing" }] },
-      "../../types/providerListing": listingTypes, "../firebase": { db: {} }, "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+      "../../types/providerListing": listingTypes, "../firebase": { db: {}, auth: { currentUser: null } }, "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+      "../providerContactService": { getProviderContactPhone: async () => "" },
     });
     let received;
     let receivedError;
@@ -495,7 +497,8 @@ test("live map excludes closed, busy, hidden and non-emergency shops", () => {
     "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
       onSnapshot: (_query, next) => { listener = next; return () => {}; } },
     "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
-    "../firebase": { db: {} }, "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+    "../firebase": { db: {}, auth: { currentUser: { uid: "signed-in-owner" } } }, "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+    "../providerContactService": { getProviderContactPhone: async () => "" },
   });
   let received;
   service.subscribeToCustomerMapShops((items) => { received = items; }, () => {});
@@ -507,7 +510,7 @@ test("live map excludes closed, busy, hidden and non-emergency shops", () => {
   assert.equal(received[0].isPositiveStatus, true);
 });
 
-test("scheduled map includes offline opted-in providers and excludes hidden or non-opted-in listings", async () => {
+test("signed-in scheduled map includes offline opted-in providers and excludes hidden or non-opted-in listings", async () => {
   let listener;
   let builtQuery;
   const service = load("../services/owner/providerMapService.ts", {
@@ -515,7 +518,8 @@ test("scheduled map includes offline opted-in providers and excludes hidden or n
       query: (...args) => { builtQuery = args; return args; },
       onSnapshot: (_query, next) => { listener = next; return () => {}; } },
     "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
-    "../firebase": { db: {} }, "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+    "../firebase": { db: {}, auth: { currentUser: { uid: "signed-in-owner" } } }, "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+    "../providerContactService": { getProviderContactPhone: async () => "" },
   });
   let received;
   service.subscribeToCustomerMapProviders((items) => { received = items; }, () => {}, true);
@@ -529,6 +533,47 @@ test("scheduled map includes offline opted-in providers and excludes hidden or n
   assert.deepEqual(received.map((item) => item.id), ["offline-shop"]);
 });
 
+test("guest map enumerates ID-only directory and reads listings without touching private contacts", () => {
+  let directoryListener;
+  const listingListeners = new Map();
+  let privateContactReads = 0;
+  const service = load("../services/owner/providerMapService.ts", {
+    "firebase/firestore": {
+      collection: (_db, name) => ({ kind: "collection", name }),
+      doc: (_db, ...parts) => ({ kind: "document", path: parts.join("/") }),
+      where: (...args) => args,
+      query: (source, ...constraints) => ({ kind: "query", source, constraints }),
+      getDoc: async () => { throw new Error("guest map must not issue listing probes in this test"); },
+      onSnapshot: (target, next, error) => {
+        if (target.kind === "collection" && target.name === "publicProviderDirectory") directoryListener = next;
+        else if (target.kind === "document" && target.path.startsWith("providerListings/")) listingListeners.set(target.path.slice("providerListings/".length), { next, error });
+        else throw new Error(`Unexpected guest map target: ${JSON.stringify(target)}`);
+        return () => {};
+      },
+    },
+    "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
+    "../firebase": { db: {}, auth: { currentUser: null } },
+    "./ratingService": { getProviderReviewSummary: async () => { throw new Error("guest map must not read reviews"); } },
+    "../providerContactService": { getProviderContactPhone: async () => { privateContactReads += 1; throw new Error("guest map must not read contacts"); } },
+  });
+  const received = [];
+  const stop = service.subscribeToCustomerMapProviders((items) => received.push(items), (error) => { throw error; }, true);
+  const ids = ["scheduled-shop", "not-scheduled", "hidden-provider", "phone-provider"];
+  directoryListener({ docs: ids.map((id) => ({ id, data: () => ({}) })) });
+  const scheduled = { ...validListing, providerId: "scheduled-shop", role: "shop-owner", category: "Auto Shops", availability: "offline", acceptsScheduledBookings: true,
+    emergencyServiceAvailable: true, services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 4.4, count: 8 } };
+  const notScheduled = { ...scheduled, providerId: "not-scheduled", acceptsScheduledBookings: false };
+  listingListeners.get("scheduled-shop").next({ exists: () => true, data: () => scheduled });
+  listingListeners.get("not-scheduled").next({ exists: () => true, data: () => notScheduled });
+  listingListeners.get("hidden-provider").error({ code: "permission-denied" });
+  listingListeners.get("phone-provider").error({ code: "permission-denied" });
+  assert.deepEqual(received.at(-1).map((item) => item.id), ["scheduled-shop"]);
+  assert.equal(received.at(-1)[0].ratingStatus, "hidden", "guest map providers must not render saved listing rating totals");
+  assert.equal(privateContactReads, 0);
+  assert.equal(listingListeners.size, ids.length, "each directory ID is fetched only through its listing document listener");
+  stop();
+});
+
 test("shop map publishes listing changes immediately and ignores delayed reviews from older snapshots", async () => {
   let listener;
   const pendingReviews = [];
@@ -536,9 +581,10 @@ test("shop map publishes listing changes immediately and ignores delayed reviews
     "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
       onSnapshot: (_query, next) => { listener = next; return () => {}; } },
     "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
-    "../firebase": { db: {} }, "./ratingService": {
+    "../firebase": { db: {}, auth: { currentUser: { uid: "signed-in-owner" } } }, "./ratingService": {
       getProviderReviewSummary: () => new Promise((resolve) => pendingReviews.push(resolve)),
     },
+    "../providerContactService": { getProviderContactPhone: async () => "09123456789" },
   });
   const received = [];
   service.subscribeToCustomerMapShops((items) => received.push(items), () => {});
@@ -555,6 +601,75 @@ test("shop map publishes listing changes immediately and ignores delayed reviews
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(received.at(-1)[0].name, "New Shop Details");
   assert.equal(received.at(-1)[0].rating, 5);
+  assert.equal(received.at(-1)[0].phone, "09123456789", "signed-in map keeps Call and SMS contact data from providerContacts");
+  assert.equal(received.at(-1)[0].ratingStatus, "visible", "signed-in users retain loaded review summaries");
+});
+
+test("signed-in map marks failed review queries unavailable instead of showing a zero rating", async () => {
+  let listener;
+  const service = load("../services/owner/providerMapService.ts", {
+    "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
+      onSnapshot: (_query, next) => { listener = next; return () => {}; } },
+    "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
+    "../firebase": { db: {}, auth: { currentUser: { uid: "signed-in-owner" } } },
+    "./ratingService": { getProviderReviewSummary: async () => { throw new Error("offline"); } },
+    "../providerContactService": { getProviderContactPhone: async () => "" },
+  });
+  const received = [];
+  service.subscribeToCustomerMapProviders((items) => received.push(items), () => {});
+  listener({ docs: [{ data: () => ({ ...validListing, providerId: "provider", role: "onsite-mechanic",
+    category: "Onsite Mechanics", services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 } }) }] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(received.at(-1)[0].ratingStatus, "unavailable");
+});
+
+test("map and review screens hide guest rating totals and show query failures as unavailable", () => {
+  const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+  const card = read("../components/owner/ProviderDetailCard.tsx");
+  const dashboard = read("../app/(v_owner)/index.tsx");
+  const reviewScreen = read("../app/(v_owner)/provider-reviews.tsx");
+  const mapPopup = read("../utils/owner/buildMapHtml.ts");
+  assert.match(card, /ratingStatus !== "hidden"/);
+  assert.match(card, /ratingStatus === "unavailable"/);
+  assert.match(dashboard, /provider\.ratingStatus === "hidden" \? null/);
+  assert.match(dashboard, /Reviews unavailable/);
+  assert.match(reviewScreen, /setLoadFailed\(true\)/);
+  assert.match(reviewScreen, /Reviews unavailable/);
+  assert.match(reviewScreen, /No reviews yet/);
+  assert.doesNotMatch(mapPopup, /reviewCount|\.rating|rating:/, "map marker popups do not render ratings");
+});
+
+test("guest contact and booking actions retain guards and the centered prompt continues through auth with provider context", () => {
+  const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+  const detail = read("../components/owner/ProviderDetailCard.tsx");
+  const login = read("../app/(auth)/login.tsx");
+  const prompt = detail.match(/<Modal visible=\{showGuestAuthPrompt\}[\s\S]*?<\/Modal>/)?.[0] ?? "";
+  assert.match(detail, /const contactProvider = async[\s\S]*?if \(!auth\.currentUser\) \{ setShowGuestAuthPrompt\(true\); return; \}/);
+  assert.match(detail, /const openBooking = async \(\) => \{\s*if \(!auth\.currentUser\) \{ setShowGuestAuthPrompt\(true\); return; \}/);
+  assert.match(prompt, /styles\.verificationBackdrop/);
+  assert.match(prompt, /Account required/);
+  assert.match(prompt, /Log in or sign up to contact a provider or book a service\./);
+  assert.match(prompt, /accessibilityLabel="Close account required message"/);
+  assert.match(prompt, /<Button title="Continue"/);
+  assert.match(prompt, /pathname: "\/\(auth\)\/login", params: \{ providerId: provider\.id, category: provider\.category, timingMode \}/);
+  assert.doesNotMatch(prompt, />Log In<|>Sign Up<|>Cancel</);
+  assert.match(login, /<Link href=\{\{ pathname: "\/\(auth\)\/register", params \}\} asChild>/);
+});
+
+test("guest owner navigation shows Home, Log In and Sign Up while signed-in tabs stay protected and unchanged", () => {
+  const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
+  const layout = read("../app/(v_owner)/_layout.tsx");
+  const dashboard = read("../app/(v_owner)/index.tsx");
+  assert.match(layout, /if \(guest && ownerScreen\) return <Redirect href="\/\(v_owner\)" \/>/);
+  assert.match(layout, /tabBarButton: guest \? \(props\)/);
+  assert.match(layout, /accessibilityLabel="Home"/);
+  assert.match(layout, /href="\/\(auth\)\/login"/);
+  assert.match(layout, /accessibilityLabel="Log In"/);
+  assert.match(layout, /href="\/\(auth\)\/register"/);
+  assert.match(layout, /Link href="\/\(auth\)\/register"/);
+  assert.match(layout, /href: guest \? null : undefined/);
+  for (const title of ["Vehicles", "History", "Notifications", "Profile"]) assert.match(layout, new RegExp(`title: "${title}"`));
+  assert.doesNotMatch(dashboard, />Log In<|>Sign Up</, "guest auth actions no longer sit above dashboard search");
 });
 
 test("open shop request listing subscription streams changes and clears shops that stop being bookable", () => {
@@ -567,6 +682,7 @@ test("open shop request listing subscription streams changes and clears shops th
     },
     "../types/providerListing": listingTypes,
     "./firebase": { db: {} },
+    "./providerContactService": {},
   });
   const received = [];
   const stop = service.subscribeToBookableShopListing("shop", (listing) => received.push(listing), () => {});
@@ -582,49 +698,61 @@ test("open shop request listing subscription streams changes and clears shops th
 
 test("shop publication requires approval and derives public identity/availability from the shop profile", async () => {
   for (const verified of [false, true]) {
-    let written;
+    const writes = [];
     const service = load("../services/publicProviderListingService.ts", {
       "firebase/firestore": { doc: (_db, ...parts) => parts.join("/"),
         runTransaction: async (_db, action) => action({
           get: async (reference) => reference === "providers/shop"
             ? { data: () => ({ ...validProfile, verified, status: "closed" }) }
-            : { exists: () => false },
-          set: (path, data) => { written = { path, data }; },
-          update: (path, data) => { written = { path, data }; },
+            : { exists: () => false, data: () => undefined },
+          set: (path, data) => writes.push({ path, data }),
+          update: (path, data) => writes.push({ path, data }),
+          delete: (path) => writes.push({ path, delete: true }),
         }) },
       "../types/providerListing": listingTypes,
       "./firebase": { db: {} },
+      "./providerContactService": {},
     });
     const input = { ...validListing, services: ["Engine Diagnostics"], vehicleTypes: ["Car"], operatingHours: "Daily" };
     if (!verified) {
       await assert.rejects(service.updatePublicProviderListing("shop", "shop-owner", input), /approved/);
-      assert.equal(written, undefined);
+      assert.equal(writes.length, 0);
     } else {
       await service.updatePublicProviderListing("shop", "shop-owner", input);
-      assert.equal(written.path, "providerListings/shop");
-      assert.equal(written.data.category, "Auto Shops");
-      assert.equal(written.data.availability, "offline");
-      assert.equal(written.data.businessName, input.businessName);
-      assert.deepEqual(written.data.location, { latitude: 14.67, longitude: 121.04 });
+      const listingWrite = writes.find((write) => write.path === "providerListings/shop");
+      assert.ok(listingWrite);
+      assert.equal(listingWrite.data.category, "Auto Shops");
+      assert.equal(listingWrite.data.availability, "offline");
+      assert.equal(listingWrite.data.businessName, input.businessName);
+      assert.deepEqual(listingWrite.data.location, { latitude: 14.67, longitude: 121.04 });
+      assert.equal(listingWrite.data.contactPhone, "");
+      assert.ok(writes.some((write) => write.path === "providerContacts/shop" && write.delete));
+      assert.ok(!writes.some((write) => write.path === "publicProviderDirectory/shop"), "closed non-scheduled listing saves without attempting a directory create");
     }
   }
 });
 
-test("shop listing updates omit an empty public contact number", async () => {
-  let updated;
-  const currentListing = { exists: () => true };
+test("blank shop saves preserve a valid private contact and clear the public phone atomically", async () => {
+  const writes = [];
+  const currentListing = { exists: () => true, data: () => ({ contactPhone: "09170000000" }) };
+  const existingContact = { exists: () => true, data: () => ({ providerId: "shop", phone: "09998887777" }) };
   const service = load("../services/publicProviderListingService.ts", {
     "firebase/firestore": {
       doc: (_db, ...parts) => parts.join("/"),
       runTransaction: async (_db, action) => action({
         get: async (reference) => reference === "providers/shop"
           ? { data: () => ({ ...validProfile, status: "open" }) }
+          : reference === "providerContacts/shop" ? existingContact
+          : reference === "publicProviderDirectory/shop" ? { exists: () => false, data: () => undefined }
           : currentListing,
-        update: (_reference, data) => { updated = data; },
+        update: (reference, data) => writes.push({ path: reference, data }),
+        set: (reference, data) => writes.push({ path: reference, data }),
+        delete: (reference) => writes.push({ path: reference, delete: true }),
       }),
     },
     "../types/providerListing": listingTypes,
     "./firebase": { db: {} },
+    "./providerContactService": {},
   });
   await service.updatePublicProviderListing("shop", "shop-owner", {
     businessName: "Repair Shop",
@@ -639,6 +767,124 @@ test("shop listing updates omit an empty public contact number", async () => {
     startingPrice: null,
     emergencyServiceAvailable: true,
   });
-  assert.ok(updated);
-  assert.equal(Object.hasOwn(updated, "contactPhone"), false);
+  const listingWrite = writes.find((write) => write.path === "providerListings/shop");
+  const contactWrite = writes.find((write) => write.path === "providerContacts/shop");
+  const directoryWrite = writes.find((write) => write.path === "publicProviderDirectory/shop");
+  assert.equal(listingWrite?.data.contactPhone, "");
+  assert.deepEqual(contactWrite?.data, { providerId: "shop", phone: "09998887777" });
+  assert.deepEqual(directoryWrite?.data, {});
+});
+
+test("offline non-scheduled full listing saves do not attempt an ineligible directory create", async () => {
+  const roles = [
+    ["onsite-mechanic", "Mechanic", "Onsite Mechanics", "Engine Diagnostics"],
+    ["towing-company", "Towing", "Towing", "Flatbed Towing"],
+    ["shop-owner", "Shop", "Auto Shops", "Engine repair"],
+    ["homegarage", "Garage", "Parking Lots", "Oil change"],
+  ];
+  for (const [role, uid, category, serviceName] of roles) {
+    const writes = [];
+    const service = load("../services/publicProviderListingService.ts", {
+      "firebase/firestore": {
+        doc: (_db, ...parts) => parts.join("/"),
+        runTransaction: async (_db, action) => action({
+          get: async (reference) => reference === `providers/${uid}`
+            ? { data: () => ({ ...validProfile, uid, status: "closed", verified: true }) }
+            : { exists: () => false, data: () => undefined },
+          set: (reference, data) => writes.push({ path: reference, data }),
+          update: (reference, data) => writes.push({ path: reference, data }),
+          delete: (reference) => writes.push({ path: reference, delete: true }),
+        }),
+      },
+      "../types/providerListing": listingTypes,
+      "./firebase": { db: {} },
+      "./providerContactService": {},
+    });
+    await service.updatePublicProviderListing(uid, role, {
+      businessName: "Offline Provider", location: { latitude: 14.67, longitude: 121.04 },
+      availability: "offline", visibility: "active", serviceAreaLabel: "Quezon City",
+      description: "Services by appointment", contactPhone: "", services: [serviceName],
+      vehicleTypes: ["Cars"], operatingHours: "Daily", startingPrice: null,
+      emergencyServiceAvailable: true, acceptsScheduledBookings: false,
+    });
+    assert.ok(writes.some((write) => write.path === `providerListings/${uid}`), `${role} listing was saved`);
+    assert.ok(!writes.some((write) => write.path === `publicProviderDirectory/${uid}`), `${role} did not attempt an ineligible directory create`);
+  }
+});
+
+test("eligibility transitions atomically create missing IDs and existing directory entries survive toggles for all roles", async () => {
+  const listingService = (uid, role, listing, directoryExists) => {
+    const writes = [];
+    const service = load("../services/publicProviderListingService.ts", {
+      "firebase/firestore": {
+        doc: (_db, ...parts) => parts.join("/"),
+        runTransaction: async (_db, action) => action({
+          get: async (reference) => reference === `providerListings/${uid}`
+            ? { exists: () => true, data: () => listing }
+            : { exists: () => directoryExists, data: () => directoryExists ? {} : undefined },
+          update: (reference, data) => writes.push({ kind: "update", path: reference, data }),
+          set: (reference, data) => writes.push({ kind: "set", path: reference, data }),
+        }),
+      },
+      "../types/providerListing": listingTypes,
+      "./firebase": { db: {} },
+      "./providerContactService": {},
+    });
+    return { service, writes };
+  };
+  const roleListings = [
+    ["onsite-mechanic", { role: "onsite-mechanic", visibility: "active", availability: "offline", contactPhone: "", acceptsScheduledBookings: false, ratingSummary: { average: 4.8, count: 12 } }],
+    ["towing-company", { role: "towing-company", visibility: "active", availability: "offline", contactPhone: "", acceptsScheduledBookings: false, ratingSummary: { average: 4.6, count: 7 } }],
+  ];
+  for (const [role, listing] of roleListings) {
+    const uid = `toggle-${role}`;
+    const missing = listingService(uid, role, { ...listing }, false);
+    await (role === "onsite-mechanic" ? missing.service.updateMechanicAvailability(uid, "available") : missing.service.updateTowingAvailability(uid, "available"));
+    assert.deepEqual(missing.writes, [
+      { kind: "update", path: `providerListings/${uid}`, data: { availability: "available" } },
+      { kind: "set", path: `publicProviderDirectory/${uid}`, data: {} },
+    ], `${role} availability and ID are written in one transaction`);
+
+    const existing = listingService(uid, role, { ...listing, availability: "available" }, true);
+    await (role === "onsite-mechanic" ? existing.service.updateMechanicAvailability(uid, "offline") : existing.service.updateTowingAvailability(uid, "offline"));
+    await (role === "onsite-mechanic" ? existing.service.updateMechanicAvailability(uid, "available") : existing.service.updateTowingAvailability(uid, "available"));
+    assert.deepEqual(existing.writes.map((write) => write.path), [`providerListings/${uid}`, `providerListings/${uid}`]);
+  }
+
+  const shopListing = { role: "shop-owner", visibility: "active", availability: "offline", contactPhone: "", acceptsScheduledBookings: false, ratingSummary: { average: 4.9, count: 21 } };
+  const shopMissing = setup({ providerId: "shop", profile: { ...validProfile, status: "open" }, listing: shopListing, directoryExists: false });
+  await shopMissing.service.setShopAvailability("open");
+  assert.ok(shopMissing.writes.some((write) => write.path === "providerListings/shop" && write.values.availability === "available"));
+  assert.ok(shopMissing.writes.some((write) => write.path === "publicProviderDirectory/shop" && Object.keys(write.values).length === 0));
+  const shopExisting = setup({ providerId: "shop", profile: { ...validProfile, status: "open" }, listing: { ...shopListing, availability: "available" }, directoryExists: true });
+  await shopExisting.service.setShopAvailability("closed");
+  await shopExisting.service.setShopAvailability("open");
+  assert.ok(!shopExisting.writes.some((write) => write.path === "publicProviderDirectory/shop"), "existing shop directory ID is untouched");
+
+  const parkingFixture = (available, directoryExists) => {
+    const writes = [];
+    const service = load("../services/parkingBookingService.ts", {
+      "firebase/firestore": {
+        collection: () => "collection", doc: (_db, ...parts) => parts.join("/"),
+        runTransaction: async (_db, action) => action({
+          get: async (reference) => reference === "providerListings/garage"
+            ? { exists: () => true, data: () => ({ role: "homegarage", visibility: "active", availability: available ? "offline" : "available", contactPhone: "", acceptsScheduledBookings: false, ratingSummary: { average: 4.7, count: 9 } }) }
+            : { exists: () => directoryExists, data: () => ({}) },
+          update: (reference, data) => writes.push({ kind: "update", path: reference, data }),
+          set: (reference, data) => writes.push({ kind: "set", path: reference, data }),
+        }),
+      },
+      "./firebase": { auth: { currentUser: { uid: "garage" } }, db: {} },
+      "./ownerVerificationProfileService": {},
+    });
+    return { service, writes };
+  };
+  const garageMissing = parkingFixture(true, false);
+  await garageMissing.service.setParkingAvailability(true);
+  assert.ok(garageMissing.writes.some((write) => write.path === "providerListings/garage" && write.data.availability === "available"));
+  assert.ok(garageMissing.writes.some((write) => write.path === "publicProviderDirectory/garage" && Object.keys(write.data).length === 0));
+  const garageExisting = parkingFixture(false, true);
+  await garageExisting.service.setParkingAvailability(false);
+  await garageExisting.service.setParkingAvailability(true);
+  assert.ok(!garageExisting.writes.some((write) => write.path === "publicProviderDirectory/garage"), "existing Home Garage directory ID is untouched");
 });

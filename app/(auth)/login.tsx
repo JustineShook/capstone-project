@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { Link, useRouter } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -17,6 +17,7 @@ import { getDashboardRoute, getUserProfile, login } from "../../services/auth";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ providerId?: string; category?: string; timingMode?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -44,7 +45,13 @@ export default function LoginScreen() {
         setError("Your account role isn't recognized. Please contact support.");
         return;
       }
-      router.replace(route as any);
+      if (profile.role === "owner" && params.providerId) {
+        router.replace({ pathname: "/(v_owner)", params: {
+          selectedProviderId: params.providerId,
+          ...(params.category ? { selectedCategory: params.category } : {}),
+          ...(params.timingMode ? { discoveryMode: params.timingMode } : {}),
+        } } as any);
+      } else router.replace(route as any);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -145,7 +152,7 @@ export default function LoginScreen() {
             <View style={styles.signupRow}>
               <View style={styles.divider} />
               <Text style={styles.signupPrompt}>New to VeResc?</Text>
-              <Link href="/(auth)/register" asChild>
+              <Link href={{ pathname: "/(auth)/register", params }} asChild>
                 <TouchableOpacity><Text style={styles.signupLink}>Sign Up</Text></TouchableOpacity>
               </Link>
               <View style={styles.divider} />

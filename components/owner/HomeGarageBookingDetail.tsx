@@ -13,6 +13,7 @@ import { CustomerRating } from "./CustomerRating";
 import { ServiceProgress } from "./ServiceProgress";
 import { colors } from "../../constants/owner/theme";
 import { getPublicProviderListing } from "../../services/publicProviderListingService";
+import { getProviderContactPhone } from "../../services/providerContactService";
 import {
   completeHomeGarageRepair, saveHomeGarageAssessmentPrice, startHomeGarageRepair,
   subscribeToHomeGarageBooking, updateHomeGarageBookingStatus, updateHomeGarageRepairProgress,
@@ -81,7 +82,11 @@ export function HomeGarageBookingDetail({ providerMode = false }: { providerMode
     if (providerMode || !booking?.providerId) { setProviderPhone(""); return; }
     let active = true;
     void getPublicProviderListing(booking.providerId)
-      .then((listing) => { if (active) setProviderPhone(listing?.contactPhone?.trim() ?? ""); })
+      .then(async (listing) => {
+        let phone = listing?.contactPhone?.trim() ?? "";
+        try { phone = await getProviderContactPhone(booking.providerId) || phone; } catch { /* Legacy fallback during migration. */ }
+        if (active) setProviderPhone(phone);
+      })
       .catch(() => { if (active) setProviderPhone(""); });
     return () => { active = false; };
   }, [booking?.providerId, providerMode]);

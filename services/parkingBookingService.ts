@@ -3,11 +3,13 @@ import { collection, doc, getDocs, limit, onSnapshot, query, runTransaction, ser
 import { auth, db } from "./firebase";
 import type { ParkingBooking } from "../types/parkingBooking";
 import type { SavedVehicle } from "../types/owner/vehicle";
+import type { ProviderListing } from "../types/providerListing";
 import { requireVerifiedOwner } from "./ownerVerificationProfileService";
 
 const LISTINGS = "providerListings";
 const BOOKINGS = "parkingBookings";
 const SLOTS = "parkingSlots";
+
 export type ParkingSlot = { id: string; slotNumber: number; status: "available" | "reserved"; customerId: string | null; bookingId: string | null };
 
 function requireUser() { const user = auth.currentUser; if (!user) throw new Error("Sign in required."); return user; }
@@ -47,7 +49,20 @@ export async function setParkingAvailability(available: boolean) {
     const ref = doc(db, LISTINGS, user.uid);
     const snap = await tx.get(ref);
     if (!snap.exists() || snap.data().role !== "homegarage") throw new Error("Create your Home Garage public listing first.");
-    tx.update(ref, { availability: available ? "available" : "offline" });
+    const listing = snap.data() as ProviderListing;
+    const directoryRef = doc(db, "publicProviderDirectory", user.uid);
+    const directory = await tx.get(directoryRef);
+    const next = {
+      ...listing,
+      availability: available ? "available" as const : "offline" as const,
+    };
+    tx.update(ref, { availability: next.availability });
+    if (!directory.exists()
+      && listing.visibility === "active"
+      && !listing.contactPhone
+      && (next.availability === "available" || listing.acceptsScheduledBookings === true)) {
+      tx.set(directoryRef, {});
+    }
   });
 }
 

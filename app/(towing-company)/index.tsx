@@ -6,7 +6,7 @@ import { Alert, ImageBackground, ScrollView, StatusBar, StyleSheet, Switch, Text
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { auth } from "../../services/firebase";
 import { useActionRisk } from "../../hooks/useActionRisk";
-import { getPublicProviderListing, updatePublicProviderListing } from "../../services/publicProviderListingService";
+import { getPublicProviderListing, updateTowingAvailability } from "../../services/publicProviderListingService";
 import { getTowingCompanyProfile } from "../../services/towingCompanyProfileService";
 import { subscribeToTowingRequests } from "../../services/owner/towingService";
 import { subscribeToTowingNotifications } from "../../services/towingNotificationService";
@@ -84,10 +84,17 @@ export default function TowingCompanyDashboard() {
 
   const pending = useMemo(() => bookings.filter((booking) => booking.status === "pending"), [bookings]);
   const active = useMemo(() => bookings.find((booking) => ACTIVE_STATUSES.includes(booking.status)), [bookings]);
+  const serviceInProgress = useMemo(() => bookings.some((booking) =>
+    booking.status === "en_route" || booking.status === "arrived" || booking.status === "in_progress"
+    || (booking.status === "accepted" && booking.timingMode !== "scheduled")), [bookings]);
   const completed = useMemo(() => bookings.filter((booking) => booking.status === "completed").length, [bookings]);
   const open = (id: string) => router.push({ pathname: "/(towing-company)/request-details", params: { id } });
 
   const toggleAvailability = async (next: boolean) => {
+    if (serviceInProgress) {
+      Alert.alert("Service in progress", "Availability will return to its previous state when this service ends.");
+      return;
+    }
     const uid = auth.currentUser?.uid;
     if (!uid || !listingSettings) {
       Alert.alert("Listing required", "Set up your public listing before becoming available.", [
@@ -98,10 +105,7 @@ export default function TowingCompanyDashboard() {
     }
     setSavingAvailability(true);
     try {
-      await updatePublicProviderListing(uid, "towing-company", {
-        ...listingSettings,
-        availability: next ? "available" : "offline",
-      });
+      await updateTowingAvailability(uid, next ? "available" : "offline");
       setOnline(next);
     } catch (error) {
       Alert.alert("Availability not changed", error instanceof Error ? error.message : "Please try again.");
@@ -133,13 +137,13 @@ export default function TowingCompanyDashboard() {
           <View style={s.heroShade} />
           <View style={s.heroTop}>
             <View style={s.heroCopy}>
-              <View style={s.locationRow}><Feather name="map-pin" size={13} color={online ? C.green : "#F4A45D"} /><Text style={s.locationLabel} numberOfLines={1}>{listingSettings?.serviceAreaLabel || "Towing provider"}</Text></View>
-              <Text style={s.heroTitle}>{online ? "Ready to assist" : "You're offline"}</Text>
-              <Text style={s.heroHint}>{online ? "Your towing service is online." : "Go online to receive new requests."}</Text>
+              <View style={s.locationRow}><Feather name="map-pin" size={13} color={serviceInProgress ? C.red : online ? C.green : "#F4A45D"} /><Text style={s.locationLabel} numberOfLines={1}>{listingSettings?.serviceAreaLabel || "Towing provider"}</Text></View>
+              <Text style={s.heroTitle}>{serviceInProgress ? "Service in progress" : online ? "Ready to assist" : "You're offline"}</Text>
+              <Text style={s.heroHint}>{serviceInProgress ? "New immediate jobs are paused until this service ends." : online ? "Your towing service is online." : "Go online to receive new requests."}</Text>
             </View>
             <View style={s.availabilityToggle}>
-              <View style={[s.statusDot, online && s.statusDotOnline]} /><Text style={s.availableLabel}>{online ? "Online" : "Offline"}</Text>
-              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
+              <View style={[s.statusDot, online && s.statusDotOnline]} /><Text style={s.availableLabel}>{serviceInProgress ? "Busy" : online ? "Online" : "Offline"}</Text>
+              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability || serviceInProgress} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
             </View>
           </View>
           <View style={s.heroDivider} />

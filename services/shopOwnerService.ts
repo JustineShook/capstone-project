@@ -167,7 +167,8 @@ export async function saveShopProfile(input: ShopProfileInput): Promise<void> {
     const listing = (await transaction.get(listingRef)).data();
     transaction.update(profileRef, { businessName, phone, address, latitude: input.latitude, longitude: input.longitude });
     if (profile?.verified === true && listing?.role === "shop-owner" && listing.visibility === "active") {
-      transaction.update(listingRef, { businessName, location: { latitude: input.latitude, longitude: input.longitude } });
+      const patch = { businessName, location: { latitude: input.latitude, longitude: input.longitude } };
+      transaction.update(listingRef, patch);
     }
   });
 }
@@ -179,6 +180,8 @@ export async function setShopAvailability(status: "open" | "closed"): Promise<vo
     const snapshot = await transaction.get(reference);
     const listingRef = doc(db, "providerListings", user.uid);
     const listing = (await transaction.get(listingRef)).data();
+    const directoryRef = doc(db, "publicProviderDirectory", user.uid);
+    const directory = await transaction.get(directoryRef);
     const profile = snapshot.data() as ProviderProfile | undefined;
     if (!profile || profile.uid !== user.uid || profile.role !== "shop-owner") throw new Error("Shop profile not found.");
     if (status === "open" && profile.verified !== true) {
@@ -192,7 +195,13 @@ export async function setShopAvailability(status: "open" | "closed"): Promise<vo
     }
     transaction.update(reference, { status });
     if (profile.verified === true && listing?.role === "shop-owner" && listing.visibility === "active") {
-      transaction.update(listingRef, { availability: status === "open" ? "available" : "offline" });
+      const availability = status === "open" ? "available" : "offline";
+      transaction.update(listingRef, { availability });
+      if (!directory.exists()
+        && !listing.contactPhone
+        && (availability === "available" || listing.acceptsScheduledBookings === true)) {
+        transaction.set(directoryRef, {});
+      }
     }
   });
 }

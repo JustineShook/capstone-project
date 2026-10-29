@@ -1,7 +1,8 @@
-import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, where, writeBatch, type DocumentReference, type Transaction } from "firebase/firestore";
 
 import { isBookableShopListing, type ProviderListing, type PublicProviderListingInput } from "../types/providerListing";
 import { db } from "./firebase";
+import { getProviderContactPhone } from "./providerContactService";
 
 type ProviderRole = ProviderListing["role"];
 
@@ -126,6 +127,34 @@ async function logHomeGarageWriteDiagnostic(uid: string, listing: ProviderListin
 }
 
 const publicProviderListingRef = (uid: string) => doc(db, "providerListings", uid);
+const publicProviderDirectoryRef = (uid: string) => doc(db, "publicProviderDirectory", uid);
+
+function isDirectoryEligible(listing: Pick<ProviderListing, "availability" | "visibility" | "acceptsScheduledBookings" | "contactPhone">): boolean {
+  return listing.visibility === "active"
+    && !listing.contactPhone
+    && (listing.availability === "available" || listing.acceptsScheduledBookings === true);
+}
+
+async function syncAvailability(uid: string, availability: ProviderListing["availability"]): Promise<void> {
+  await runTransaction(db, async (transaction) => {
+    const listingRef = publicProviderListingRef(uid);
+    const activeServiceRef = doc(db, "providerActiveServices", uid);
+    const [snapshot, activeService] = await Promise.all([
+      transaction.get(listingRef), transaction.get(activeServiceRef),
+    ]);
+    if (!snapshot.exists()) throw new Error("Create your public listing first.");
+    const serviceLock = activeService.data();
+    if (activeService.exists() && serviceLock?.providerId === uid && typeof serviceLock.bookingId === "string") {
+      throw new Error("Availability is locked while you have an active service.");
+    }
+    const directoryRef = publicProviderDirectoryRef(uid);
+    const directorySnapshot = await transaction.get(directoryRef);
+    const listing = snapshot.data() as ProviderListing;
+    const nextListing = { ...listing, availability };
+    transaction.update(listingRef, { availability });
+    if (!directorySnapshot.exists() && isDirectoryEligible(nextListing)) transaction.set(directoryRef, {});
+  });
+}
 
 async function ensureParkingSlots(uid: string, totalSlots: number) {
   let existing;
@@ -150,7 +179,17 @@ async function ensureParkingSlots(uid: string, totalSlots: number) {
 
 export async function getPublicProviderListing(uid: string): Promise<ProviderListing | null> {
   const snapshot = await getDoc(publicProviderListingRef(uid));
-  return snapshot.exists() ? (snapshot.data() as ProviderListing) : null;
+  if (!snapshot.exists()) return null;
+  const listing = snapshot.data() as ProviderListing;
+  if (!listing.contactPhone && listing.visibility === "active") {
+    try {
+      const contactPhone = await getProviderContactPhone(uid);
+      if (contactPhone) listing.contactPhone = contactPhone;
+    } catch {
+      // Keep legacy listing data available if contact lookup is unavailable.
+    }
+  }
+  return listing;
 }
 
 /** Streams only an approved, open shop listing to a customer request screen. */
@@ -169,12 +208,17 @@ export function subscribeToBookableShopListing(
   }, onError);
 }
 
+/** Changes only availability on an existing verified Towing listing. */
+export async function updateTowingAvailability(uid: string, availability: "available" | "offline"): Promise<void> {
+  await syncAvailability(uid, availability);
+}
+
 /** Changes only availability on an existing verified mechanic listing. */
 export async function updateMechanicAvailability(
   uid: string,
   availability: "available" | "offline"
 ): Promise<void> {
-  await updateDoc(publicProviderListingRef(uid), { availability });
+  await syncAvailability(uid, availability);
 }
 
 /**
@@ -187,6 +231,10 @@ export async function updatePublicProviderListing(
   role: ProviderRole,
   input: PublicProviderListingInput
 ): Promise<void> {
+  const submittedPhone = typeof input.contactPhone === "string" ? input.contactPhone.trim() : "";
+  if (submittedPhone && (submittedPhone.length < 7 || submittedPhone.length > 30)) {
+    throw new Error("Enter a valid contact number.");
+  }
   const category: ProviderListing["category"] = role === "onsite-mechanic"
     ? "Onsite Mechanics"
     : role === "shop-owner" ? "Auto Shops" : role === "homegarage" ? "Parking Lots" : "Towing";
@@ -207,11 +255,11 @@ export async function updatePublicProviderListing(
     vehicleTypes: [...input.vehicleTypes],
     serviceAreaLabel: input.serviceAreaLabel,
     description: input.description,
-    ...(input.contactPhone ? { contactPhone: input.contactPhone } : {}),
     startingPrice: input.startingPrice,
     operatingHours: input.operatingHours,
     emergencyServiceAvailable: input.emergencyServiceAvailable,
     acceptsScheduledBookings: input.acceptsScheduledBookings === true,
+    contactPhone: "",
     ...(input.photoUrls ? { photoUrls: [...input.photoUrls] } : {}),
     ...((role === "onsite-mechanic" || role === "shop-owner") && input.hoursType ? { hoursType: input.hoursType, is24Hours: input.is24Hours === true, weeklyHours: input.weeklyHours ?? [] } : {}),
     ...(role === "homegarage" && input.totalSlots ? { totalSlots: input.totalSlots, availableSlots: input.availableSlots ?? input.totalSlots } : {}),
@@ -226,11 +274,21 @@ export async function updatePublicProviderListing(
       }
       const listingRef = publicProviderListingRef(uid);
       const currentListing = await transaction.get(listingRef);
+      const contactRef = doc(db, "providerContacts", uid);
+      const existingContact = await transaction.get(contactRef);
+      const directoryRef = publicProviderDirectoryRef(uid);
+      const existingDirectory = await transaction.get(directoryRef);
+      const oldListingPhone = currentListing.data()?.contactPhone;
+      const oldContactPhone = existingContact.data()?.phone;
+      const contactPhone = submittedPhone || validStoredPhone(oldContactPhone) || validStoredPhone(oldListingPhone);
       const shopListing: ProviderListing = {
         ...listing,
         availability: profile.status === "open" ? "available" : "offline",
         emergencyServiceAvailable: true,
       };
+      const directoryCandidate = currentListing.exists()
+        ? { ...currentListing.data(), ...shopListing, ratingSummary: currentListing.data()?.ratingSummary } as ProviderListing
+        : shopListing;
 
       if (currentListing.exists()) {
         // Existing listing updates are deliberately limited by Firestore rules
@@ -242,7 +300,6 @@ export async function updatePublicProviderListing(
           availability,
           serviceAreaLabel,
           description,
-          contactPhone,
           services,
           vehicleTypes,
           operatingHours,
@@ -276,13 +333,12 @@ export async function updatePublicProviderListing(
           providerEditableFields.is24Hours = is24Hours;
           providerEditableFields.weeklyHours = weeklyHours ?? [];
         }
-        // updateDoc rejects undefined values. Older shop listings may not yet
-        // have a public contact number, so omit it until the owner supplies one.
-        if (contactPhone) providerEditableFields.contactPhone = contactPhone;
-        transaction.update(listingRef, providerEditableFields);
+        transaction.update(listingRef, { ...providerEditableFields, contactPhone: "" });
       } else {
         transaction.set(listingRef, shopListing);
       }
+      writeContact(transaction, contactRef, uid, contactPhone);
+      if (!existingDirectory.exists() && isDirectoryEligible(directoryCandidate)) transaction.set(directoryRef, {});
       });
     } catch (error) {
       logListingDiagnostic("shop-owner", "listing-transaction", error);
@@ -291,7 +347,27 @@ export async function updatePublicProviderListing(
     return;
   }
   try {
-    await setDoc(publicProviderListingRef(uid), listing);
+    await runTransaction(db, async (transaction) => {
+      const listingRef = publicProviderListingRef(uid);
+      const existing = await transaction.get(listingRef);
+      const contactRef = doc(db, "providerContacts", uid);
+      const existingContact = await transaction.get(contactRef);
+      const directoryRef = publicProviderDirectoryRef(uid);
+      const existingDirectory = await transaction.get(directoryRef);
+      const oldListingPhone = existing.data()?.contactPhone;
+      const oldContactPhone = existingContact.data()?.phone;
+      const contactPhone = submittedPhone || validStoredPhone(oldContactPhone) || validStoredPhone(oldListingPhone);
+      if (!existing.exists()) {
+        transaction.set(listingRef, listing);
+        writeContact(transaction, contactRef, uid, contactPhone);
+        if (!existingDirectory.exists() && isDirectoryEligible(listing)) transaction.set(directoryRef, {});
+        return;
+      }
+      const { providerId: _providerId, role: _role, category: _category, ratingSummary: _ratingSummary, ...editable } = listing;
+      transaction.update(listingRef, { ...editable, contactPhone: "" });
+      writeContact(transaction, contactRef, uid, contactPhone);
+      if (!existingDirectory.exists() && isDirectoryEligible(listing)) transaction.set(directoryRef, {});
+    });
   } catch (error) {
     if (role === "homegarage") {
       try {
@@ -304,4 +380,20 @@ export async function updatePublicProviderListing(
     throw error;
   }
   if (role === "homegarage" && input.totalSlots) await ensureParkingSlots(uid, input.totalSlots);
+}
+
+function validStoredPhone(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const phone = value.trim();
+  return phone.length >= 7 && phone.length <= 30 ? phone : "";
+}
+
+function writeContact(
+  transaction: Transaction,
+  contactRef: DocumentReference,
+  providerId: string,
+  phone: string,
+) {
+  if (phone) transaction.set(contactRef, { providerId, phone });
+  else transaction.delete(contactRef);
 }

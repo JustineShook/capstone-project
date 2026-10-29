@@ -1,9 +1,10 @@
 // app/(v_owner)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Link, Redirect, Tabs, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { subscribeToCustomerNotifications } from "../../services/customerNotificationService";
+import { useAuth } from "../../hooks/useAuth";
 
 const colors = {
   primary: "#F52239",
@@ -13,12 +14,19 @@ const colors = {
 };
 
 export default function VOwnerLayout() {
+  const { user, loading } = useAuth();
+  const segments = useSegments();
+  const guest = !user;
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
-  useEffect(() => subscribeToCustomerNotifications(
+  useEffect(() => user ? subscribeToCustomerNotifications(
     (items) => setUnreadNotificationCount(items.filter((item) => !item.isRead).length),
     () => setUnreadNotificationCount(0),
-  ), []);
+  ) : undefined, [user]);
+
+  const ownerScreen = segments[1];
+  if (loading) return null;
+  if (guest && ownerScreen) return <Redirect href="/(v_owner)" />;
 
   return (
     <Tabs
@@ -62,6 +70,36 @@ export default function VOwnerLayout() {
         name="index"
         options={{
           title: "Home",
+          tabBarButton: guest ? (props) => {
+            const homeColor = props.accessibilityState?.selected ? colors.primary : colors.inactive;
+            return (
+              <View style={[props.style, { flexDirection: "row", alignItems: "stretch" }]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Home"
+                  accessibilityState={props.accessibilityState}
+                  onPress={props.onPress}
+                  onLongPress={props.onLongPress}
+                  style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 3 }}
+                >
+                  <Ionicons name={props.accessibilityState?.selected ? "home" : "home-outline"} size={22} color={homeColor} />
+                  <Text style={{ color: homeColor, fontSize: 11, fontWeight: "600" }}>Home</Text>
+                </Pressable>
+                <Link href="/(auth)/login" asChild>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Log In" style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 3 }}>
+                    <Ionicons name="log-in-outline" size={22} color={colors.inactive} />
+                    <Text style={{ color: colors.inactive, fontSize: 11, fontWeight: "600" }}>Log In</Text>
+                  </Pressable>
+                </Link>
+                <Link href="/(auth)/register" asChild>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Sign Up" style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 3 }}>
+                    <Ionicons name="person-add-outline" size={22} color={colors.inactive} />
+                    <Text style={{ color: colors.inactive, fontSize: 11, fontWeight: "600" }}>Sign Up</Text>
+                  </Pressable>
+                </Link>
+              </View>
+            );
+          } : undefined,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? "home" : "home-outline"} size={size} color={color} />
           ),
@@ -71,6 +109,7 @@ export default function VOwnerLayout() {
       <Tabs.Screen
         name="vehicle"
         options={{
+          href: guest ? null : undefined,
           title: "Vehicles",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
@@ -85,6 +124,7 @@ export default function VOwnerLayout() {
       <Tabs.Screen
         name="history"
         options={{
+          href: guest ? null : undefined,
           title: "History",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? "time" : "time-outline"} size={size} color={color} />
@@ -95,6 +135,7 @@ export default function VOwnerLayout() {
       <Tabs.Screen
         name="notifications"
         options={{
+          href: guest ? null : undefined,
           title: "Notifications",
           tabBarBadge: unreadNotificationCount > 0
             ? unreadNotificationCount > 99 ? "99+" : unreadNotificationCount
@@ -113,6 +154,7 @@ export default function VOwnerLayout() {
       <Tabs.Screen
         name="profile"
         options={{
+          href: guest ? null : undefined,
           title: "Profile",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons

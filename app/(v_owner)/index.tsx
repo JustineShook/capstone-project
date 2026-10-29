@@ -1,6 +1,6 @@
 // app/(owner)/index.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -24,7 +24,6 @@ import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { StatusPill } from "../../components/owner/StatusPill";
 import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "../../constants/owner/bottomSheet";
 import { colors } from "../../constants/owner/theme";
-import { useActionRisk } from "../../hooks/useActionRisk";
 import {
   CATEGORIES,
   getCategoryIcon,
@@ -39,12 +38,16 @@ import { subscribeToCustomerMapProviders, subscribeToCustomerMapShops } from "..
 import { estimateEtaMinutes, haversineDistanceKm } from "../../utils/geo";
 import { buildMapHtml } from "../../utils/owner/buildMapHtml";
 import { styles } from "../../components/owner/ownerMapStyles";
+import { auth } from "../../services/firebase";
+import { subscribeToMyActionRiskCount } from "../../services/actionRiskService";
 
 // ---------------------------------------------------------------------------
 // SCREEN
 // ---------------------------------------------------------------------------
 export default function OwnerDashboard() {
-  const actionRisk = useActionRisk("owner");
+  const params = useLocalSearchParams<{ selectedProviderId?: string; selectedCategory?: string; discoveryMode?: string }>();
+  const guest = !auth.currentUser;
+  const [actionRisk, setActionRisk] = useState({ count: 0, error: null as string | null });
   const [selectedCategory, setSelectedCategory] = useState<ProviderCategory>("All");
   const [discoveryMode, setDiscoveryMode] = useState<"now" | "scheduled">("now");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
@@ -53,25 +56,42 @@ export default function OwnerDashboard() {
   const [shops, setShops] = useState<MockProvider[]>([]);
   const [failedProviderPhotoUrls, setFailedProviderPhotoUrls] = useState<Set<string>>(() => new Set());
   const [shopError, setShopError] = useState<string | null>(null);
-
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [listingLoads, setListingLoads] = useState({ providers: false, shops: false });
   // Real GPS position + permission/error state. `watch` keeps the user dot
   // and distance values live as the user moves.
   const { location: userLocation, error, refresh } = useMyLocation();
+
+  useEffect(() => {
+    if (params.selectedProviderId) setSelectedProviderId(params.selectedProviderId);
+    if (params.selectedCategory && CATEGORIES.some((category) => category.value === params.selectedCategory)) {
+      setSelectedCategory(params.selectedCategory as ProviderCategory);
+    }
+    if (params.discoveryMode === "now" || params.discoveryMode === "scheduled") setDiscoveryMode(params.discoveryMode);
+  }, [params.selectedProviderId, params.selectedCategory, params.discoveryMode]);
+
+  useEffect(() => {
+    if (guest) { setActionRisk({ count: 0, error: null }); return; }
+    return subscribeToMyActionRiskCount("owner", (count) => setActionRisk({ count, error: null }),
+      (cause) => setActionRisk({ count: 0, error: cause.message || "Could not load recent account activity." }));
+  }, [guest]);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       setShopError(null);
+      setProviderError(null);
+      setListingLoads({ providers: false, shops: false });
       const stopShops = subscribeToCustomerMapShops((items) => {
-        if (active) { setShops(items); setShopError(null); }
+        if (active) { setShops(items); setShopError(null); setListingLoads((current) => ({ ...current, shops: true })); }
       }, () => {
-        if (active) { setShops([]); setShopError("Unable to load Auto Shops. Return to Home to try again."); }
+        if (active) { setShops([]); setShopError("Unable to load Auto Shops. Return to Home to try again."); setListingLoads((current) => ({ ...current, shops: true })); }
       }, discoveryMode === "scheduled");
       const stopProviders = subscribeToCustomerMapProviders((nextProviders) => {
-        if (active) setProviders(nextProviders.filter((provider) => provider.category !== "Auto Shops"));
+        if (active) { setProviders(nextProviders.filter((provider) => provider.category !== "Auto Shops")); setListingLoads((current) => ({ ...current, providers: true })); }
       }, (error) => {
         console.error("Failed to load available customer map providers", error);
-        if (active) setProviders([]);
+        if (active) { setProviders([]); setProviderError(guest ? "Guest listing access is not enabled yet." : "Unable to load providers. Return to Home to try again."); setListingLoads((current) => ({ ...current, providers: true })); }
       }, discoveryMode === "scheduled");
 
       return () => {
@@ -79,7 +99,7 @@ export default function OwnerDashboard() {
         stopShops();
         stopProviders();
       };
-    }, [discoveryMode])
+    }, [discoveryMode, guest])
   );
 
   const allProviders = [...providers, ...shops];
@@ -98,10 +118,10 @@ export default function OwnerDashboard() {
   });
 
   useEffect(() => {
-    if (selectedProviderId && !filteredProviders.some((p) => p.id === selectedProviderId)) {
+    if (listingLoads.providers && listingLoads.shops && selectedProviderId && !filteredProviders.some((p) => p.id === selectedProviderId)) {
       setSelectedProviderId(null);
     }
-  }, [filteredProviders, selectedProviderId]);
+  }, [filteredProviders, selectedProviderId, listingLoads]);
 
   const selectedProvider = filteredProviders.find((p) => p.id === selectedProviderId) ?? null;
 
@@ -146,6 +166,14 @@ export default function OwnerDashboard() {
     () => buildMapHtml(mapCenter, filteredProviders, colors.primary, userLocation, route),
     [filteredProviders, mapCenter, userLocation, route]
   );
+
+  // Update marker styling through the WebView bridge so selection does not
+  // rebuild the map or reload its tiles.
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(
+      `if (window.setSelectedProvider) window.setSelectedProvider(${JSON.stringify(selectedProviderId)}); true;`
+    );
+  }, [selectedProviderId]);
 
   // ---- Live GPS dot bridge ----
   const webViewRef = useRef<{ injectJavaScript: (script: string) => void }>(null);
@@ -252,6 +280,11 @@ export default function OwnerDashboard() {
         ref={webViewRef}
         sourceHtml={mapHtml}
         style={styles.fullscreenMap}
+        onLoadEnd={() => {
+          webViewRef.current?.injectJavaScript(
+            `if (window.setSelectedProvider) window.setSelectedProvider(${JSON.stringify(selectedProviderId)}); true;`
+          );
+        }}
         onMessage={(event: { nativeEvent: { data: string } }) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
@@ -300,6 +333,7 @@ export default function OwnerDashboard() {
           </Pressable>
         </View>
       )}
+      {guest && (providerError || shopError) && <View style={{ position: "absolute", top: 112, left: 18, right: 18, padding: 12, borderRadius: 10, backgroundColor: "#111820" }}><Text style={{ color: "white", textAlign: "center" }}>{providerError || shopError}</Text></View>}
 
       {/* Recenter button — moves the map onto the user's actual GPS position */}
       <Animated.View style={[styles.recenterButtonWrap, { bottom: floatingBottom }]}>
@@ -459,9 +493,15 @@ export default function OwnerDashboard() {
                       </View>
 
                       <View style={styles.listingMetaRow}>
-                        <Ionicons name="star" size={14} color={colors.rating} />
-                        <Text style={styles.listingMetaText}>{provider.rating.toFixed(1)}</Text>
-                        <Text style={styles.listingMetaTextMuted}>{provider.reviewCount} reviews</Text>
+                        {provider.ratingStatus === "hidden" ? null : provider.ratingStatus === "unavailable"
+                          ? <Text style={styles.listingMetaTextMuted}>Reviews unavailable</Text>
+                          : provider.ratingStatus === "loading"
+                            ? <Text style={styles.listingMetaTextMuted}>Loading reviews…</Text>
+                            : <>
+                              <Ionicons name="star" size={14} color={colors.rating} />
+                              <Text style={styles.listingMetaText}>{provider.rating.toFixed(1)}</Text>
+                              <Text style={styles.listingMetaTextMuted}>{provider.reviewCount} reviews</Text>
+                            </>}
                         <Text style={styles.listingMetaDot}>{"\u2022"}</Text>
                         <Text style={styles.listingMetaText}>{distanceKm.toFixed(1)} km away</Text>
                       </View>

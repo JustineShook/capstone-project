@@ -180,7 +180,9 @@ export default function AdminDashboard() {
 
       const listingRef = doc(db, "providerListings", submission.uid);
       const listing = await getDoc(listingRef);
-      if (listing.exists()) batch.update(listingRef, { visibility: "inactive" });
+      if (listing.exists()) {
+        batch.update(listingRef, { visibility: "inactive" });
+      }
 
       batch.set(notificationRef, {
         notificationId: notificationRef.id,

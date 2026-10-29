@@ -27,6 +27,7 @@ import { colors } from "../../../constants/owner/theme";
 import { MockProvider } from "../../../data/owner/mockProviders";
 import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
+import { getProviderContactPhone } from "../../../services/providerContactService";
 import type { SavedVehicle } from "../../../types/owner/vehicle";
 
 // General problem categories the owner picks from — the mechanic diagnoses
@@ -70,9 +71,12 @@ export default function BookMechanicScreen() {
       // Submission performs the same check before creating a new booking.
     }).finally(() => { if (active && !redirecting) setCheckingExistingBooking(false); });
 
-    getPublicProviderListing(providerId).then((listing) => {
+    getPublicProviderListing(providerId).then(async (listing) => {
       if (!active) return;
       if (!listing || listing.role !== "onsite-mechanic") { setProviderError("This mechanic is no longer available."); return; }
+      let phone = listing.contactPhone ?? "";
+      try { phone = await getProviderContactPhone(providerId) || phone; } catch { /* Legacy listing fallback remains available during migration. */ }
+      if (!active) return;
       setProvider({ id: listing.providerId, name: listing.businessName, category: listing.category,
         rating: listing.ratingSummary.average, reviewCount: listing.ratingSummary.count, distanceKm: 0,
         startingPrice: listing.startingPrice == null ? "Price on assessment" : `₱${listing.startingPrice.toLocaleString()}`,
@@ -80,7 +84,7 @@ export default function BookMechanicScreen() {
         color: colors.primary, lat: listing.location.latitude, lng: listing.location.longitude,
         description: listing.serviceAreaLabel, services: listing.services, hours: listing.operatingHours,
         emergencyServiceAvailable: listing.emergencyServiceAvailable, acceptsScheduledBookings: listing.acceptsScheduledBookings === true,
-        phone: listing.contactPhone ?? "", vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
+        phone, vehicleTypes: listing.vehicleTypes as MockProvider["vehicleTypes"], reviews: [] });
     }).catch(() => { if (active) setProviderError("Unable to load this provider."); });
     return () => { active = false; };
   }, [providerId]);

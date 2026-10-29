@@ -24,6 +24,7 @@ import { BookingTimingBanner } from "../../../components/owner/BookingTimingBann
 import { formatPesoAmount } from "../../../utils/finalPrice";
 import { getServiceLabel } from "../../../data/owner/mockProviders";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
+import { getProviderContactPhone } from "../../../services/providerContactService";
 import { getProviderReviewSummary, getRating, mergeRating, submitRating } from "../../../services/owner/ratingService";
 import { cancelTowingBookingAsCustomer, subscribeToTowingBooking } from "../../../services/owner/towingService";
 import {
@@ -93,8 +94,10 @@ export default function TowingBookingDetailScreen() {
     }
     let isCurrent = true;
     void getPublicProviderListing(booking.providerId)
-      .then((listing) => {
-        if (isCurrent) setProviderPhone(listing?.contactPhone?.trim() ?? "");
+      .then(async (listing) => {
+        let phone = listing?.contactPhone?.trim() ?? "";
+        try { phone = await getProviderContactPhone(booking.providerId) || phone; } catch { /* Legacy fallback during migration. */ }
+        if (isCurrent) setProviderPhone(phone);
       })
       .catch(() => {
         if (isCurrent) setProviderPhone("");

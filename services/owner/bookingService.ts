@@ -28,7 +28,9 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingR
   const payload = { bookingType: "onsite-mechanic" as const, customerId: user.uid, customerName: user.displayName?.trim() || user.email?.split("@")[0] || "Customer", customerEmail: user.email ?? "", customerPhone: ownerProfile?.personal.phone?.trim() ?? "", customerAddress: [address, city].filter(Boolean).join(", "), ...bookingInput, ...timingFields(timing), status: "pending" as const, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
   const reference = doc(collection(db, BOOKINGS_COLLECTION));
   await runTransaction(db, async (transaction) => {
-    const listing = (await transaction.get(doc(db, "providerListings", input.providerId))).data();
+    const listingRef = doc(db, "providerListings", input.providerId);
+    const listingSnapshot = await transaction.get(listingRef);
+    const listing = listingSnapshot.data();
     if (!listing || listing.providerId !== input.providerId || listing.role !== "onsite-mechanic" || listing.visibility !== "active") throw new Error("This mechanic is not publicly available.");
     if (timing.timingMode === "now" && timing.urgency === "standard") {
       throw new Error("Mechanics accept Emergency or scheduled requests only. Choose Emergency explicitly to continue.");
@@ -81,6 +83,11 @@ async function updateMechanicBooking(id: string, status: BookingStatus, finalPri
     const booking = snapshot.data() as BookingRequest;
     if (booking.providerId !== user.uid || booking.bookingType !== "onsite-mechanic") throw new Error("You are not assigned to this booking.");
     if (!ALLOWED_TRANSITIONS[booking.status]?.includes(status)) throw new Error(`Invalid booking transition: ${booking.status} → ${status}.`);
+    const scheduled = booking.timingMode === "scheduled";
+    const startingScheduledService = booking.status === "accepted" && status === "en_route" && scheduled;
+    if (startingScheduledService && (!(booking.scheduledAt instanceof Timestamp) || booking.scheduledAt.toMillis() > Date.now())) {
+      throw new Error("This scheduled service cannot start before its appointment time.");
+    }
     if (status === "accepted" && booking.timingMode === "scheduled" && booking.scheduledAt instanceof Timestamp) {
       await claimScheduledReservation(transaction, booking.providerId, id, booking.scheduledAt);
     }

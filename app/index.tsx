@@ -55,7 +55,7 @@ export default function Index() {
           style={styles.getStartedButton}
           accessibilityRole="button"
           activeOpacity={0.85}
-          onPress={() => router.replace("/(auth)/login")}
+          onPress={() => router.replace("/(v_owner)" as any)}
         >
           <Text style={styles.getStartedText}>Get Started</Text>
         </TouchableOpacity>
