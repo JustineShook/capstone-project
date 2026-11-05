@@ -14,7 +14,7 @@ import { CancelRequestModal } from "./CancelRequestModal";
 import { cancelShopBookingAsCustomer } from "../../services/shopOwnerService";
 import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
 
-export function CustomerShopRequest({ confirmation = false, title, onBack }: { confirmation?: boolean; title?: string; onBack?: () => void }) {
+export function CustomerShopRequest({ sapphireHeader = false, confirmation = false, title, onBack }: { sapphireHeader?: boolean; confirmation?: boolean; title?: string; onBack?: () => void }) {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string | string[] }>();
   const id = Array.isArray(bookingId) ? bookingId[0] : bookingId;
@@ -28,7 +28,7 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
     if (!booking) return;
     setShowMapsConfirmation(true);
   };
-  return <ShopBookingScreen title={title ?? (confirmation ? "Request Sent" : "Request Status")} onBack={onBack}>
+  return <ShopBookingScreen sapphireHeader={sapphireHeader} title={title ?? (confirmation ? "Request Sent" : "Request Status")} onBack={onBack}>
     <LoadState loading={loading} error={error} retry={retry} />
     {!loading && !error && !booking && <Text style={s.text}>This shop request was not found or does not belong to your account.</Text>}
     {!loading && !error && booking && <>
@@ -60,7 +60,7 @@ export function CustomerShopRequest({ confirmation = false, title, onBack }: { c
       {booking.status === "completed" && <CustomerRating bookingId={booking.id} bookingType="shop" providerName={booking.providerName} />}
       {["pending", "accepted"].includes(booking.status) && <Button title={isCancelling ? "Cancelling…" : "Cancel Request"} secondary onPress={() => setShowCancelConfirmation(true)} />}
       {["vehicle_arrived", "diagnosing", "repairing"].includes(booking.status) && <Text style={d.sectionHint}>The provider confirmed Vehicle arrived. Contact the shop to request cancellation.</Text>}
-      <CancelRequestModal visible={showCancelConfirmation} serviceName="Auto Shop service" explanation="You can cancel before the provider confirms Vehicle arrived. After that, contact the shop to request cancellation." isCancelling={isCancelling} reason={cancelReason} onReasonChange={setCancelReason} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => { if (!booking) return; setIsCancelling(true); void cancelShopBookingAsCustomer(booking.id, cancelReason).then(() => { setShowCancelConfirmation(false); setCancelReason(""); }).catch((error) => Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.")).finally(() => setIsCancelling(false)); }} />
+      <CancelRequestModal homeAppearance={sapphireHeader} visible={showCancelConfirmation} serviceName="Auto Shop service" explanation="You can cancel before the provider confirms Vehicle arrived. After that, contact the shop to request cancellation." isCancelling={isCancelling} reason={cancelReason} onReasonChange={setCancelReason} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => { if (!booking) return; setIsCancelling(true); void cancelShopBookingAsCustomer(booking.id, cancelReason).then(() => { setShowCancelConfirmation(false); setCancelReason(""); }).catch((error) => Alert.alert("Could not cancel", error instanceof Error ? error.message : "Please try again.")).finally(() => setIsCancelling(false)); }} />
       {confirmation && <Button title="View Request Status" onPress={() => router.replace({ pathname: "/(v_owner)/shop-booking/booking-detail", params: { bookingId: booking.id } })} />}
       {(booking.status === "rejected" || booking.status === "cancelled") && <Button title="Find Another Shop" onPress={() => router.replace("/(v_owner)")} />}
     </>}

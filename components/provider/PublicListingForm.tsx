@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -50,6 +50,7 @@ function legacyHours(value: string | undefined): { type: HoursType; days: DayHou
 const summary = (type: HoursType, days: DayHours[]) => type === "24_7" ? "Open 24/7" : type === "same_daily" ? `Daily, ${days[0].openingTime}\u2013${days[0].closingTime}` : days.map((day) => `${day.day.slice(0, 3)} ${day.open ? `${day.openingTime}\u2013${day.closingTime}` : "Closed"}`).join(" \u00b7 ");
 
 interface Props {
+  appearance?: "default" | "mechanic";
   role: ProviderRole;
   initialListing?: Partial<PublicProviderListingInput>;
   defaultBusinessName: string;
@@ -63,6 +64,9 @@ const COLORS = {
   text: "#F7F9FA",
   muted: "#A1ABB2",
 };
+const MECHANIC_COLORS = { primary: "#0F52BA", background: "#FFFFFF", surface: "#FFFFFF", border: "#D5DEE9", text: "#172B4D", muted: "#475569", subtle: "#F1F5F9", success: "#166534", successSurface: "#DCFCE7" };
+const MechanicAppearanceContext = createContext(false);
+function useFormStyles() { return useContext(MechanicAppearanceContext) ? mechanicStyles : baseStyles; }
 
 const AVAILABILITY: { value: Availability; label: string }[] = [
   { value: "available", label: "Available" },
@@ -124,14 +128,18 @@ function isValidLocation(location: PublicProviderListingInput["location"] | null
 }
 
 function HoursSelector({ type, days, onTypeChange, onDaysChange }: { type: HoursType; days: DayHours[]; onTypeChange: (type: HoursType) => void; onDaysChange: (days: DayHours[]) => void }) {
+  const styles = useFormStyles();
   const [picker, setPicker] = useState<{ index: number; field: "openingTime" | "closingTime" } | null>(null);
   const update = (index: number, next: Partial<DayHours>) => onDaysChange(days.map((day, i) => i === index ? { ...day, ...next } : day));
   const setSame = (field: "openingTime" | "closingTime", value: string) => onDaysChange(days.map((day) => ({ ...day, open: true, [field]: value })));
   return <><View style={styles.options}>{([["24_7", "24/7"], ["same_daily", "Same every day"], ["weekly", "Weekly"]] as [HoursType, string][]).map(([value, label]) => <TouchableOpacity key={value} style={[styles.option, type === value && styles.optionActive]} onPress={() => onTypeChange(value)}><Text style={[styles.optionText, type === value && styles.optionTextActive]}>{label}</Text></TouchableOpacity>)}</View>{type === "same_daily" && <View style={styles.timePair}><TimeButton label="OPENING" value={days[0].openingTime ?? ""} onPress={() => setPicker({ index: 0, field: "openingTime" })} /><TimeButton label="CLOSING" value={days[0].closingTime ?? ""} onPress={() => setPicker({ index: 0, field: "closingTime" })} /></View>}{type === "weekly" && <View style={styles.week}>{days.map((day, index) => <View key={day.day} style={styles.dayRow}><Text style={styles.dayName}>{day.day}</Text><TouchableOpacity style={[styles.dayToggle, day.open && styles.optionActive]} onPress={() => update(index, { open: !day.open })}><Text style={[styles.optionText, day.open && styles.optionTextActive]}>{day.open ? "Open" : "Closed"}</Text></TouchableOpacity>{day.open && <><TimeButton label="" value={day.openingTime ?? ""} onPress={() => setPicker({ index, field: "openingTime" })} /><TimeButton label="" value={day.closingTime ?? ""} onPress={() => setPicker({ index, field: "closingTime" })} /></>}</View>)}</View>}<Modal visible={picker !== null} transparent animationType="slide" onRequestClose={() => setPicker(null)}><View style={styles.modalShade}><View style={styles.timeModal}><Text style={styles.modalTitle}>Select time</Text><ScrollView>{TIME_OPTIONS.map((time) => <TouchableOpacity key={time} style={styles.timeOption} onPress={() => { if (!picker) return; if (type === "same_daily") setSame(picker.field, time); else update(picker.index, { [picker.field]: time }); setPicker(null); }}><Text style={styles.timeOptionText}>{time}</Text></TouchableOpacity>)}</ScrollView></View></View></Modal></>;
 }
-function TimeButton({ label, value, onPress }: { label: string; value: string; onPress: () => void }) { return <TouchableOpacity style={styles.timeButton} onPress={onPress}>{label ? <Text style={styles.timeCaption}>{label}</Text> : null}<Text style={styles.timeValue}>{value}</Text></TouchableOpacity>; }
+function TimeButton({ label, value, onPress }: { label: string; value: string; onPress: () => void }) { const styles = useFormStyles(); return <TouchableOpacity style={styles.timeButton} onPress={onPress}>{label ? <Text style={styles.timeCaption}>{label}</Text> : null}<Text style={styles.timeValue}>{value}</Text></TouchableOpacity>; }
 
-export function PublicListingForm({ role, initialListing, defaultBusinessName }: Props) {
+export function PublicListingForm({ role, initialListing, defaultBusinessName, appearance = "default" }: Props) {
+  const mechanicAppearance = (role === "homegarage" && appearance === "mechanic") || role === "onsite-mechanic" || role === "towing-company" || role === "shop-owner";
+  const styles = mechanicAppearance ? mechanicStyles : baseStyles;
+  const palette = mechanicAppearance ? MECHANIC_COLORS : COLORS;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mapRef = useRef<{ injectJavaScript: (script: string) => void } | null>(null);
@@ -154,7 +162,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
   const [areaSearchMessage, setAreaSearchMessage] = useState("");
   const [garageMapHtml] = useState(() => buildDestinationMapHtml(
     DEFAULT_MAP_CENTER_LEAFLET,
-    COLORS.primary,
+    palette.primary,
     initialListing?.location ? { lat: initialListing.location.latitude, lng: initialListing.location.longitude } : null,
   ));
   const [description, setDescription] = useState(initialListing?.description ?? "");
@@ -462,8 +470,9 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
   };
 
   return (
+    <MechanicAppearanceContext.Provider value={mechanicAppearance}>
     <SafeAreaView style={styles.safe} edges={["left", "right", "bottom"]}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="light-content" backgroundColor={mechanicAppearance ? MECHANIC_COLORS.primary : COLORS.background} />
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace(role === "homegarage" ? "/(homegarage)/profile" : role === "shop-owner" ? "/(shop-owner)/profile" : role === "towing-company" ? "/(towing-company)/profile" : "/(onsite-mechanic)/profile")} style={styles.back}>
           <Feather name="arrow-left" size={20} color="#FFFFFF" />
@@ -472,7 +481,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         <View style={styles.back} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView style={mechanicAppearance ? mechanicStyles.scroll : undefined} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.intro}>
           These are the only details shared with customers on the provider map. Your private
           verification address is never copied or geocoded.
@@ -540,14 +549,14 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         <Text style={styles.label}>{role === "homegarage" ? "GARAGE SERVICE AREA" : "PUBLIC SERVICE AREA"}</Text>
         {role === "homegarage" || role === "shop-owner" ? <>
           <View style={styles.areaSearchRow}>
-            <Feather name="search" size={18} color={COLORS.muted} />
+            <Feather name="search" size={18} color={palette.muted} />
             <TextInput
               value={serviceAreaLabel}
               onChangeText={handleGarageAreaChange}
               returnKeyType="search"
               maxLength={120}
               placeholder="Search barangay, city, or province"
-              placeholderTextColor={COLORS.muted}
+              placeholderTextColor={palette.muted}
               style={styles.areaSearchInput}
               accessibilityLabel={role === "homegarage" ? "Search Home Garage service area" : "Search Auto Shop service area"}
             />
@@ -558,9 +567,9 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           {!searchingArea && showAreaSuggestions && areaSearchMessage ? <Text style={styles.searchMessage}>{areaSearchMessage}</Text> : null}
           {areaSuggestions.length > 0 && showAreaSuggestions && <View style={styles.suggestionList}>
             {areaSuggestions.map((suggestion) => <TouchableOpacity key={suggestion.id} style={styles.suggestion} onPress={() => selectGarageArea(suggestion)} accessibilityRole="button">
-              <View style={styles.suggestionIcon}><Feather name="map-pin" size={16} color={COLORS.primary} /></View>
+              <View style={styles.suggestionIcon}><Feather name="map-pin" size={16} color={palette.primary} /></View>
               <View style={styles.suggestionCopy}><Text style={styles.suggestionTitle}>{suggestion.label}</Text><Text style={styles.suggestionSubtitle}>Select this area, then adjust by tapping the map</Text></View>
-              <Feather name="chevron-right" size={18} color={COLORS.muted} />
+              <Feather name="chevron-right" size={18} color={palette.muted} />
             </TouchableOpacity>)}
           </View>}
           <View style={styles.mapFrame}>
@@ -614,7 +623,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           style={styles.input}
         />
 
-        {showsListingPhotos && <><Text style={styles.label}>{role === "homegarage" ? "HOME GARAGE PHOTOS (OPTIONAL)" : role === "shop-owner" ? "SHOP PHOTOS (OPTIONAL)" : role === "onsite-mechanic" ? "MECHANIC WORK PHOTOS (OPTIONAL)" : "TOWING PHOTOS (OPTIONAL)"}</Text><Text style={styles.photoHint}>{role === "homegarage" ? "Add up to 3 photos of your garage or work area." : role === "shop-owner" ? "Add up to 3 photos of your shop, service area, or exterior." : role === "onsite-mechanic" ? "Add up to 3 photos of your tools, work area, or completed repairs." : "Add up to 3 photos of your tow truck, equipment, or service."}</Text><View style={styles.photoGrid}>{photoUrls.map((url, index) => <View key={url} style={styles.photoWrap}><Image source={{ uri: url }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUrls((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Feather name="x" size={15} color="#fff" /></TouchableOpacity></View>)}{photoUrls.length < 3 && <TouchableOpacity style={styles.addPhoto} disabled={uploadingPhotos} onPress={() => void addPhotos()}>{uploadingPhotos ? <ActivityIndicator color={COLORS.primary} /> : <><Feather name="image" size={21} color={COLORS.primary} /><Text style={styles.addPhotoText}>Add photo</Text></>}</TouchableOpacity>}</View></>}
+        {showsListingPhotos && <><Text style={styles.label}>{role === "homegarage" ? "HOME GARAGE PHOTOS (OPTIONAL)" : role === "shop-owner" ? "SHOP PHOTOS (OPTIONAL)" : role === "onsite-mechanic" ? "MECHANIC WORK PHOTOS (OPTIONAL)" : "TOWING PHOTOS (OPTIONAL)"}</Text><Text style={styles.photoHint}>{role === "homegarage" ? "Add up to 3 photos of your garage or work area." : role === "shop-owner" ? "Add up to 3 photos of your shop, service area, or exterior." : role === "onsite-mechanic" ? "Add up to 3 photos of your tools, work area, or completed repairs." : "Add up to 3 photos of your tow truck, equipment, or service."}</Text><View style={styles.photoGrid}>{photoUrls.map((url, index) => <View key={url} style={styles.photoWrap}><Image source={{ uri: url }} style={styles.photo} /><TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUrls((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Feather name="x" size={15} color="#fff" /></TouchableOpacity></View>)}{photoUrls.length < 3 && <TouchableOpacity style={styles.addPhoto} disabled={uploadingPhotos} onPress={() => void addPhotos()}>{uploadingPhotos ? <ActivityIndicator color={palette.primary} /> : <><Feather name="image" size={21} color={palette.primary} /><Text style={styles.addPhotoText}>Add photo</Text></>}</TouchableOpacity>}</View></>}
 
         {(role === "towing-company" || role === "homegarage") && <>
         <Text style={styles.label}>{role === "homegarage" ? "EMERGENCY REPAIR SERVICE AVAILABLE" : "EMERGENCY SERVICE AVAILABLE"}</Text>
@@ -637,7 +646,7 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         {role !== "homegarage" && role !== "shop-owner" && <>
         <Text style={styles.label}>PUBLIC SERVICE LOCATION</Text>
         <View style={styles.locationCard}>
-          <Feather name="map-pin" size={20} color={COLORS.primary} />
+          <Feather name="map-pin" size={20} color={palette.primary} />
           <View style={styles.locationBody}>
             <Text style={styles.locationTitle}>
               {isValidLocation(location) ? "GPS location selected" : "No GPS location selected"}
@@ -657,9 +666,9 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
           disabled={locating || saving}
         >
           {locating ? (
-            <ActivityIndicator color={COLORS.primary} />
+            <ActivityIndicator color={palette.primary} />
           ) : (
-            <Feather name="crosshair" size={17} color={COLORS.primary} />
+            <Feather name="crosshair" size={17} color={palette.primary} />
           )}
           <Text style={styles.locationButtonText}>Use My Current Location</Text>
         </TouchableOpacity>
@@ -696,10 +705,11 @@ export function PublicListingForm({ role, initialListing, defaultBusinessName }:
         </View>
       </Modal>
     </SafeAreaView>
+    </MechanicAppearanceContext.Provider>
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.background },
   header: { backgroundColor: COLORS.background, paddingHorizontal: 16, paddingBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   back: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
@@ -771,3 +781,67 @@ const styles = StyleSheet.create({
   successButton: { width: "100%", minHeight: 50, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, backgroundColor: "#F51F3B" },
   successButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
 });
+
+const mechanicStyles = {
+  ...baseStyles,
+  ...StyleSheet.create({
+    safe: { flex: 1, backgroundColor: MECHANIC_COLORS.primary },
+    scroll: { flex: 1, backgroundColor: MECHANIC_COLORS.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
+    header: { backgroundColor: MECHANIC_COLORS.primary, paddingHorizontal: 16, paddingBottom: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    back: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
+    headerTitle: { flex: 1, color: "#FFFFFF", fontSize: 20, lineHeight: 26, fontWeight: "800", textAlign: "center" },
+    content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 36 },
+    intro: { color: MECHANIC_COLORS.muted, fontSize: 14, lineHeight: 21, marginBottom: 18 },
+    label: { color: MECHANIC_COLORS.text, fontSize: 13, lineHeight: 19, fontWeight: "700", letterSpacing: 0.3, marginBottom: 8, marginTop: 20 },
+    input: { minHeight: 48, borderWidth: 1, borderColor: MECHANIC_COLORS.border, backgroundColor: MECHANIC_COLORS.subtle, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, color: MECHANIC_COLORS.text, fontSize: 15 },
+    areaSearchRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: MECHANIC_COLORS.border, backgroundColor: MECHANIC_COLORS.subtle, borderRadius: 14, paddingLeft: 14, paddingRight: 6 },
+    areaSearchInput: { flex: 1, minHeight: 52, color: MECHANIC_COLORS.text, fontSize: 15 },
+    areaSearchButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: MECHANIC_COLORS.primary, alignItems: "center", justifyContent: "center" },
+    suggestionList: { marginTop: 8, borderWidth: 1, borderColor: MECHANIC_COLORS.border, borderRadius: 16, overflow: "hidden", backgroundColor: MECHANIC_COLORS.surface },
+    suggestion: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: MECHANIC_COLORS.border },
+    suggestionIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: MECHANIC_COLORS.subtle, alignItems: "center", justifyContent: "center" },
+    suggestionTitle: { color: MECHANIC_COLORS.text, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+    suggestionSubtitle: { color: MECHANIC_COLORS.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+    mapFrame: { height: 250, marginTop: 12, borderRadius: 20, overflow: "hidden", borderWidth: 1, borderColor: MECHANIC_COLORS.border, backgroundColor: MECHANIC_COLORS.surface },
+    mapHint: { color: MECHANIC_COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 8 },
+    searchMessage: { color: MECHANIC_COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 8 },
+    week: { gap: 8, marginTop: 10 },
+    dayRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", backgroundColor: MECHANIC_COLORS.subtle, borderRadius: 14, padding: 10 },
+    dayName: { color: MECHANIC_COLORS.text, fontSize: 13, fontWeight: "700", width: 76 },
+    dayToggle: { minWidth: 62, alignItems: "center", paddingVertical: 8, paddingHorizontal: 7, borderRadius: 10, borderWidth: 1, borderColor: MECHANIC_COLORS.border },
+    timeButton: { flex: 1, minWidth: 86, borderWidth: 1, borderColor: MECHANIC_COLORS.border, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 9, backgroundColor: MECHANIC_COLORS.surface },
+    timeCaption: { color: MECHANIC_COLORS.muted, fontSize: 10, fontWeight: "700" },
+    timeValue: { color: MECHANIC_COLORS.text, fontSize: 13, fontWeight: "700", marginTop: 2 },
+    modalShade: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20, backgroundColor: "rgba(15,23,42,0.45)" },
+    timeModal: { width: "100%", maxWidth: 480, maxHeight: "82%", flexShrink: 1, backgroundColor: MECHANIC_COLORS.surface, borderWidth: 1, borderColor: MECHANIC_COLORS.border, borderRadius: 22, padding: 18 },
+    modalTitle: { color: MECHANIC_COLORS.text, fontSize: 18, fontWeight: "700", marginBottom: 8 },
+    timeOption: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: MECHANIC_COLORS.border },
+    timeOptionText: { color: MECHANIC_COLORS.text, fontSize: 17 },
+    option: { flex: 1, alignItems: "center", paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: MECHANIC_COLORS.border, backgroundColor: MECHANIC_COLORS.surface },
+    optionActive: { borderColor: MECHANIC_COLORS.primary, backgroundColor: MECHANIC_COLORS.primary },
+    optionText: { color: MECHANIC_COLORS.muted, fontSize: 14, lineHeight: 19, fontWeight: "600" },
+    chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    chip: { borderWidth: 1, borderColor: MECHANIC_COLORS.border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: MECHANIC_COLORS.surface },
+    chipActive: { borderColor: MECHANIC_COLORS.primary, backgroundColor: MECHANIC_COLORS.primary },
+    chipText: { color: MECHANIC_COLORS.muted, fontSize: 14, lineHeight: 19, fontWeight: "600" },
+    locationCard: { flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: MECHANIC_COLORS.surface, borderWidth: 1, borderColor: MECHANIC_COLORS.border, borderRadius: 20, padding: 16 },
+    locationTitle: { color: MECHANIC_COLORS.text, fontSize: 15, lineHeight: 21, fontWeight: "700" },
+    coordinates: { color: MECHANIC_COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+    locationHint: { color: MECHANIC_COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+    locationButton: { minHeight: 54, marginTop: 10, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: MECHANIC_COLORS.primary, backgroundColor: MECHANIC_COLORS.primary, borderRadius: 14, paddingVertical: 12 },
+    locationButtonText: { color: "#FFFFFF", fontSize: 14, lineHeight: 19, fontWeight: "700" },
+    saveButton: { marginTop: 24, backgroundColor: MECHANIC_COLORS.primary, borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center" },
+    saveText: { color: "#FFFFFF", fontSize: 14, lineHeight: 19, fontWeight: "800" },
+    photoHint: { color: MECHANIC_COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: -4 },
+    photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+    photoWrap: { width: 102, height: 88, borderRadius: 14, overflow: "hidden", position: "relative" },
+    addPhoto: { width: 102, height: 88, borderRadius: 14, borderWidth: 1, borderStyle: "dashed", borderColor: MECHANIC_COLORS.primary, backgroundColor: "#EAF2FF", alignItems: "center", justifyContent: "center", gap: 5 },
+    addPhotoText: { color: MECHANIC_COLORS.primary, fontSize: 13, fontWeight: "700" },
+    successCard: { width: "100%", maxWidth: 390, alignItems: "center", padding: 24, borderRadius: 22, backgroundColor: MECHANIC_COLORS.surface, borderWidth: 1, borderColor: MECHANIC_COLORS.border },
+    successIcon: { width: 66, height: 66, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: MECHANIC_COLORS.success, marginBottom: 15 },
+    successEyebrow: { color: MECHANIC_COLORS.success, fontSize: 11, fontWeight: "800", letterSpacing: 1.1 },
+    successTitle: { color: MECHANIC_COLORS.text, fontSize: 22, fontWeight: "800", marginTop: 7, textAlign: "center" },
+    successMessage: { color: MECHANIC_COLORS.muted, fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 9, marginBottom: 20 },
+    successButton: { width: "100%", minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, backgroundColor: MECHANIC_COLORS.primary },
+  }),
+};

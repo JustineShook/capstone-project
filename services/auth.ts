@@ -162,8 +162,10 @@ export async function logout(): Promise<void> {
 
 export async function resetPassword(email: string): Promise<void> {
   try {
-    await sendPasswordResetEmail(auth, email);
+    await sendPasswordResetEmail(auth, email.trim());
   } catch (error) {
+    // Keep the response neutral even when email enumeration protection is off.
+    if ((error as { code?: string })?.code === "auth/user-not-found") return;
     throw new AuthServiceError(error);
   }
 }

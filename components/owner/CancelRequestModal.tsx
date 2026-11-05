@@ -1,8 +1,9 @@
+import { homeColors } from "../../constants/owner/homeTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { colors } from "../../constants/owner/theme";
 
-export function CancelRequestModal({
+export function CancelRequestModal({ homeAppearance = false,
   visible,
   serviceName,
   explanation,
@@ -11,7 +12,7 @@ export function CancelRequestModal({
   onConfirm,
   reason,
   onReasonChange,
-}: {
+}: { homeAppearance?: boolean;
   visible: boolean;
   serviceName: string;
   explanation: string;
@@ -21,6 +22,8 @@ export function CancelRequestModal({
   reason: string;
   onReasonChange: (value: string) => void;
 }) {
+  const colors = homeAppearance ? { ...homeColors, primary: homeColors.busy } : defaultColors;
+  const styles = homeAppearance ? lightStyles : defaultStyles;
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onKeep}>
       <View style={styles.backdrop}>
@@ -29,7 +32,7 @@ export function CancelRequestModal({
             <Ionicons name="close-circle-outline" size={34} color={colors.primary} />
           </View>
           <View style={styles.eyebrowWrap}>
-            <Ionicons name="alert-circle-outline" size={13} color="#FF9AA8" />
+            <Ionicons name="alert-circle-outline" size={13} color={homeAppearance ? homeColors.primary : "#FF9AA8"} />
             <Text style={styles.eyebrow}>CANCEL SERVICE REQUEST</Text>
           </View>
           <Text style={styles.title}>Cancel this request?</Text>
@@ -61,7 +64,8 @@ export function CancelRequestModal({
   );
 }
 
-const styles = StyleSheet.create({
+const defaultColors = colors;
+const makeStyles = (colors: typeof defaultColors) => StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 22, backgroundColor: "rgba(4,8,12,0.78)" },
   card: { width: "100%", maxWidth: 410, padding: 23, borderRadius: 25, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   iconWrap: { width: 62, height: 62, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#351D24", borderWidth: 1, borderColor: "#63313C", marginBottom: 17 },
@@ -80,3 +84,23 @@ const styles = StyleSheet.create({
   keepButton: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 5 },
   keepButtonText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
 });
+const defaultStyles = makeStyles(defaultColors);
+const lightStyles = { ...makeStyles({ ...homeColors, primary: homeColors.busy }), ...StyleSheet.create({
+  backdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 16, backgroundColor: "rgba(15,23,42,0.55)" },
+  card: { width: "100%", maxWidth: 410, padding: 16, borderRadius: 20, backgroundColor: homeColors.surface, borderWidth: 1, borderColor: homeColors.border },
+  iconWrap: { width: 62, height: 62, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#FDECEF", borderWidth: 1, borderColor: "#F4C9D0", marginBottom: 15 },
+  eyebrowWrap: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  eyebrow: { color: homeColors.primary, fontSize: 12, lineHeight: 18, fontWeight: "700", letterSpacing: 1 },
+  title: { color: homeColors.textPrimary, fontSize: 20, lineHeight: 26, fontWeight: "800" },
+  description: { color: homeColors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 8, marginBottom: 16 },
+  serviceBadge: { minHeight: 43, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, borderRadius: 13, backgroundColor: homeColors.surfaceAlt, borderWidth: 1, borderColor: homeColors.border, marginBottom: 18 },
+  serviceText: { color: homeColors.textSecondary, fontSize: 13, fontWeight: "700" },
+  cancelButton: { minHeight: 54, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, backgroundColor: homeColors.busy },
+  cancelButtonText: { color: "#FFFFFF", fontSize: 14, lineHeight: 18, fontWeight: "800" },
+  disabled: { opacity: 0.65 },
+  reasonLabel: { color: homeColors.textPrimary, fontSize: 13, lineHeight: 19, fontWeight: "700", marginBottom: 7 },
+  sharedHint: { color: homeColors.textSecondary, fontSize: 12, lineHeight: 18, marginBottom: 8 },
+  reasonInput: { minHeight: 86, maxHeight: 150, textAlignVertical: "top", color: homeColors.textPrimary, backgroundColor: homeColors.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: homeColors.border, fontSize: 15, lineHeight: 22, padding: 14, marginBottom: 15 },
+  keepButton: { minHeight: 48, alignItems: "center", justifyContent: "center", marginTop: 5, borderWidth: 1, borderColor: homeColors.border, borderRadius: 14 },
+  keepButtonText: { color: homeColors.primary, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+}) };

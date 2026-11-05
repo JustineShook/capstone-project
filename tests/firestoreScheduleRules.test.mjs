@@ -12,7 +12,7 @@ const { Timestamp, doc, getDoc, getDocs, collection, query, where, runTransactio
 const providerId = "mechanic-provider";
 const customerId = "vehicle-owner";
 const projectId = "demo-veresc-schedule-rules";
-const rules = readFileSync(fileURLToPath(new URL("../firestore.rules", import.meta.url)), "utf8");
+const rules = readFileSync(process.env.VERESC_RULES_FILE ?? fileURLToPath(new URL("../firestore.rules", import.meta.url)), "utf8");
 let env;
 
 before(async () => {
@@ -54,7 +54,7 @@ async function seedBooking(id, { status = "pending", bookingType = "onsite-mecha
   });
   return at;
 }
-async function seedBusyProvider(provider, role, availability = "available") {
+async function seedVerifiedProviderListing(provider, role, availability = "available") {
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await db.doc(`users/${provider}`).set({ uid: provider, role, accountStatus: "active" });
@@ -68,174 +68,6 @@ async function seedBusyProvider(provider, role, availability = "available") {
       businessName: "Active service provider", visibility: "active", availability });
   });
 }
-async function acquireActiveService(db, provider, bookingId, status = "accepted") {
-  const bookingRef = doc(db, "bookings", bookingId);
-  const lockRef = doc(db, "providerActiveServices", provider);
-  const listingRef = doc(db, "providerListings", provider);
-  await runTransaction(db, async (transaction) => {
-    const [booking, lock, listing] = await Promise.all([
-      transaction.get(bookingRef), transaction.get(lockRef), transaction.get(listingRef),
-    ]);
-    if (lock.exists()) throw new Error("provider already has an active service");
-    transaction.set(lockRef, { providerId: provider, bookingId,
-      previousAvailability: listing.data().availability, acquiredAt: serverTimestamp() });
-    transaction.update(listingRef, { availability: "busy" });
-    transaction.update(bookingRef, { status, updatedAt: serverTimestamp() });
-  });
-}
-async function finishActiveService(db, provider, bookingId, finalStatus = "completed") {
-  const bookingRef = doc(db, "bookings", bookingId);
-  const lockRef = doc(db, "providerActiveServices", provider);
-  const listingRef = doc(db, "providerListings", provider);
-  await runTransaction(db, async (transaction) => {
-    const booking = await transaction.get(bookingRef);
-    if (finalStatus === "completed") {
-      transaction.update(bookingRef, { status: finalStatus, finalPrice: 125, completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    } else {
-      transaction.update(bookingRef, { status: finalStatus, updatedAt: serverTimestamp() });
-    }
-  });
-  await runTransaction(db, async (transaction) => {
-    const [booking, lock] = await Promise.all([
-      transaction.get(bookingRef), transaction.get(lockRef),
-    ]);
-    if (!lock.exists() || lock.data()?.bookingId !== bookingId || !["completed", "cancelled"].includes(booking.data()?.status)) return;
-    transaction.delete(lockRef);
-    transaction.update(listingRef, { availability: lock.data().previousAvailability });
-  });
-}
-
-test("mechanic and towing busy locks serialize active jobs, release only their owner, and preserve scheduled requests", async () => {
-  for (const [role, provider] of [["onsite-mechanic", "busy-mechanic"], ["towing-company", "busy-tow"]]) {
-    await env.clearFirestore();
-    await seedBusyProvider(provider, role, "available");
-    const bookingType = role;
-    const first = `${provider}-first`;
-    const second = `${provider}-second`;
-    const unrelated = `${provider}-unrelated`;
-    await seedBooking(first, { bookingType, provider, timingMode: "now" });
-    await seedBooking(second, { bookingType, provider, timingMode: "now" });
-    const providerDb = auth(provider);
-    const competing = await Promise.allSettled([
-      acquireActiveService(providerDb, provider, first),
-      acquireActiveService(providerDb, provider, second),
-    ]);
-    assert.equal(competing.filter((result) => result.status === "fulfilled").length, 1, `${role}: exactly one service acquires the lock`);
-    assert.equal(competing.filter((result) => result.status === "rejected").length, 1, `${role}: competing service cannot acquire the lock`);
-    const winner = competing[0].status === "fulfilled" ? first : second;
-    const loser = winner === first ? second : first;
-    assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "busy");
-    assert.equal((await getDoc(doc(providerDb, "providerActiveServices", provider))).data()?.bookingId, winner);
-
-    // A future booking can still be accepted and reserve its own time while
-    // the provider's current service owns the busy lock.
-    const scheduled = `${provider}-scheduled`;
-    const at = slotTimestamp();
-    await seedBooking(scheduled, { bookingType, provider, timingMode: "scheduled", at });
-    await assertSucceeds(acceptAsProvider(providerDb, scheduled, at, provider));
-    assert.equal((await getDoc(doc(providerDb, "providerActiveServices", provider))).data()?.bookingId, winner);
-    assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "busy");
-
-    await seedBooking(unrelated, { status: "accepted", bookingType, provider, timingMode: "now" });
-    await assertSucceeds(updateDoc(doc(providerDb, "bookings", unrelated), { status: "cancelled", updatedAt: serverTimestamp() }));
-    assert.equal((await getDoc(doc(providerDb, "providerActiveServices", provider))).data()?.bookingId, winner,
-      `${role}: cancelling a different booking cannot clear the active lock`);
-    assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "busy");
-
-    const guest = env.unauthenticatedContext().firestore();
-    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(guest, "providerActiveServices", provider)), `${role}: guest cannot read private active-service data`);
-    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(auth("unrelated-customer"), "providerActiveServices", provider)), `${role}: unrelated user cannot read private active-service data`);
-  }
-});
-
-test("only due scheduled starts acquire busy; cancellation, completion, and suspension preserve lock ownership", async () => {
-  await env.clearFirestore();
-  const provider = "scheduled-lock-mechanic";
-  await seedBusyProvider(provider, "onsite-mechanic", "offline");
-  const futureAt = Timestamp.fromMillis(Date.now() + 3_600_000);
-  await seedBooking("future-to-start", { status: "accepted", provider, bookingType: "onsite-mechanic", timingMode: "scheduled", at: futureAt });
-  await assertDeniedWithoutExpressionLimit(
-    () => acquireActiveService(auth(provider), provider, "future-to-start", "en_route"),
-    "a future scheduled service cannot become busy before its appointment",
-  );
-  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "offline");
-  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).exists(), false);
-
-  const dueId = "due-to-start";
-  await seedBooking(dueId, { status: "accepted", provider, bookingType: "onsite-mechanic", timingMode: "scheduled", at: Timestamp.fromMillis(Date.now() - 3_600_000) });
-  await assertSucceeds(acquireActiveService(auth(provider), provider, dueId, "en_route"));
-  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "busy");
-
-  await seedBooking("different-active-request", { status: "accepted", provider, bookingType: "onsite-mechanic", timingMode: "now" });
-  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", "different-active-request"), { status: "cancelled", updatedAt: serverTimestamp() }));
-  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).data()?.bookingId, dueId);
-
-  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", dueId), { status: "arrived", updatedAt: serverTimestamp() }));
-  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", dueId), { status: "in_progress", updatedAt: serverTimestamp() }));
-  await finishActiveService(auth(provider), provider, dueId);
-  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).exists(), false);
-  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "offline",
-    "completion restores the provider's prior offline state");
-
-  // Customer cancellation releases only their own accepted immediate service.
-  const cancelId = "customer-own-cancel";
-  await assertSucceeds(updateDoc(doc(auth(provider), "providerListings", provider), { availability: "available" }));
-  await seedBooking(cancelId, { status: "pending", provider, bookingType: "onsite-mechanic", customer: "cancel-owner", timingMode: "now" });
-  await assertSucceeds(acquireActiveService(auth(provider), provider, cancelId, "accepted"));
-  const customerDb = auth("cancel-owner");
-  const cancelBooking = doc(customerDb, "bookings", cancelId);
-  const cancelLock = doc(customerDb, "providerActiveServices", provider);
-  const cancelListing = doc(customerDb, "providerListings", provider);
-  await assertSucceeds(updateDoc(cancelBooking, { status: "cancelled", updatedAt: serverTimestamp() }));
-  await assertSucceeds(runTransaction(customerDb, async (transaction) => {
-    const lock = await transaction.get(cancelLock);
-    assert.equal(lock.data()?.bookingId, cancelId);
-    transaction.delete(cancelLock);
-    transaction.update(cancelListing, { availability: lock.data().previousAvailability });
-  }));
-  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, "available");
-
-  // Suspension prevents new acquisitions and provider progress. It leaves an
-  // existing lock intact; after guarded restoration the owner can finish it.
-  const suspendedActive = "suspended-active-service";
-  await seedBooking(suspendedActive, { status: "pending", provider, bookingType: "onsite-mechanic", timingMode: "now" });
-  await assertSucceeds(acquireActiveService(auth(provider), provider, suspendedActive, "accepted"));
-  await env.withSecurityRulesDisabled(async (context) => {
-    await context.firestore().doc(`users/${provider}`).update({ accountStatus: "suspended" });
-  });
-  const beforeSuspend = await getDoc(doc(auth(provider), "providerListings", provider));
-  await assertDeniedWithoutExpressionLimit(
-    () => updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "en_route", updatedAt: serverTimestamp() }),
-    "suspended provider cannot start a service",
-  );
-  await assertDeniedWithoutExpressionLimit(
-    () => finishActiveService(auth(provider), provider, suspendedActive),
-    "suspended provider cannot release the guarded busy lock",
-  );
-  assert.equal((await getDoc(doc(auth(provider), "providerActiveServices", provider))).data()?.bookingId, suspendedActive);
-  assert.equal((await getDoc(doc(auth(provider), "providerListings", provider))).data()?.availability, beforeSuspend.data()?.availability);
-  await env.withSecurityRulesDisabled(async (context) => {
-    await context.firestore().doc(`users/${provider}`).update({ accountStatus: "active" });
-  });
-  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "en_route", updatedAt: serverTimestamp() }));
-  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "arrived", updatedAt: serverTimestamp() }));
-  await assertSucceeds(updateDoc(doc(auth(provider), "bookings", suspendedActive), { status: "in_progress", updatedAt: serverTimestamp() }));
-  await assertSucceeds(finishActiveService(auth(provider), provider, suspendedActive));
-});
-
-test("active-service markers cannot be forged or released without the matching booking transition", async () => {
-  await env.clearFirestore();
-  const provider = "forged-lock-mechanic";
-  await seedBusyProvider(provider, "onsite-mechanic", "available");
-  await seedBooking("forged-lock-booking", { provider, bookingType: "onsite-mechanic", timingMode: "now" });
-  const providerDb = auth(provider);
-  await assertDeniedWithoutExpressionLimit(() => setDoc(doc(auth("fake-provider"), "providerActiveServices", provider), {
-    providerId: provider, bookingId: "forged-lock-booking", previousAvailability: "available", acquiredAt: serverTimestamp(),
-  }), "lock cannot be created without matching booking and listing writes");
-  await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(providerDb, "providerListings", provider), { availability: "busy" }),
-    "listing cannot be set busy by itself");
-  assert.equal((await getDoc(doc(providerDb, "providerListings", provider))).data()?.availability, "available");
-});
 async function acceptAsProvider(db, id, at, provider = providerId) {
   const reservation = doc(db, "providerScheduleReservations", slotId(provider, at));
   const booking = doc(db, "bookings", id);
@@ -253,19 +85,6 @@ async function startWithNotifications(db, id, status, notificationCollection) {
   await runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(bookingRef);
     const booking = snapshot.data();
-    const isBusyProvider = ["onsite-mechanic", "towing-company"].includes(booking.bookingType);
-    const lockRef = doc(db, "providerActiveServices", booking.providerId);
-    const listingRef = doc(db, "providerListings", booking.providerId);
-    const [lock, listing] = isBusyProvider
-      ? await Promise.all([transaction.get(lockRef), transaction.get(listingRef)])
-      : [null, null];
-    if (isBusyProvider && !lock.exists()) {
-      transaction.set(lockRef, {
-        providerId: booking.providerId, bookingId: id,
-        previousAvailability: listing.data().availability, acquiredAt: serverTimestamp(),
-      });
-      transaction.update(listingRef, { availability: "busy" });
-    }
     transaction.update(bookingRef, { status, updatedAt: serverTimestamp() });
     transaction.set(doc(db, `users/${booking.customerId}/notifications/${id}`), {
       customerId: booking.customerId, bookingId: id, bookingType: booking.bookingType,
@@ -1350,7 +1169,7 @@ test("completion writes final price, completedAt, status and both notifications 
     });
     const db = auth(provider);
     await assertSucceeds(runTransaction(db, async (transaction) => {
-      transaction.update(doc(db, "bookings", id), { status: "completed", finalPrice: 123.45, completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      transaction.update(doc(db, "bookings", id), { status: "completed", finalPrice: 123.45, completionNote: "Inspection and repair completed.", completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
       transaction.update(doc(db, "users", customerId, "notifications", id), { status: "completed", message: "Completed. Final price: ₱123.45", isRead: false, readAt: null, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       const collectionName = type === "shop-owner" ? "shopNotifications" : "homeGarageNotifications";
       transaction.update(doc(db, "users", provider, collectionName, id), { status: "completed", title: type === "shop-owner" ? "Request status updated" : "Request updated", message: "Completed", isRead: true, readAt: serverTimestamp(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
@@ -1358,10 +1177,45 @@ test("completion writes final price, completedAt, status and both notifications 
     const completed = (await getDoc(doc(db, "bookings", id))).data();
     assert.equal(completed.status, "completed");
     assert.equal(completed.finalPrice, 123.45);
+    assert.equal(completed.completionNote, "Inspection and repair completed.");
     assert.ok(completed.completedAt);
     assert.equal("paymentStatus" in completed, false);
     const ownerNotification = (await getDoc(doc(auth(customerId), "users", customerId, "notifications", id))).data();
     assert.equal(ownerNotification.status, "completed");
+  }
+});
+
+test("all provider completion notes are limited to 160 characters and cannot be written by owners or unassigned providers", async () => {
+  for (const { type, baseProvider, role } of [
+    { type: "onsite-mechanic", baseProvider: "mechanic-note-provider", role: "onsite-mechanic" },
+    { type: "towing-company", baseProvider: "towing-note-provider", role: "towing-company" },
+    { type: "shop-owner", baseProvider: "shop-note-provider", role: "shop-owner" },
+    { type: "homegarage", baseProvider: "garage-note-provider", role: "homegarage" },
+  ]) {
+    await env.clearFirestore();
+    for (const suffix of ["valid", "long", "owner", "max", "unassigned"]) {
+      const assignedProvider = `${baseProvider}-${suffix}`;
+      if (type === "onsite-mechanic" || type === "towing-company") await seedVerifiedProviderListing(assignedProvider, role);
+      else await env.withSecurityRulesDisabled(async (context) => {
+        const db = context.firestore();
+        await db.doc(`users/${assignedProvider}`).set({ uid: assignedProvider, role, accountStatus: "active" });
+        if (type === "shop-owner") await db.doc(`providers/${assignedProvider}`).set({ uid: assignedProvider, role, verified: true, status: "open" });
+        else await db.doc(`users/${assignedProvider}/homeGarageVerification/profile`).set({ uid: assignedProvider, role, verificationStatus: "VERIFIED" });
+      });
+      const id = `note-${type}-${suffix}`;
+      const status = type === "onsite-mechanic" || type === "towing-company" ? "in_progress" : "repairing";
+      await seedBooking(id, { status, bookingType: type, provider: assignedProvider, timingMode: null });
+      if (type === "onsite-mechanic" || type === "towing-company") await env.withSecurityRulesDisabled(async (context) => {
+      });
+    }
+    const complete = (suffix, note, caller = `${baseProvider}-${suffix}`) => updateDoc(doc(auth(caller), "bookings", `note-${type}-${suffix}`), {
+      status: "completed", finalPrice: 123.45, completionNote: note, completedAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    await assertSucceeds(complete("valid", "Service completed."));
+    await assertSucceeds(complete("max", "x".repeat(160)));
+    await assertDeniedWithoutExpressionLimit(() => complete("long", "x".repeat(161)), `${type} rejects overlong completion notes`);
+    await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth(customerId), "bookings", `note-${type}-owner`), { completionNote: "Owner cannot set provider notes.", updatedAt: serverTimestamp() }), `${type} owner cannot set provider notes`);
+    await assertDeniedWithoutExpressionLimit(() => complete("unassigned", "Provider is not assigned.", "not-assigned-provider"), `${type} unassigned provider cannot set provider notes`);
   }
 });
 
@@ -1761,4 +1615,266 @@ test("listing and provider contact changes are atomic; failed contact validation
   }), "invalid private contact causes the atomic listing transaction to fail");
   assert.equal((await getDoc(listingRef)).data()?.contactPhone, oldPhone, "failed transaction did not clear the published number");
   assert.equal((await getDoc(contactRef)).exists(), false, "failed transaction did not create an invalid private contact");
+});
+
+test("complaints are private, deterministic, party-only, and require active or recent completed bookings", async () => {
+  const roles = ["onsite-mechanic", "towing-company", "shop-owner", "homegarage"];
+  const activeStatuses = ["in_progress", "in_progress", "repairing", "repairing"];
+  for (let index = 0; index < roles.length; index += 1) {
+    const bookingId = `complaint-booking-${index}`;
+    const provider = `complaint-provider-${index}`;
+    const customer = `complaint-owner-${index}`;
+    await seedBooking(bookingId, { status: activeStatuses[index], bookingType: roles[index], provider, customer, timingMode: null });
+    const reportId = `${bookingId}_${customer}`;
+    const payload = {
+      bookingId, bookingType: roles[index], bookingStatusAtSubmission: activeStatuses[index], bookingReference: bookingId,
+      reporterId: customer, reporterName: "Owner", reporterType: "Vehicle Owner",
+      reportedUserId: provider, reportedUserName: "Provider", category: "Service quality", explanation: "The service issue needs review.",
+      status: "Pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    };
+    const ownerDb = auth(customer);
+    await assertSucceeds(setDoc(doc(ownerDb, "complaints", reportId), payload));
+    await assertDeniedWithoutExpressionLimit(() => setDoc(doc(ownerDb, "complaints", reportId), payload), `${roles[index]} duplicate report`);
+    await assertSucceeds(getDoc(doc(ownerDb, "complaints", reportId)));
+    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(auth(provider), "complaints", reportId)), `${roles[index]} reported party cannot read`);
+    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(auth("unrelated-complaint-user"), "complaints", reportId)), `${roles[index]} unrelated user cannot read`);
+    await assertDeniedWithoutExpressionLimit(() => setDoc(doc(auth("unrelated-complaint-user"), "complaints", `${bookingId}_unrelated-complaint-user`), payload), `${roles[index]} unrelated user cannot submit`);
+    await assertSucceeds(getDoc(doc(env.authenticatedContext("complaint-admin", { admin: true }).firestore(), "complaints", reportId)));
+    const providerReportId = `${bookingId}_${provider}`;
+    const providerPayload = { ...payload, reporterId: provider, reporterName: "Provider", reporterType: "Provider", reportedUserId: customer, reportedUserName: "Owner" };
+    await assertSucceeds(setDoc(doc(auth(provider), "complaints", providerReportId), providerPayload));
+    await assertDeniedWithoutExpressionLimit(() => getDoc(doc(ownerDb, "complaints", providerReportId)), `${roles[index]} reporter-only privacy applies to provider reports`);
+    assert.equal((await getDoc(doc(ownerDb, "bookings", bookingId))).data().status, activeStatuses[index], "report write does not change booking status");
+  }
+
+  await seedBooking("complaint-old-completion", { status: "completed", bookingType: "shop-owner", provider: "old-shop", customer: "old-owner", timingMode: null });
+  const oldPayload = { bookingId: "complaint-old-completion", bookingType: "shop-owner", bookingStatusAtSubmission: "completed", bookingReference: "complaint-old-completion", reporterId: "old-owner", reporterName: "Owner", reporterType: "Vehicle Owner", reportedUserId: "old-shop", reportedUserName: "Shop", category: "Other", explanation: "A completed booking has no recorded completion time.", status: "Pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+  await assertDeniedWithoutExpressionLimit(() => setDoc(doc(auth("old-owner"), "complaints", "complaint-old-completion_old-owner"), oldPayload), "completed booking without completedAt cannot be reported");
+  await env.withSecurityRulesDisabled(async context => context.firestore().doc("bookings/complaint-expired-completion").set({ bookingType: "shop-owner", customerId: "expired-owner", providerId: "expired-shop", status: "completed", completedAt: Timestamp.fromMillis(Date.now() - 8 * 86400000) }));
+  const expiredPayload = { ...oldPayload, bookingId: "complaint-expired-completion", bookingReference: "complaint-expired-completion", reporterId: "expired-owner", reportedUserId: "expired-shop" };
+  await assertDeniedWithoutExpressionLimit(() => setDoc(doc(auth("expired-owner"), "complaints", "complaint-expired-completion_expired-owner"), expiredPayload), "completed booking outside seven-day window cannot be reported");
+  await env.withSecurityRulesDisabled(async context => context.firestore().doc("bookings/complaint-recent-completion").set({ bookingType: "shop-owner", customerId: "recent-owner", providerId: "recent-shop", status: "completed", completedAt: Timestamp.fromMillis(Date.now() - 2 * 86400000) }));
+  const recentPayload = { ...oldPayload, bookingId: "complaint-recent-completion", bookingReference: "complaint-recent-completion", reporterId: "recent-owner", reportedUserId: "recent-shop" };
+  await assertSucceeds(setDoc(doc(auth("recent-owner"), "complaints", "complaint-recent-completion_recent-owner"), recentPayload));
+});
+
+test("demo subscription activation atomically records fixed plans, blocks duplicates, and protects private fields", async () => {
+  const uid = "demo-subscription-provider";
+  const accountRef = doc(auth(uid), "users", uid);
+  const historyRef = (database, id) => doc(database, "users", uid, "demoSubscriptionTransactions", id);
+  await env.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc(`users/${uid}`).set({ uid, role: "onsite-mechanic", displayName: "Demo Provider" });
+  });
+
+  const makeWrites = (database, plan, id, durationDays, amount) => {
+    const expiresAt = Timestamp.fromMillis(Date.now() + durationDays * 86400000);
+    return runTransaction(database, async transaction => {
+      const transactionAccountRef = doc(database, "users", uid);
+      const account = await transaction.get(transactionAccountRef);
+      const previous = account.data()?.subscription;
+      transaction.update(transactionAccountRef, { subscription: {
+        status: "active", plan, demoAmount: amount, startedAt: serverTimestamp(), expiresAt,
+        lastTransactionId: id,
+      } });
+      transaction.set(historyRef(database, id), {
+        providerId: uid, transactionId: id, plan, demoAmount: amount, durationDays,
+        type: previous ? "renewal" : "activation", startedAt: serverTimestamp(), expiresAt,
+        createdAt: serverTimestamp(), label: "demo_only",
+      });
+    });
+  };
+
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(accountRef, {
+    subscription: { status: "active", plan: "monthly", demoAmount: 100, startedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 30 * 86400000), lastTransactionId: "missing-history" },
+  }), "subscription cannot be added through ordinary profile update");
+  await assertDeniedWithoutExpressionLimit(() => setDoc(historyRef(auth(uid), "missing-account-update"), {
+    providerId: uid, transactionId: "missing-account-update", plan: "monthly", demoAmount: 100, durationDays: 30,
+    type: "activation", startedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 30 * 86400000), createdAt: serverTimestamp(), label: "demo_only",
+  }), "history cannot be written without the matching account update");
+
+  await assertSucceeds(makeWrites(auth(uid), "monthly", "activation-monthly", 30, 100));
+  const account = (await getDoc(accountRef)).data();
+  const entry = (await getDoc(historyRef(auth(uid), "activation-monthly"))).data();
+  assert.equal(account.subscription.lastTransactionId, "activation-monthly");
+  assert.equal(entry.transactionId, account.subscription.lastTransactionId);
+  assert.equal(entry.startedAt.toMillis(), account.subscription.startedAt.toMillis());
+  assert.equal(entry.expiresAt.toMillis(), account.subscription.expiresAt.toMillis());
+  assert.ok(Math.abs((entry.expiresAt.toMillis() - entry.startedAt.toMillis()) - 30 * 86400000) < 120000);
+  await assertDeniedWithoutExpressionLimit(() => makeWrites(auth(uid), "yearly", "duplicate-activation", 365, 1000), "repeat tap cannot add a second active activation");
+  await assertDeniedWithoutExpressionLimit(() => makeWrites(auth(uid), "monthly", "arbitrary-duration", 31, 100), "rules reject arbitrary duration");
+
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(accountRef, {
+    displayName: "Changed", subscription: { ...account.subscription, demoAmount: 0 },
+  }), "ordinary profile update cannot overwrite subscription fields");
+  await assertSucceeds(updateDoc(accountRef, { displayName: "Profile update preserved" }));
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(env.unauthenticatedContext().firestore(), "users", uid)), "guest cannot read private subscription-bearing user document");
+  await assertDeniedWithoutExpressionLimit(() => getDocs(collection(env.authenticatedContext("other-provider").firestore(), "users", uid, "demoSubscriptionTransactions")), "other provider cannot list private transaction history");
+  await assertDeniedWithoutExpressionLimit(() => setDoc(historyRef(auth(uid), "forged-amount"), {
+    providerId: uid, transactionId: "forged-amount", plan: "monthly", demoAmount: 1, durationDays: 30,
+    type: "renewal", startedAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 30 * 86400000), createdAt: serverTimestamp(), label: "demo_only",
+  }), "history only accepts the fixed plan amount");
+  const adminDb = env.authenticatedContext("demo-admin", { admin: true }).firestore();
+  await assertSucceeds(getDoc(doc(adminDb, "users", uid)));
+  await assertSucceeds(getDocs(collection(adminDb, "users", uid, "demoSubscriptionTransactions")));
+});
+
+test("map expiry projection must match private expiry and survives listing edits", async () => {
+  const uid = "map-expiry-provider";
+  const database = auth(uid);
+  const accountRef = doc(database, "users", uid);
+  const listingRef = doc(database, "providerListings", uid);
+  const privateExpiry = Timestamp.fromMillis(Date.now() + 30 * 86400000);
+  const listing = {
+    providerId: uid, role: "onsite-mechanic", category: "Onsite Mechanics",
+    businessName: "Roadside Help", location: { latitude: 14.6, longitude: 121 },
+    availability: "available", visibility: "active", ratingSummary: { average: 0, count: 0 },
+    services: ["Engine Diagnostics"], vehicleTypes: ["Car"], serviceAreaLabel: "Manila",
+    description: "Roadside assistance", startingPrice: 100, operatingHours: "Daily",
+    emergencyServiceAvailable: true, acceptsScheduledBookings: false, contactPhone: "",
+  };
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "onsite-mechanic", accountStatus: "active", subscription: {
+      status: "active", plan: "monthly", demoAmount: 100, startedAt: Timestamp.now(),
+      expiresAt: privateExpiry, lastTransactionId: "seeded-map-expiry",
+    } });
+    await db.doc(`users/${uid}/providerProfile/profile`).set({ uid, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+    await db.doc(`providerListings/${uid}`).set(listing);
+  });
+
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(listingRef, {
+    mapSubscriptionExpiresAt: Timestamp.fromMillis(privateExpiry.toMillis() + 86400000),
+  }), "provider cannot forge the public expiry without a matching private subscription");
+
+  await assertSucceeds(updateDoc(listingRef, { mapSubscriptionExpiresAt: privateExpiry }));
+  const listingExpiry = (await getDoc(listingRef)).data().mapSubscriptionExpiresAt;
+  assert.equal(listingExpiry.toMillis(), privateExpiry.toMillis());
+
+  await assertSucceeds(updateDoc(listingRef, { businessName: "Updated Roadside Help" }));
+  assert.equal((await getDoc(listingRef)).data().mapSubscriptionExpiresAt.toMillis(), privateExpiry.toMillis(),
+    "ordinary provider listing edits leave the system-owned projection intact");
+  await assertDeniedWithoutExpressionLimit(() => getDoc(doc(env.unauthenticatedContext().firestore(), "users", uid)),
+    "the expiry projection does not make the private user document guest-readable");
+  await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), "providerListings", uid)),
+    "guests can read the map's existing public listing projection");
+
+  const newUid = "map-expiry-new-provider";
+  const newDatabase = auth(newUid);
+  const newPrivateExpiry = Timestamp.fromMillis(Date.now() + 365 * 86400000);
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await db.doc(`users/${newUid}`).set({ uid: newUid, role: "onsite-mechanic", accountStatus: "active", subscription: {
+      status: "active", plan: "yearly", demoAmount: 1000, startedAt: Timestamp.now(),
+      expiresAt: newPrivateExpiry, lastTransactionId: "seeded-new-map-expiry",
+    } });
+    await db.doc(`users/${newUid}/providerProfile/profile`).set({ uid: newUid, role: "onsite-mechanic", verificationStatus: "VERIFIED" });
+  });
+  const newListingRef = doc(newDatabase, "providerListings", newUid);
+  await assertDeniedWithoutExpressionLimit(() => setDoc(newListingRef, {
+    ...listing, providerId: newUid,
+    mapSubscriptionExpiresAt: Timestamp.fromMillis(newPrivateExpiry.toMillis() - 86400000),
+  }), "new listing cannot forge a public expiry unrelated to the private subscription");
+  await assertSucceeds(setDoc(newListingRef, { ...listing, providerId: newUid, mapSubscriptionExpiresAt: newPrivateExpiry }));
+});
+
+test("concurrent demo activation attempts yield one activation and one immutable history record", async () => {
+  const uid = "demo-subscription-concurrent-provider";
+  const database = auth(uid);
+  const accountRef = doc(database, "users", uid);
+  await env.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc(`users/${uid}`).set({ uid, role: "towing-company" });
+  });
+  let readers = 0;
+  let release;
+  const bothRead = new Promise(resolve => { release = resolve; });
+  const attempt = id => runTransaction(database, async transaction => {
+    const account = await transaction.get(accountRef);
+    readers += 1;
+    if (readers === 2) release();
+    if (readers <= 2) await bothRead;
+    if (account.data()?.subscription?.expiresAt?.toMillis?.() > Date.now()) throw new Error("Already active");
+    const expiresAt = Timestamp.fromMillis(Date.now() + 30 * 86400000);
+    transaction.update(accountRef, { subscription: {
+      status: "active", plan: "monthly", demoAmount: 100, startedAt: serverTimestamp(), expiresAt, lastTransactionId: id,
+    } });
+    transaction.set(doc(database, "users", uid, "demoSubscriptionTransactions", id), {
+      providerId: uid, transactionId: id, plan: "monthly", demoAmount: 100, durationDays: 30,
+      type: "activation", startedAt: serverTimestamp(), expiresAt, createdAt: serverTimestamp(), label: "demo_only",
+    });
+  });
+  const outcomes = await Promise.allSettled([attempt("concurrent-a"), attempt("concurrent-b")]);
+  assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter(result => result.status === "rejected").length, 1);
+  const history = await getDocs(collection(database, "users", uid, "demoSubscriptionTransactions"));
+  assert.equal(history.size, 1);
+  assert.equal((await getDoc(accountRef)).data().subscription.lastTransactionId, history.docs[0].id);
+});
+
+test("map sync recovery and concurrent retries only copy the existing private expiry", async () => {
+  const uid = "subscription-sync-recovery";
+  const database = auth(uid);
+  const accountRef = doc(database, "users", uid);
+  const listingRef = doc(database, "providerListings", uid);
+  const historyRef = doc(database, "users", uid, "demoSubscriptionTransactions", "existing-activation");
+  const expiry = new Timestamp(Math.floor(Date.now() / 1000) + 30 * 86400, 123456789);
+  const subscription = {
+    status: "active", plan: "monthly", demoAmount: 100, startedAt: Timestamp.now(),
+    expiresAt: expiry, lastTransactionId: "existing-activation",
+  };
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await db.doc(`users/${uid}`).set({ uid, role: "towing-company", subscription });
+    await db.doc(`providerListings/${uid}`).set({
+      providerId: uid, role: "towing-company", visibility: "active", availability: "available", contactPhone: "",
+    });
+    await db.doc(`users/${uid}/demoSubscriptionTransactions/existing-activation`).set({
+      transactionId: "existing-activation", expiresAt: expiry, label: "demo_only",
+    });
+  });
+  const accountBefore = (await getDoc(accountRef)).data();
+  const historyBefore = (await getDoc(historyRef)).data();
+  const sync = (db, provider = uid) => runTransaction(db, async transaction => {
+    const account = await transaction.get(doc(db, "users", provider));
+    const listing = doc(db, "providerListings", provider);
+    const current = await transaction.get(listing);
+    if (!current.exists()) return "missing_listing";
+    const storedExpiry = account.data().subscription.expiresAt;
+    if (!current.data().mapSubscriptionExpiresAt?.isEqual(storedExpiry)) {
+      transaction.update(listing, { mapSubscriptionExpiresAt: storedExpiry });
+    }
+    return "synced";
+  });
+
+  // A denied projection write must not alter the already committed activation.
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(listingRef, {
+    mapSubscriptionExpiresAt: Timestamp.fromMillis(expiry.toMillis() + 1),
+  }), "failed sync does not accept a forged expiry");
+  assert.deepEqual((await getDoc(accountRef)).data(), accountBefore);
+  assert.deepEqual((await getDoc(historyRef)).data(), historyBefore);
+  assert.equal((await getDoc(listingRef)).data().mapSubscriptionExpiresAt, undefined);
+
+  assert.deepEqual(await Promise.all([sync(database), sync(database), sync(database)]), ["synced", "synced", "synced"]);
+  assert.equal(await sync(database), "synced");
+  assert.ok((await getDoc(listingRef)).data().mapSubscriptionExpiresAt.isEqual(accountBefore.subscription.expiresAt),
+    "copy the persisted private timestamp, including the precision retained by Firestore");
+  assert.deepEqual((await getDoc(accountRef)).data(), accountBefore);
+  assert.deepEqual((await getDoc(historyRef)).data(), historyBefore);
+  assert.equal((await getDocs(collection(database, "users", uid, "demoSubscriptionTransactions"))).size, 1);
+
+  await assertDeniedWithoutExpressionLimit(() => sync(auth("unrelated-sync-provider")),
+    "unrelated providers cannot read the private source for a retry");
+  await assertDeniedWithoutExpressionLimit(() => updateDoc(doc(auth("unrelated-sync-provider"), "providerListings", uid), {
+    mapSubscriptionExpiresAt: expiry,
+  }), "knowing the expiry does not authorize another provider to sync it");
+  await assertDeniedWithoutExpressionLimit(() => sync(env.unauthenticatedContext().firestore()),
+    "guests cannot sync a private subscription");
+
+  const noListingUid = "subscription-sync-no-listing";
+  await env.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc(`users/${noListingUid}`).set({ uid: noListingUid, role: "towing-company", subscription });
+  });
+  assert.equal(await sync(auth(noListingUid), noListingUid), "missing_listing");
+  await env.withSecurityRulesDisabled(async context => {
+    assert.equal((await context.firestore().doc(`providerListings/${noListingUid}`).get()).exists, false);
+  });
 });

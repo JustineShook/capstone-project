@@ -1,0 +1,15 @@
+﻿{
+    "firestore":  {
+                      "rules":  "firestore.complaint-candidate.rules",
+                      "indexes":  "firestore.indexes.json"
+                  },
+    "emulators":  {
+                      "firestore":  {
+                                        "port":  8089
+                                    },
+                      "ui":  {
+                                 "enabled":  false
+                             },
+                      "singleProjectMode":  false
+                  }
+}

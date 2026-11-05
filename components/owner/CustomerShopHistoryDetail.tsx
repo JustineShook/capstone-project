@@ -14,12 +14,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors } from "../../constants/owner/theme";
+import { homeColors as colors } from "../../constants/owner/homeTheme";
 import { useCustomerShopBooking } from "../../hooks/useCustomerShopBooking";
 import { getPublicProviderListing } from "../../services/publicProviderListingService";
 import { getProviderContactPhone } from "../../services/providerContactService";
 import { SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
 import { CustomerRating } from "./CustomerRating";
+import { ReportProblemAction } from "./ReportProblemModal";
 import { ServiceProgress } from "./ServiceProgress";
 import { formatPesoAmount } from "../../utils/finalPrice";
 import { OpenGoogleMapsModal } from "./OpenGoogleMapsModal";
@@ -83,13 +84,13 @@ export function CustomerShopHistoryDetail() {
 
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <SafeAreaView style={s.header} edges={["top"]}>
-        <View style={s.headerRow}>
+      <StatusBar barStyle={"light-content"} backgroundColor={"#0F52BA"} />
+      <SafeAreaView style={[s.header, { backgroundColor: "#0F52BA", borderBottomWidth: 0, height: undefined, minHeight: 64, paddingHorizontal: 0, paddingVertical: 0 }]} edges={["top"]}>
+        <View style={[s.headerRow, { minHeight: 64, paddingHorizontal: 16, paddingVertical: 12, height: undefined }]}>
           <Pressable onPress={returnToHistory} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back to history">
-            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+            <Ionicons name="chevron-back" size={24} color={"#FFFFFF"} />
           </Pressable>
-          <Text style={s.headerTitle}>Request Status</Text>
+          <Text style={[s.headerTitle, { color: "#FFFFFF", fontSize: 24, lineHeight: 30, fontWeight: "700", flexShrink: 1 }]}>Request Status</Text>
           <View style={{ width: 24 }} />
         </View>
       </SafeAreaView>
@@ -99,30 +100,30 @@ export function CustomerShopHistoryDetail() {
           : !booking ? <View style={s.loadingRoot}><Text style={s.notFoundText}>This request could not be found.</Text></View>
             : <>
               <View style={s.fixedTop}>
-                <View style={s.providerCard}>
+                {(!["completed", "cancelled"].includes(booking.status)) && <View style={s.providerCard}>
                   <View style={s.avatar}><Ionicons name="storefront" size={26} color={colors.white} /></View>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={s.providerName}>{booking.providerName}</Text>
-                    <Text style={s.problemText} numberOfLines={1} ellipsizeMode="tail">{booking.problem}</Text>
+                    <Text style={s.problemText}  ellipsizeMode="tail">{booking.problem}</Text>
                   </View>
-                  <View style={s.providerActionsRow}>
+                  {!["completed", "cancelled"].includes(booking.status) && <View style={s.providerActionsRow}>
                     <Pressable style={s.actionButton} onPress={() => void handleCall()} hitSlop={6} accessibilityRole="button" accessibilityLabel="Call shop">
                       <Ionicons name="call" size={17} color={colors.white} />
                     </Pressable>
                     <Pressable style={s.actionButton} onPress={() => void handleText()} hitSlop={6} accessibilityRole="button" accessibilityLabel="Text shop">
                       <Ionicons name="chatbubble" size={17} color={colors.white} />
                     </Pressable>
-                  </View>
-                </View>
-                <ServiceProgress
+                  </View>}
+                </View>}
+                {!["completed", "cancelled"].includes(booking.status) && <ServiceProgress homeAppearance
                   steps={SHOP_STATUS_FLOW.map((status) => ({ key: status, label: status.replace(/_/g, " ") }))}
                   currentStep={step}
                   terminalLabel={booking.status === "cancelled" || booking.status === "rejected" ? SHOP_STATUS_LABELS[booking.status] : undefined}
-                />
+                />}
               </View>
 
-              <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-                {booking.status === "completed" && <CustomerRating bookingId={booking.id} bookingType="shop" providerName={booking.providerName} />}
+              <ScrollView style={s.contentSurface} contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+                {booking.status === "completed" && <CustomerRating homeAppearance bookingId={booking.id} bookingType="shop" providerName={booking.providerName} />}
 
                 <View style={s.detailCard}>
                   <Text style={s.detailCardTitle}>Provider Details</Text>
@@ -167,14 +168,15 @@ export function CustomerShopHistoryDetail() {
                 </View>
               </ScrollView>
             </>}
-      {booking && <OpenGoogleMapsModal visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />}
+      {booking && <ReportProblemAction homeAppearance booking={booking} />}
+      {booking && <OpenGoogleMapsModal homeAppearance visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />}
     </View>
   );
 }
 
 function DetailRow({ icon, label, value, last = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; last?: boolean }) {
   return <View style={[s.detailRow, last && s.detailRowLast]}>
-    <Ionicons name={icon} size={16} color={colors.textSecondary} />
+    <Ionicons name={icon} size={16} color={colors.primary} />
     <Text style={s.detailLabel}>{label}</Text>
     <Text selectable style={s.detailValue}>{value || "Not provided"}</Text>
   </View>;
@@ -189,29 +191,30 @@ function formatDateTime(iso: string) {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background },
+  root: { flex: 1, backgroundColor: "#0F52BA" },
+  contentSurface: { flex: 1, backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   header: { backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
+  headerTitle: { fontSize: 24, fontWeight: "700", color: colors.textPrimary, lineHeight: 30, minWidth: 0, flexShrink: 1},
   loadingRoot: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 14 },
-  notFoundText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: "center" },
+  notFoundText: { fontSize: 15, lineHeight: 22, color: colors.textSecondary, textAlign: "center", fontWeight: "400"},
   retryButton: { backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 20 },
-  retryText: { color: colors.white, fontSize: 14, fontWeight: "700" },
-  fixedTop: { paddingHorizontal: 18, paddingTop: 14, backgroundColor: colors.background, paddingBottom: 16 },
+  retryText: { color: colors.white, fontSize: 15, fontWeight: "700", lineHeight: 20},
+  fixedTop: { paddingHorizontal: 16, paddingTop: 14, backgroundColor: colors.background, paddingBottom: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   content: { padding: 16, paddingBottom: 24, gap: 0 },
-  providerCard: { minHeight: 92, flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surface, borderRadius: 17, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 14 },
-  avatar: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
-  providerName: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary },
-  problemText: { fontSize: 14, lineHeight: 20, color: colors.textSecondary, marginTop: 3 },
-  providerActionsRow: { flexDirection: "row", gap: 8 },
-  actionButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  detailCard: { backgroundColor: colors.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 16 },
-  detailCardTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 },
-  detailRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  providerCard: { shadowColor: "#172B4D", shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 2, minHeight: 92, flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 16, marginBottom: 16 },
+  avatar: { width: 56, height: 56, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
+  providerName: { fontSize: 18, lineHeight: 25, fontWeight: "700", color: colors.textPrimary , minWidth: 0, flexShrink: 1},
+  problemText: { fontSize: 15, lineHeight: 22, color: colors.textSecondary, marginTop: 3, fontWeight: "400"},
+  providerActionsRow: { flexDirection: "row", gap: 8 , flexWrap: "wrap", maxWidth: 92},
+  actionButton: { width: 42, height: 42, borderRadius: 20, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  detailCard: { shadowColor: "#172B4D", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1, backgroundColor: colors.surfaceAlt, borderRadius: 20, padding: 16, marginBottom: 16 },
+  detailCardTitle: { fontSize: 16, fontWeight: "700", color: colors.primary, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 22},
+  detailRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 10, borderBottomWidth: 0, borderBottomColor: colors.border },
   detailRowLast: { borderBottomWidth: 0, paddingBottom: 0 },
-  detailLabel: { fontSize: 12.5, color: colors.textSecondary, width: 90 },
-  detailValue: { flex: 1, fontSize: 12.5, fontWeight: "500", color: colors.textPrimary, textAlign: "right" },
+  detailLabel: { fontSize: 13, color: colors.textSecondary, width: "32%", flexShrink: 1, lineHeight: 19, fontWeight: "500"},
+  detailValue: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.textPrimary, textAlign: "right", lineHeight: 22, minWidth: 0, flexShrink: 1},
   mapButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderWidth: 1, borderColor: colors.primary, borderRadius: 12, marginTop: 10 },
-  mapButtonText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
-  error: { fontSize: 13, lineHeight: 19, color: "#FF9AA8", marginTop: 8 },
+  mapButtonText: { color: colors.primary, fontSize: 15, fontWeight: "700", lineHeight: 20},
+  error: { fontSize: 13, lineHeight: 19, color: colors.busy, marginTop: 8, fontWeight: "400"},
 });

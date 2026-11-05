@@ -23,7 +23,7 @@ import { BookingTimingActions, timingActionStyles } from "../../../components/ow
 import type { BookingTimingInput } from "../../../types/bookingTiming";
 import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
 
-import { colors } from "../../../constants/owner/theme";
+import { homeColors as colors } from "../../../constants/owner/homeTheme";
 import { MockProvider } from "../../../data/owner/mockProviders";
 import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
 import { getPublicProviderListing } from "../../../services/publicProviderListingService";
@@ -191,27 +191,27 @@ export default function BookMechanicScreen() {
   }
 
   if (!provider) {
-    return <SafeAreaView style={styles.root}><View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Text style={styles.validationText}>{providerError || "Loading provider…"}</Text></View></SafeAreaView>;
+    return <SafeAreaView style={styles.root}><View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><Text style={[styles.validationText, providerError && styles.fieldError]}>{providerError || "Loading provider…"}</Text></View></SafeAreaView>;
   }
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <SafeAreaView style={styles.header} edges={["top"]}>
-        <View style={styles.headerRow}>
+      <StatusBar barStyle={"light-content"} backgroundColor={"#0F52BA"} />
+      <SafeAreaView style={[styles.header, { backgroundColor: "#0F52BA", borderBottomWidth: 0, height: undefined, minHeight: 64, paddingHorizontal: 0, paddingVertical: 0 }]} edges={["top"]}>
+        <View style={[styles.headerRow, { minHeight: 64, paddingHorizontal: 16, paddingVertical: 12, height: undefined }]}>
           <Pressable
-            onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}
+            onPress={() => router.replace({ pathname: "/(v_owner)", params: providerId ? { selectedProviderId: providerId } : {} })}
             hitSlop={10}
           >
-            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+            <Ionicons name="chevron-back" size={24} color={"#FFFFFF"} />
           </Pressable>
-          <Text style={styles.headerTitle}>Book Mechanic</Text>
+          <Text style={[styles.headerTitle, { color: "#FFFFFF", fontSize: 24, lineHeight: 30, fontWeight: "700", flexShrink: 1 }]}>Book Mechanic</Text>
           <View style={{ width: 24 }} />
         </View>
       </SafeAreaView>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}>
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: "#0F52BA" }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView style={{ flex: 1, backgroundColor: "#FFFFFF", borderTopLeftRadius: 20, borderTopRightRadius: 20 }} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}>
         {/* Provider summary */}
         <View style={styles.providerCard}>
           <View style={[styles.avatar, { backgroundColor: provider.color }]}>
@@ -230,7 +230,7 @@ export default function BookMechanicScreen() {
 
         {/* Vehicle — single selected vehicle, tap to change */}
         <Text style={styles.sectionLabel}>Vehicle</Text>
-        <Text style={styles.sectionSubtitle}>Which vehicle needs assistance?</Text>
+
 
         {selectedVehicle ? (
           <Pressable style={styles.selectedCard} onPress={() => setVehicleModalVisible(true)}>
@@ -303,14 +303,19 @@ export default function BookMechanicScreen() {
           value={notes}
           onChangeText={setNotes}
         />
+      {(() => { const message = !selectedVehicle ? "Please select a vehicle." : timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid future hour." : undefined; return message ? <Text accessibilityRole="alert" style={styles.formValidation}>{message}</Text> : null; })()}
       </ScrollView>
 
-      <SafeAreaView edges={["bottom"]} style={[styles.footer, timingActionStyles.safeFooter]}>
+      <SafeAreaView edges={["bottom"]} style={[styles.footer, timingActionStyles.safeFooter, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>Starting price</Text>
-          <Text style={styles.priceValue}>Starts at {provider.startingPrice}</Text>
+          <Text style={[styles.priceValue, provider.startingPrice === "Price on assessment" && { fontSize: 13, lineHeight: 18, fontWeight: "600" }]}>
+            {provider.startingPrice === "Price on assessment"
+              ? "Contact the provider for a price estimate."
+              : `Starts at ${provider.startingPrice}`}
+          </Text>
         </View>
-        <BookingTimingActions value={timing} emergencyAvailable={emergencyAvailable}
+        <BookingTimingActions formAppearance value={timing} emergencyAvailable={emergencyAvailable}
           acceptsScheduled={provider.acceptsScheduledBookings === true} requiredFieldsValid={requiredFieldsValid}
           reviewDisabled={submitting || !timingAllowed} hideUnsupportedSchedule standardNowMessage={standardNowMessage}
           emergencyUnavailableMessage={emergencyUnavailableMessage}
@@ -318,12 +323,12 @@ export default function BookMechanicScreen() {
           onChange={setTiming}
           onEmergency={() => { const next = { timingMode: "now" as const, urgency: "emergency" as const }; setTiming(next); if (requiredFieldsValid) setReviewVisible(true); }}
           onReview={() => setReviewVisible(true)}
-          validationMessage={!selectedVehicle ? "Please select a vehicle." : timing?.timingMode === "scheduled" && !isBookingTimingReady(timing) ? "Choose a valid future hour." : undefined} />
+          validationOutside />
       </SafeAreaView>
       </KeyboardAvoidingView>
 
       <Modal visible={reviewVisible} transparent animationType="fade" onRequestClose={() => !submitting && setReviewVisible(false)}>
-        <View style={styles.reviewOverlay}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
+        <KeyboardAvoidingView style={styles.reviewOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}><SafeAreaView style={styles.reviewSheet} edges={["bottom"]}>
           <Text style={styles.reviewTitle}>Review Booking</Text>
           <ScrollView style={styles.reviewScroll} contentContainerStyle={styles.reviewContent}>
             <View style={styles.reviewGroup}>
@@ -345,7 +350,7 @@ export default function BookMechanicScreen() {
           </ScrollView>
           <Pressable disabled={!canConfirm || submitting} style={[styles.confirmButton, (!canConfirm || submitting) && styles.confirmButtonDisabled]} onPress={() => void handleConfirm()}><Text style={styles.confirmButtonText}>{submitting ? "Sending..." : "Confirm Booking"}</Text></Pressable>
           <Pressable disabled={submitting} onPress={() => setReviewVisible(false)} style={styles.reviewCancel}><Text style={styles.validationText}>Back to edit</Text></Pressable>
-        </SafeAreaView></View>
+        </SafeAreaView></KeyboardAvoidingView>
       </Modal>
 
       {/* Change Vehicle modal */}
@@ -355,7 +360,7 @@ export default function BookMechanicScreen() {
         transparent
         onRequestClose={() => setVehicleModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setVehicleModalVisible(false)} accessibilityLabel="Close vehicle selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
@@ -367,7 +372,7 @@ export default function BookMechanicScreen() {
           </View>
 
           <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            {vehiclesLoading ? <Text style={styles.validationText}>Loading your vehicles...</Text> : vehicles.length === 0 ? <Text style={styles.validationText}>{vehicleError || "No saved vehicles. Add one from My Vehicles first."}</Text> : vehicles.map((vehicle) => {
+            {vehiclesLoading ? <Text style={styles.validationText}>Loading your vehicles...</Text> : vehicles.length === 0 ? <Text style={[styles.validationText, vehicleError && styles.fieldError]}>{vehicleError || "No saved vehicles. Add one from My Vehicles first."}</Text> : vehicles.map((vehicle) => {
               const isSelected = vehicle.vehicleId === selectedVehicleId;
               return (
                 <Pressable
@@ -394,7 +399,7 @@ export default function BookMechanicScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Select Problem modal */}
@@ -404,7 +409,7 @@ export default function BookMechanicScreen() {
         transparent
         onRequestClose={() => setProblemModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setProblemModalVisible(false)} accessibilityLabel="Close problem selection" />
         <SafeAreaView style={styles.modalSheet} edges={["bottom"]}>
           <View style={styles.modalHandle} />
@@ -438,13 +443,14 @@ export default function BookMechanicScreen() {
             })}
           </ScrollView>
         </SafeAreaView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  formValidation: { color: colors.busy, fontSize: 13, lineHeight: 19, marginTop: 12 },
   root: { flex: 1, backgroundColor: colors.background },
   header: { backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerRow: {
@@ -456,44 +462,44 @@ const styles = StyleSheet.create({
 
   providerCard: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: colors.surfaceAlt, borderRadius: 14, padding: 12, marginBottom: 20,
+    backgroundColor: colors.surfaceAlt, borderRadius: 20, padding: 16, marginBottom: 16,
   },
   avatar: { width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.white, fontWeight: "700", fontSize: 14 },
-  providerName: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  providerName: { fontSize: 18, fontWeight: "700", color: colors.textPrimary , lineHeight: 25 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
-  metaText: { fontSize: 12.5, color: colors.textSecondary },
-  metaDot: { fontSize: 12, color: colors.textMuted },
+  metaText: { fontSize: 13, color: colors.textSecondary , lineHeight: 19, fontWeight: "400" },
+  metaDot: { fontSize: 13, color: colors.textMuted , lineHeight: 19 },
 
-  sectionLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 },
-  sectionSubtitle: { fontSize: 12.5, lineHeight: 18, color: colors.textSecondary, marginBottom: 10 },
+  sectionLabel: { fontSize: 13, fontWeight: "500", color: colors.textSecondary, marginBottom: 8, marginTop: 20, textTransform: "none", letterSpacing: 0, lineHeight: 19},
+  sectionSubtitle: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, marginBottom: 12, fontWeight: "400"},
 
   // Generic "current selection" card — reused for both Vehicle and Problem
   selectedCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    borderRadius: 14,
-    padding: 12,
-    backgroundColor: colors.surfaceAlt,
-  },
-  selectedCardTitle: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
-  selectedCardSubtitle: { fontSize: 12.5, color: colors.textSecondary, marginTop: 2 },
-  changeLabel: { fontSize: 12.5, fontWeight: "600", color: colors.primary },
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: colors.surface,
+    minHeight: 54 },
+  selectedCardTitle: { fontSize: 15, fontWeight: "400", color: colors.textPrimary , lineHeight: 22 , flexShrink: 1 },
+  selectedCardSubtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 2 , lineHeight: 19, fontWeight: "400" },
+  changeLabel: { fontSize: 15, fontWeight: "700", color: colors.primary , lineHeight: 20 },
 
   emptyCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: colors.border,
-    borderStyle: "dashed",
-    borderRadius: 14,
-    padding: 14,
-  },
-  emptyCardText: { flex: 1, fontSize: 14.5, fontWeight: "500", color: colors.primary },
+    borderStyle: "solid",
+    borderRadius: 12,
+    padding: 16,
+    minHeight: 54 , backgroundColor: colors.surface },
+  emptyCardText: { flex: 1, fontSize: 15, fontWeight: "400", color: colors.textSecondary , lineHeight: 22 },
 
   vehicleCardThumb: { width: 42, height: 42, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   vehicleCardThumbText: { color: colors.white, fontWeight: "700", fontSize: 13 },
@@ -506,41 +512,41 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   compatibilityRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  compatibilityText: { fontSize: 12, lineHeight: 17, color: colors.rating, flexShrink: 1 },
+  compatibilityText: { fontSize: 13, lineHeight: 19, color: colors.rating, flexShrink: 1 , fontWeight: "400" },
 
-  notesInput: {
+  notesInput: { maxHeight: 160,
     borderWidth: 1, borderColor: colors.border, borderRadius: 12,
-    padding: 12, fontSize: 14, lineHeight: 20, color: colors.textPrimary,
-    minHeight: 80, textAlignVertical: "top",
-  },
+    padding: 16, fontSize: 15, lineHeight: 22, color: colors.textPrimary,
+    minHeight: 80, textAlignVertical: "top", fontWeight: "400", backgroundColor: colors.surface },
 
   footer: {
     borderTopWidth: 1, borderTopColor: colors.border,
-    paddingHorizontal: 16, paddingTop: 12,
+    paddingHorizontal: 0, paddingTop: 12,
   },
-  priceRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
-  priceLabel: { fontSize: 12.5, color: colors.textSecondary },
-  priceValue: { fontSize: 15, fontWeight: "700", color: colors.textPrimary },
-  validationText: { fontSize: 12.5, lineHeight: 18, color: colors.rating, marginBottom: 8, textAlign: "center" },
+  priceRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 0 , gap: 8 , flexWrap: "wrap" , marginHorizontal: 16 },
+  priceLabel: { fontSize: 13, color: colors.textSecondary , lineHeight: 19, fontWeight: "500" },
+  priceValue: { fontSize: 18, fontWeight: "700", color: colors.textPrimary , lineHeight: 25 },
+  fieldError: { color: colors.busy },
+  validationText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, marginBottom: 8, textAlign: "center", fontWeight: "400", marginTop: 8 },
   confirmButton: {
-    backgroundColor: colors.primary, borderRadius: 14,
-    paddingVertical: 14, alignItems: "center", marginBottom: 8,
-  },
+    backgroundColor: colors.primary, borderRadius: 10,
+    paddingVertical: 14, alignItems: "center", marginBottom: 0,
+   minHeight: 54 },
   confirmButtonDisabled: {
     backgroundColor: colors.border,
   },
-  confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white },
+  confirmButtonText: { fontSize: 15, fontWeight: "700", color: colors.white , lineHeight: 20 },
   confirmButtonTextDisabled: { color: colors.textMuted },
-  reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: 16 },
-  reviewSheet: { width: "100%", maxHeight: "90%", flexShrink: 1, backgroundColor: colors.background, borderRadius: 24, padding: 18, gap: 12 },
+  reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,.55)", alignItems: "center", justifyContent: "center", padding: 16 },
+  reviewSheet: { width: "100%", maxWidth: 520, maxHeight: "90%", flexShrink: 1, backgroundColor: colors.background, borderRadius: 20, padding: 16, gap: 12 },
   reviewScroll: { flexShrink: 1 },
-  reviewContent: { gap: 10, paddingBottom: 2 },
-  reviewGroup: { gap: 7, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 13 },
-  reviewGroupTitle: { color: colors.textSecondary, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 1 },
-  reviewTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: "800" },
-  reviewText: { color: colors.textPrimary, fontSize: 14, lineHeight: 21 },
-  reviewMuted: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
-  reviewCancel: { minHeight: 36, alignItems: "center", justifyContent: "center" },
+  reviewContent: { gap: 12, paddingBottom: 2 },
+  reviewGroup: { gap: 8, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: 12, padding: 16 },
+  reviewGroupTitle: { color: colors.primary, fontSize: 16, fontWeight: "700", textTransform: "none", letterSpacing: 0, marginBottom: 1, lineHeight: 22},
+  reviewTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: "700", lineHeight: 25},
+  reviewText: { color: colors.textPrimary, fontSize: 15, lineHeight: 22 , fontWeight: "400" },
+  reviewMuted: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 , fontWeight: "400" },
+  reviewCancel: { minHeight: 54, alignItems: "center", justifyContent: "center" , paddingVertical: 10 , backgroundColor: colors.surface , borderRadius: 10 , borderColor: colors.border , borderWidth: 1 },
 
   // Centered selection dialog (Vehicle + Problem)
   modalOverlay: {
@@ -559,7 +565,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingBottom: 10,
   },
   modalHandle: {
@@ -587,7 +593,7 @@ const styles = StyleSheet.create({
     gap: 12,
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: 20,
     padding: 12,
     backgroundColor: colors.background,
   },

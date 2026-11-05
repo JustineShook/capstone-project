@@ -1,10 +1,16 @@
-import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, where, writeBatch, type DocumentReference, type Transaction } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, where, writeBatch, type DocumentReference, type Timestamp, type Transaction } from "firebase/firestore";
 
 import { isBookableShopListing, type ProviderListing, type PublicProviderListingInput } from "../types/providerListing";
 import { db } from "./firebase";
 import { getProviderContactPhone } from "./providerContactService";
 
 type ProviderRole = ProviderListing["role"];
+
+function isFirestoreTimestamp(value: unknown): value is Timestamp {
+  return typeof value === "object" && value !== null
+    && "toMillis" in value && typeof value.toMillis === "function"
+    && "toDate" in value && typeof value.toDate === "function";
+}
 
 function logListingDiagnostic(role: ProviderRole, phase: string, error: unknown) {
   const safeError = typeof error === "object" && error !== null ? error as { code?: unknown; name?: unknown } : null;
@@ -138,15 +144,8 @@ function isDirectoryEligible(listing: Pick<ProviderListing, "availability" | "vi
 async function syncAvailability(uid: string, availability: ProviderListing["availability"]): Promise<void> {
   await runTransaction(db, async (transaction) => {
     const listingRef = publicProviderListingRef(uid);
-    const activeServiceRef = doc(db, "providerActiveServices", uid);
-    const [snapshot, activeService] = await Promise.all([
-      transaction.get(listingRef), transaction.get(activeServiceRef),
-    ]);
+    const snapshot = await transaction.get(listingRef);
     if (!snapshot.exists()) throw new Error("Create your public listing first.");
-    const serviceLock = activeService.data();
-    if (activeService.exists() && serviceLock?.providerId === uid && typeof serviceLock.bookingId === "string") {
-      throw new Error("Availability is locked while you have an active service.");
-    }
     const directoryRef = publicProviderDirectoryRef(uid);
     const directorySnapshot = await transaction.get(directoryRef);
     const listing = snapshot.data() as ProviderListing;
@@ -269,6 +268,7 @@ export async function updatePublicProviderListing(
     try {
       await runTransaction(db, async (transaction) => {
       const profile = (await transaction.get(doc(db, "providers", uid))).data();
+      const account = (await transaction.get(doc(db, "users", uid))).data();
       if (profile?.uid !== uid || profile.role !== "shop-owner" || profile.verified !== true) {
         throw new Error("Your shop must be approved before publishing a listing.");
       }
@@ -281,10 +281,12 @@ export async function updatePublicProviderListing(
       const oldListingPhone = currentListing.data()?.contactPhone;
       const oldContactPhone = existingContact.data()?.phone;
       const contactPhone = submittedPhone || validStoredPhone(oldContactPhone) || validStoredPhone(oldListingPhone);
+      const subscriptionExpiry = account?.subscription?.expiresAt;
       const shopListing: ProviderListing = {
         ...listing,
         availability: profile.status === "open" ? "available" : "offline",
         emergencyServiceAvailable: true,
+        ...(isFirestoreTimestamp(subscriptionExpiry) ? { mapSubscriptionExpiresAt: subscriptionExpiry } : {}),
       };
       const directoryCandidate = currentListing.exists()
         ? { ...currentListing.data(), ...shopListing, ratingSummary: currentListing.data()?.ratingSummary } as ProviderListing
@@ -348,6 +350,7 @@ export async function updatePublicProviderListing(
   }
   try {
     await runTransaction(db, async (transaction) => {
+      const account = (await transaction.get(doc(db, "users", uid))).data();
       const listingRef = publicProviderListingRef(uid);
       const existing = await transaction.get(listingRef);
       const contactRef = doc(db, "providerContacts", uid);
@@ -358,7 +361,11 @@ export async function updatePublicProviderListing(
       const oldContactPhone = existingContact.data()?.phone;
       const contactPhone = submittedPhone || validStoredPhone(oldContactPhone) || validStoredPhone(oldListingPhone);
       if (!existing.exists()) {
-        transaction.set(listingRef, listing);
+        const subscriptionExpiry = account?.subscription?.expiresAt;
+        transaction.set(listingRef, {
+          ...listing,
+          ...(isFirestoreTimestamp(subscriptionExpiry) ? { mapSubscriptionExpiresAt: subscriptionExpiry } : {}),
+        });
         writeContact(transaction, contactRef, uid, contactPhone);
         if (!existingDirectory.exists() && isDirectoryEligible(listing)) transaction.set(directoryRef, {});
         return;

@@ -1,17 +1,20 @@
+import { homeColors } from "../../constants/owner/homeTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../../constants/owner/theme";
 
-export function OpenGoogleMapsModal({
+export function OpenGoogleMapsModal({ homeAppearance = false,
   visible,
   url,
   onCancel,
-}: {
+}: { homeAppearance?: boolean;
   visible: boolean;
   url: string;
   onCancel: () => void;
 }) {
+  const colors = homeAppearance ? homeColors : defaultColors;
+  const styles = homeAppearance ? lightStyles : defaultStyles;
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -51,7 +54,8 @@ export function OpenGoogleMapsModal({
   );
 }
 
-const styles = StyleSheet.create({
+const defaultColors = colors;
+const makeStyles = (colors: typeof defaultColors) => StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 22, backgroundColor: "rgba(4,8,12,0.78)" },
   card: { width: "100%", maxWidth: 410, padding: 23, borderRadius: 25, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   iconWrap: { width: 62, height: 62, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: "#351D24", borderWidth: 1, borderColor: "#63313C", marginBottom: 17 },
@@ -63,3 +67,16 @@ const styles = StyleSheet.create({
   cancelButton: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 5 },
   cancelButtonText: { color: colors.textSecondary, fontSize: 14, fontWeight: "700" },
 });
+const defaultStyles = makeStyles(defaultColors);
+const lightStyles = { ...makeStyles(homeColors), ...StyleSheet.create({
+  backdrop: { flex: 1, justifyContent: "center", alignItems: "center", padding: 22, backgroundColor: "rgba(4,8,12,0.78)" },
+  card: { width: "100%", maxWidth: 410, padding: 23, borderRadius: 25, backgroundColor: homeColors.surface, borderWidth: 1, borderColor: homeColors.border },
+  iconWrap: { width: 62, height: 62, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: homeColors.surfaceAlt, borderWidth: 1, borderColor: homeColors.border, marginBottom: 17 },
+  title: { color: homeColors.textPrimary, fontSize: 23, lineHeight: 29, fontWeight: "800" },
+  description: { color: homeColors.textSecondary, fontSize: 14, lineHeight: 21, marginTop: 8, marginBottom: 17 },
+  error: { color: homeColors.busy, fontSize: 13, lineHeight: 19, marginTop: -7, marginBottom: 13 },
+  openButton: { minHeight: 54, alignItems: "center", justifyContent: "center", borderRadius: 20, backgroundColor: homeColors.primary },
+  openButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  cancelButton: { minHeight: 46, alignItems: "center", justifyContent: "center", marginTop: 5 },
+  cancelButtonText: { color: homeColors.textSecondary, fontSize: 14, fontWeight: "700" },
+}) };

@@ -1,3 +1,5 @@
+import { homeColors } from "../../constants/owner/homeTheme";
+import { KeyboardAvoidingView, Platform, StatusBar } from "react-native";
 // app/(v_owner)/personal-information.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -23,15 +25,7 @@ import type { UserProfile, UserRole } from "@/types/user";
 
 // Same design tokens as components/profile.tsx — keep in sync if that
 // palette changes, or move both to a shared theme file.
-const COLORS = {
-  primary: "#F52239",
-  darkRed: "#C9152A",
-  white: "#F4F6F8",
-  background: "#0C1015",
-  textPrimary: "#F4F6F8",
-  textSecondary: "#AAB5C0",
-  border: "#28313A",
-};
+const COLORS = { ...homeColors, darkRed: homeColors.primaryDark };
 
 function formatRole(role: UserRole): string {
   switch (role) {
@@ -68,7 +62,7 @@ function InfoRow({ icon, label, value, isLast }: RowProps) {
         <View style={styles.rowIconWrap}>
           <Ionicons name={icon} size={18} color={COLORS.primary} />
         </View>
-        <View>
+        <View style={styles.rowCopy}>
           <Text style={styles.rowLabel}>{label}</Text>
           {value ? <Text style={styles.rowValue}>{value}</Text> : null}
         </View>
@@ -161,20 +155,23 @@ export default function PersonalInformationScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={() => router.replace("/(v_owner)/profile")} accessibilityRole="button" accessibilityLabel="Back to profile">
-          <Ionicons name="chevron-back" size={22} color={COLORS.textPrimary} />
+    <SafeAreaView style={styles.safeArea} edges={["left", "right"]}>
+      <SafeAreaView style={[styles.header, { backgroundColor: "#0F52BA", borderBottomWidth: 0, height: undefined, minHeight: 64, paddingHorizontal: 16, paddingVertical: 12 }]} edges={["top"]}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" />
+        <Pressable style={[styles.backButton, { backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.25)" }]} onPress={() => router.replace("/(v_owner)/profile")} accessibilityRole="button" accessibilityLabel="Back to profile">
+          <Ionicons name="chevron-back" size={22} color={"#FFFFFF"} />
         </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>YOUR ACCOUNT</Text>
-          <Text style={styles.pageTitle}>Personal Information</Text>
+          <Text style={[styles.headerEyebrow, { color: "#FFFFFF" }]}>YOUR ACCOUNT</Text>
+          <Text style={[styles.pageTitle, { color: "#FFFFFF", fontSize: 24, lineHeight: 30, fontWeight: "700", flexShrink: 1 }]}>Personal Information</Text>
         </View>
-        {!editing && <Pressable style={styles.editButton} onPress={() => setEditing(true)} accessibilityRole="button"><Ionicons name="create-outline" size={17} color={COLORS.white} /><Text style={styles.editButtonText}>Edit</Text></Pressable>}
+        {!editing && <Pressable style={styles.editButton} onPress={() => setEditing(true)} accessibilityRole="button"><Ionicons name="create-outline" size={17} color={"#FFFFFF"} /><Text style={[styles.editButtonText, { color: "#FFFFFF" }]}>Edit</Text></Pressable>}
         {editing && <View style={styles.editSpacer} />}
-      </View>
+      </SafeAreaView>
+      <KeyboardAvoidingView style={[styles.container, { backgroundColor: "#0F52BA" }]} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView
-        style={styles.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        style={[styles.container, { backgroundColor: "#FFFFFF", borderTopLeftRadius: 20, borderTopRightRadius: 20 }]}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
@@ -185,8 +182,8 @@ export default function PersonalInformationScreen() {
           </View>
           <View style={styles.accountCopy}>
             <Text style={styles.accountEyebrow}>VEHICLE OWNER</Text>
-            <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.profileEmail} numberOfLines={1}>{email}</Text>
+            <Text style={styles.profileName}>{displayName}</Text>
+            <Text style={styles.profileEmail}>{email}</Text>
             <View style={styles.roleBadge}>
               <Ionicons name="shield-checkmark-outline" size={14} color={COLORS.primary} />
               <Text style={styles.roleBadgeText}>{roleLabel}</Text>
@@ -223,6 +220,7 @@ export default function PersonalInformationScreen() {
 
         <View style={{ height: 24 }} />
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -236,6 +234,7 @@ function FormField({ label, value, onChange, icon, editable = true, keyboardType
 }
 
 const styles = StyleSheet.create({
+  rowCopy: { flex: 1, minWidth: 0 },
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -243,7 +242,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 4 },
+  contentContainer: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, gap: 4 },
   loadingWrap: {
     flex: 1,
     alignItems: "center",
@@ -251,26 +250,26 @@ const styles = StyleSheet.create({
   },
 
   header: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 11, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: "#151C23", borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  headerCopy: { flex: 1, gap: 2 },
+  headerCopy: { flex: 1, gap: 2 , minWidth: 0},
   headerEyebrow: { fontSize: 9, fontWeight: "800", letterSpacing: 1.4, color: COLORS.primary },
   editSpacer: { width: 61 },
   backButton: {
-    width: 32,
-    height: 32,
+    width: 44,
+    height: 44,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#1C252E",
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginRight: 12,
-  },
+    marginRight: 0,
+  minHeight: 44},
   pageTitle: { fontSize: 18, fontWeight: "700", color: COLORS.textPrimary },
-  editButton: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 11, backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 9 },
+  editButton: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 11, backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 9 , minHeight: 44},
   editButtonText: { color: COLORS.white, fontSize: 13, fontWeight: "800" },
 
   // Profile card — matches components/profile.tsx exactly
-  profileCard: { backgroundColor: "#151C23", borderRadius: 17, padding: 17, flexDirection: "row", alignItems: "center", gap: 13, marginBottom: 17, borderWidth: 1, borderColor: COLORS.border },
+  profileCard: { backgroundColor: homeColors.surface, borderRadius: 20, padding: 16, flexDirection: "row", alignItems: "center", gap: 13, marginBottom: 17, borderWidth: 1, borderColor: COLORS.border },
   avatarWrap: {
     width: 58,
     height: 58,
@@ -280,39 +279,39 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   accountCopy: { flex: 1, gap: 3 },
-  accountEyebrow: { fontSize: 9, fontWeight: "800", letterSpacing: 1, color: COLORS.primary },
+  accountEyebrow: { fontSize: 13, fontWeight: "800", letterSpacing: 1, color: COLORS.primary , lineHeight: 19},
   profileName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "700",
     color: COLORS.textPrimary,
-  },
+  lineHeight: 25},
   profileEmail: {
     fontSize: 13,
     color: COLORS.textSecondary,
     marginTop: 0,
-  },
-  roleBadge: { marginTop: 10, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#321A20", paddingHorizontal: 9, paddingVertical: 5, borderRadius: 20 },
+  lineHeight: 19},
+  roleBadge: { marginTop: 10, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#EAF1FC", paddingHorizontal: 9, paddingVertical: 5, borderRadius: 20 , flexWrap: "wrap"},
   roleBadgeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
     color: COLORS.primary,
-  },
+  lineHeight: 19},
 
   // Section labels
   sectionLabel: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
     color: COLORS.textSecondary,
     marginBottom: 3,
-  },
+  lineHeight: 22},
   sectionHeading: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10, marginTop: 2 },
-  sectionIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#321A20", alignItems: "center", justifyContent: "center" },
-  sectionSubtitle: { color: "#7E8B97", fontSize: 11, marginLeft: 4 },
+  sectionIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#EAF1FC", alignItems: "center", justifyContent: "center" },
+  sectionSubtitle: { color: homeColors.textSecondary, fontSize: 13, marginLeft: 4 , lineHeight: 19},
 
   // Rectangular grouped card
   card: {
-    backgroundColor: "#151C23",
-    borderRadius: 15,
+    backgroundColor: homeColors.surface,
+    borderRadius: 20,
     marginBottom: 18,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -324,8 +323,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -335,26 +334,26 @@ const styles = StyleSheet.create({
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
-  },
+  flex: 1, minWidth: 0},
   rowIconWrap: {
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: "#321A20",
+    backgroundColor: "#EAF1FC",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
   },
   rowLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: COLORS.textSecondary,
-  },
-  rowValue: {
     fontSize: 13,
+    fontWeight: "500",
+    color: COLORS.textSecondary,
+  lineHeight: 19},
+  rowValue: {
+    fontSize: 15,
     color: COLORS.textPrimary,
     marginTop: 4,
-  },
+  lineHeight: 22},
 
   note: {
     fontSize: 12,
@@ -362,17 +361,17 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginLeft: 4,
   },
-  formCard: { backgroundColor: "#151C23", borderRadius: 16, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 18 },
+  formCard: { backgroundColor: homeColors.surface, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 18 },
   formField: { marginBottom: 15 },
   formLabelRow: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 7 },
-  formLabel: { color: COLORS.textSecondary, fontSize: 12, fontWeight: "700" },
-  formInput: { minHeight: 46, borderWidth: 1, borderColor: COLORS.border, borderRadius: 11, backgroundColor: "#0C1015", paddingHorizontal: 12, color: COLORS.textPrimary, fontSize: 14 },
-  formInputDisabled: { color: COLORS.textSecondary, backgroundColor: "#1C252E" },
-  fieldHint: { color: COLORS.textSecondary, fontSize: 11, marginTop: 5 },
-  formActions: { flexDirection: "row", gap: 10, marginTop: 5 },
-  cancelButton: { minHeight: 48, paddingHorizontal: 18, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },
-  cancelText: { color: COLORS.textSecondary, fontSize: 14, fontWeight: "700" },
-  saveButton: { flex: 1, minHeight: 48, backgroundColor: COLORS.primary, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  formLabel: { color: COLORS.textSecondary, fontSize: 13, fontWeight: "500" , lineHeight: 19},
+  formInput: { minHeight: 54, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, backgroundColor: homeColors.surface, paddingHorizontal: 16, color: COLORS.textPrimary, fontSize: 15 , lineHeight: 22, paddingVertical: 14},
+  formInputDisabled: { color: COLORS.textSecondary, backgroundColor: homeColors.surfaceAlt },
+  fieldHint: { color: COLORS.textSecondary, fontSize: 13, marginTop: 5 , lineHeight: 19},
+  formActions: { flexDirection: "row", gap: 12, marginTop: 5 , flexWrap: "wrap"},
+  cancelButton: { minHeight: 54, paddingHorizontal: 18, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },
+  cancelText: { color: COLORS.textSecondary, fontSize: 15, fontWeight: "700" , lineHeight: 20},
+  saveButton: { flex: 1, minHeight: 54, backgroundColor: COLORS.primary, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 , minWidth: 150, paddingHorizontal: 16, paddingVertical: 14},
   saveDisabled: { opacity: 0.7 },
-  saveText: { color: COLORS.white, fontSize: 14, fontWeight: "800" },
+  saveText: { color: COLORS.white, fontSize: 15, fontWeight: "700" , lineHeight: 20},
 });

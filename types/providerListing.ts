@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 /**
  * Provider-chosen values that are allowed to leave a private verification
  * profile. These are reviewed/approved before the trusted backend projects a
@@ -64,6 +66,8 @@ export interface ProviderListing {
   weeklyHours?: { day: string; open: boolean; openingTime: string | null; closingTime: string | null }[];
   totalSlots?: number;
   availableSlots?: number;
+  /** Public timestamp projection used only by map display filtering. */
+  mapSubscriptionExpiresAt?: Timestamp;
   visibility: "active" | "inactive";
 }
 

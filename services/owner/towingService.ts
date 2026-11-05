@@ -34,12 +34,14 @@ export async function updateTowingBookingStatus(id: string, status: TowingStatus
   await updateTowingBooking(id, status, undefined, status === "rejected" ? reason!.trim() : undefined);
 }
 
-export async function completeTowingBooking(id: string, finalPrice: number) {
+export async function completeTowingBooking(id: string, finalPrice: number, completionNote?: string) {
   if (!isValidFinalPrice(finalPrice)) throw new Error("Enter a valid final price with up to two decimal places.");
-  await updateTowingBooking(id, "completed", finalPrice);
+  const note = completionNote?.trim() ?? "";
+  if (note.length > 160) throw new Error("Service completion notes must be 160 characters or fewer.");
+  await updateTowingBooking(id, "completed", finalPrice, undefined, note || undefined);
 }
 
-async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?: number, declineReason?: string) {
+async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?: number, declineReason?: string, completionNote?: string) {
   const user = requireUser();
   const reference = doc(db, BOOKINGS_COLLECTION, id);
   await runTransaction(db, async (transaction) => {
@@ -58,7 +60,7 @@ async function updateTowingBooking(id: string, status: TowingStatus, finalPrice?
     }
     const completedAt = status === "completed" ? serverTimestamp() : undefined;
     transaction.update(reference, status === "completed"
-      ? { status, finalPrice, completedAt, updatedAt: completedAt }
+      ? { status, finalPrice, ...(completionNote ? { completionNote } : {}), completedAt, updatedAt: completedAt }
       : { status, ...(status === "rejected" ? { declineReason, riskEventType: "provider_decline", riskEventAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, {
       bookingId: id, customerId: booking.customerId, bookingType: "towing-company",

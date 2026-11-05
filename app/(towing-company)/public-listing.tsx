@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { StatusBar, ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { useEffect, useState } from "react";
 
 import { PublicListingForm } from "../../components/provider/PublicListingForm";
@@ -40,8 +40,8 @@ export default function TowingPublicListingScreen() {
     }).catch(() => setInitialListing(null));
   }, []);
 
-  if (initialListing === undefined) return <View style={styles.state}><ActivityIndicator color="#D32F2F" /></View>;
-  if (initialListing === null) return <View style={styles.state}><Text style={styles.error}>A verified towing company profile is required.</Text></View>;
+  if (initialListing === undefined) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" /><ActivityIndicator color="#0F52BA" /></View>;
+  if (initialListing === null) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" /><Text style={styles.error}>A verified towing company profile is required.</Text></View>;
 
   return (
     <PublicListingForm
@@ -52,4 +52,4 @@ export default function TowingPublicListingScreen() {
   );
 }
 
-const styles = StyleSheet.create({ state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }, error: { color: "#6B7280", textAlign: "center" } });
+const styles = StyleSheet.create({ state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "#FFFFFF" }, error: { color: "#172B4D", textAlign: "center", fontSize: 16 } });

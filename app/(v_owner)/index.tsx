@@ -11,6 +11,7 @@ import {
   ScrollView as ScrollViewType,
   ScrollView,
   StatusBar,
+  useWindowDimensions,
   Text,
   TextInput,
   View,
@@ -23,7 +24,7 @@ import { ProviderDetailCard } from "../../components/owner/ProviderDetailCard";
 import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { StatusPill } from "../../components/owner/StatusPill";
 import { nearestSnapPoint, SHEET_COLLAPSED, SHEET_EXPANDED, SHEET_MID } from "../../constants/owner/bottomSheet";
-import { colors } from "../../constants/owner/theme";
+import { homeColors as colors } from "../../constants/owner/homeTheme";
 import {
   CATEGORIES,
   getCategoryIcon,
@@ -45,6 +46,7 @@ import { subscribeToMyActionRiskCount } from "../../services/actionRiskService";
 // SCREEN
 // ---------------------------------------------------------------------------
 export default function OwnerDashboard() {
+  const { height: viewportHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ selectedProviderId?: string; selectedCategory?: string; discoveryMode?: string }>();
   const guest = !auth.currentUser;
   const [actionRisk, setActionRisk] = useState({ count: 0, error: null as string | null });
@@ -272,7 +274,7 @@ export default function OwnerDashboard() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
 
       {/* Fullscreen map — fills the entire screen behind everything, stays visible
           and interactive even while a provider's details are expanded below */}
@@ -333,7 +335,7 @@ export default function OwnerDashboard() {
           </Pressable>
         </View>
       )}
-      {guest && (providerError || shopError) && <View style={{ position: "absolute", top: 112, left: 18, right: 18, padding: 12, borderRadius: 10, backgroundColor: "#111820" }}><Text style={{ color: "white", textAlign: "center" }}>{providerError || shopError}</Text></View>}
+      {guest && (providerError || shopError) && <View style={{ position: "absolute", top: 112, left: 18, right: 18, padding: 12, borderRadius: 10, backgroundColor: colors.busyLight, borderWidth: 1, borderColor: colors.border }}><Text style={{ color: colors.busy, textAlign: "center" }}>{providerError || shopError}</Text></View>}
 
       {/* Recenter button — moves the map onto the user's actual GPS position */}
       <Animated.View style={[styles.recenterButtonWrap, { bottom: floatingBottom }]}>
@@ -354,6 +356,7 @@ export default function OwnerDashboard() {
 
         {selectedProvider ? (
           <ProviderDetailCard
+            homeAppearance
             provider={selectedProvider}
             timingMode={discoveryMode}
             distanceKm={userLocation ? distanceTo(selectedProvider) : undefined}
@@ -361,6 +364,7 @@ export default function OwnerDashboard() {
           />
         ) : (
           <ScrollView
+            nestedScrollEnabled
             ref={listingScrollRef}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.bottomPanelContent}
@@ -373,7 +377,7 @@ export default function OwnerDashboard() {
               accessibilityLabel="Scroll to nearby providers"
             >
               <ImageBackground
-                source={require("../../assets/images/towing-dashboard-bg.png")}
+                source={require("../../assets/images/owner-welcome-sapphire.png")}
                 style={styles.welcomeCard}
                 imageStyle={styles.welcomeImage}
                 resizeMode="cover"
@@ -429,12 +433,6 @@ export default function OwnerDashboard() {
               <Text style={styles.listingCount}>{filteredProviders.length} found</Text>
             </View>
 
-            <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
-              {(["now", "scheduled"] as const).map((mode) => <Pressable key={mode} onPress={() => setDiscoveryMode(mode)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: discoveryMode === mode ? colors.primary : "#202832" }}>
-                <Text style={{ color: "white", fontWeight: "700" }}>{mode === "now" ? "Now" : "Schedule"}</Text>
-              </Pressable>)}
-            </View>
-
             {(selectedCategory === "Auto Shops" || selectedCategory === "All") && shopError && <Text style={styles.listingMetaTextMuted}>{shopError}</Text>}
               {!shopError && filteredProviders.length === 0 && (
                 <Text style={styles.listingMetaTextMuted}>
@@ -446,7 +444,13 @@ export default function OwnerDashboard() {
                 </Text>
               )}
 
-            <View style={styles.listingList}>
+            <ScrollView
+              style={{ maxHeight: Math.max(160, Math.min(360, viewportHeight * 0.45)), borderRadius: 20, overflow: "hidden", backgroundColor: colors.surface }}
+              contentContainerStyle={styles.listingList}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+            >
               {filteredProviders.map((provider) => {
                 const isSelected = provider.id === selectedProviderId;
                 const distanceKm = distanceTo(provider);
@@ -459,6 +463,13 @@ export default function OwnerDashboard() {
                       selectProvider(provider.id);
                     }}
                   >
+                    <View style={styles.listingHeader}>
+                      <View style={styles.listingHeaderIcon}>
+                        <Ionicons name={getCategoryIcon(provider.category)} size={22} color={colors.white} />
+                      </View>
+                      <Text style={styles.listingName}>{provider.name}</Text>
+                    </View>
+                    <View style={styles.listingContent}>
                     <View style={styles.listingImageWrap}>
                       {photoUrl && !failedProviderPhotoUrls.has(photoUrl) ? (
                         <Image
@@ -480,14 +491,11 @@ export default function OwnerDashboard() {
                     </View>
                     <View style={styles.listingBody}>
                       <View style={styles.listingTopRow}>
-                        <Text style={styles.listingName} numberOfLines={1}>
-                          {provider.name}
-                        </Text>
-                        <StatusPill category={provider.category} isPositive={provider.isPositiveStatus} compact />
+                        <StatusPill category={provider.category} isPositive={provider.isPositiveStatus} compact homeAppearance />
                       </View>
 
                       <View style={styles.listingServiceRow}>
-                        <Text style={styles.listingServiceText} numberOfLines={1}>
+                        <Text style={styles.listingServiceText}>
                           {getServiceLabel(provider.category)}
                         </Text>
                       </View>
@@ -512,10 +520,11 @@ export default function OwnerDashboard() {
                         </View>
                       </View>
                     </View>
+                    </View>
                   </Pressable>
                 );
               })}
-            </View>
+            </ScrollView>
 
             <View style={{ height: 24 }} />
           </ScrollView>

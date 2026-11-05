@@ -1,7 +1,7 @@
 // app/(owner)/index.styles.ts
 import { StyleSheet } from "react-native";
 
-import { colors } from "../../constants/owner/theme";
+import { homeColors as colors } from "../../constants/owner/homeTheme";
 
 export const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
@@ -26,14 +26,14 @@ export const styles = StyleSheet.create({
   greetingSmall: {
     fontSize: 13,
     color: colors.textSecondary,
-    textShadowColor: "rgba(0,0,0,0.65)",
+    textShadowColor: "transparent",
     textShadowRadius: 3,
   },
   greetingName: {
     fontSize: 24,
     fontWeight: "700",
     color: colors.textPrimary,
-    textShadowColor: "rgba(0,0,0,0.65)",
+    textShadowColor: "transparent",
     textShadowRadius: 3,
   },
   headerIcons: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -123,7 +123,7 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
     alignSelf: "flex-start",
-    backgroundColor: "rgba(21,28,35,0.94)",
+    backgroundColor: "rgba(255,255,255,0.97)",
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 999,
@@ -142,7 +142,7 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.08,
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
@@ -157,7 +157,7 @@ export const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: -4 },
     elevation: 10,
@@ -184,7 +184,7 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     justifyContent: "center",
     shadowColor: "#000000",
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 5 },
     elevation: 6,
@@ -203,7 +203,7 @@ export const styles = StyleSheet.create({
   },
   welcomeTextWrap: { flex: 1, gap: 5 },
   welcomeEyebrow: {
-    color: "#FFD7DC",
+    color: "#FFFFFF",
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 1.5,
@@ -234,7 +234,7 @@ export const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: "rgba(245,34,57,0.9)",
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 28,
@@ -269,7 +269,7 @@ export const styles = StyleSheet.create({
   // ---- Nearby Providers: horizontal marketplace-style cards ----
   listingList: { flexDirection: "column" },
   listingCard: {
-    flexDirection: "row",
+    flexDirection: "column",
     width: "100%",
     minHeight: 145,
     backgroundColor: colors.surface,
@@ -277,9 +277,9 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 13,
-    padding: 12,
+    overflow: "hidden",
     shadowColor: "#000000",
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.06,
     shadowRadius: 9,
     shadowOffset: { width: 0, height: 4 },
     elevation: 5,
@@ -288,6 +288,22 @@ export const styles = StyleSheet.create({
     borderColor: colors.primary,
     borderWidth: 1.5,
   },
+  listingHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: colors.primary,
+    padding: 12,
+  },
+  listingHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listingContent: { flexDirection: "row", padding: 12 },
   listingImageWrap: {
     width: "28%",
     minWidth: 72,
@@ -307,7 +323,7 @@ export const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
-  listingName: { flex: 1, fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary },
+  listingName: { flex: 1, minWidth: 0, fontSize: 18, lineHeight: 25, fontWeight: "700", color: colors.white },
   listingServiceRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 5 },
   listingServiceText: { fontSize: 15, lineHeight: 21, fontWeight: "600", color: colors.textSecondary },
   listingMetaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: 8 },
@@ -325,7 +341,7 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    backgroundColor: "#1C252E",
+    backgroundColor: colors.surfaceAlt,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 999,

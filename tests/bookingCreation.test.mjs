@@ -340,14 +340,19 @@ test("mechanic and towing customer-to-provider flows work with deployed-rules lo
     await providerFixture.service[item.update](created.id, "en_route");
     await providerFixture.service[item.update](created.id, "arrived");
     await providerFixture.service[item.update](created.id, "in_progress");
-    await providerFixture.service[item.complete](created.id, 125.5);
+    const completionNote = "x".repeat(160);
+    await providerFixture.service[item.complete](created.id, 125.5, completionNote);
     const completed = providerFixture.records.get(`bookings/${created.id}`);
     assert.equal(completed.status, "completed", `${item.name} provider completes`);
     assert.equal(completed.finalPrice, 125.5, `${item.name} final price is retained`);
+    assert.equal(completed.completionNote, completionNote, `${item.name} accepts and saves a 160-character note with completion`);
     assert.ok(providerFixture.notifications.some((event) => event.kind === "customer-status"), `${item.name} customer notifications remain emitted`);
     assert.ok(providerFixture.notifications.some((event) => event.kind === (item.role === "onsite-mechanic" ? "mechanic" : "towing")), `${item.name} provider notifications remain emitted`);
     assert.equal(providerFixture.reads.some((path) => path.startsWith("providerActiveServices/")), false, `${item.name} transitions never read a lock`);
     assert.equal(providerFixture.writes.some((write) => write.path.startsWith("providerActiveServices/")), false, `${item.name} transitions never write a lock`);
+    const writesBeforeInvalidNote = providerFixture.writes.length;
+    await assert.rejects(providerFixture.service[item.complete](created.id, 125.5, "x".repeat(161)), /160 characters or fewer/);
+    assert.equal(providerFixture.writes.length, writesBeforeInvalidNote, `${item.name} rejects overlong notes before writing`);
 
     const declineCreate = createFixture(providerId, item.role, item.category);
     const declineCustomer = load(item.file, declineCreate.deps);
@@ -460,4 +465,35 @@ test("Home Garage accepts Vehicle Arrived for an accepted scheduled repair befor
 
   await service.startHomeGarageRepair("scheduled-garage");
   assert.deepEqual(writes, [{ path: "bookings/scheduled-garage", values: { status: "vehicle_arrived", updatedAt: "SERVER_TIMESTAMP" } }]);
+});
+
+test("Home Garage completion saves an optional bounded note atomically with existing completion notifications", async () => {
+  const writes = [];
+  const notifications = [];
+  const booking = { bookingType: "homegarage", providerId: "garage-provider", customerId: "owner", providerName: "Garage", customerName: "Owner", vehicle: "Toyota", problem: "Repair", status: "repairing" };
+  const service = load("../services/homeGarageBookingService.ts", {
+    "firebase/firestore": {
+      Timestamp: class Timestamp {},
+      doc: (_db, ...parts) => ({ path: parts.join("/") }),
+      runTransaction: async (_db, action) => action({
+        get: async () => ({ exists: () => true, data: () => booking }),
+        update: (reference, values) => writes.push({ path: reference.path, values }),
+      }),
+      serverTimestamp: () => "SERVER_TIMESTAMP",
+    },
+    "./firebase": { auth: { currentUser: { uid: "garage-provider" } }, db: {} },
+    "./ownerVerificationProfileService": {},
+    "./customerNotificationService": { addBookingStatusNotification: (...args) => notifications.push(["owner", ...args]), addHomeGaragePriceNotification: () => {} },
+    "./homeGarageNotificationService": { writeHomeGarageProviderNotification: (...args) => notifications.push(["provider", ...args]) },
+    "../utils/bookingTiming": {},
+    "./scheduledBookingReservationService": {},
+    "../utils/finalPrice": { isValidFinalPrice: () => true },
+  });
+  await service.completeHomeGarageRepair("garage-booking", 125.5, "  Repair completed.  ");
+  assert.deepEqual(writes[0], { path: "bookings/garage-booking", values: { status: "completed", finalPrice: 125.5, completionNote: "Repair completed.", completedAt: "SERVER_TIMESTAMP", updatedAt: "SERVER_TIMESTAMP" } });
+  assert.equal(notifications.length, 2, "existing owner and provider notifications remain emitted");
+  await service.completeHomeGarageRepair("garage-booking", 125.5, "x".repeat(160));
+  assert.equal(writes[1].values.completionNote.length, 160, "the maximum supported note length is accepted");
+  await assert.rejects(service.completeHomeGarageRepair("garage-booking", 125.5, "x".repeat(161)), /160 characters or fewer/);
+  assert.equal(writes.length, 2, "overlong notes do not write a completion");
 });

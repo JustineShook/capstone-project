@@ -6,6 +6,7 @@ import { Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, 
 
 import { router } from "expo-router";
 import { colors } from "../../constants/owner/theme";
+import { homeColors } from "../../constants/owner/homeTheme";
 import {
   getCategoryBadge,
   getCategoryIcon,
@@ -16,7 +17,7 @@ import {
   supportsBooking,
 } from "../../data/owner/mockProviders";
 import { auth } from "../../services/firebase";
-import { Button } from "../shop-owner/ShopUI";
+import { Button as SharedButton } from "../shop-owner/ShopUI";
 import { getActiveMechanicBooking, subscribeToActiveMechanicBooking } from "../../services/owner/bookingService";
 import { getActiveTowingBooking, subscribeToActiveTowingBooking } from "../../services/owner/towingService";
 import { requireVerifiedOwner } from "../../services/ownerVerificationProfileService";
@@ -61,13 +62,20 @@ export function ProviderDetailCard({
   provider,
   distanceKm,
   timingMode = "now",
+  homeAppearance = false,
   onClose,
 }: {
   provider: MockProvider;
   distanceKm?: number;
   timingMode?: "now" | "scheduled";
+  homeAppearance?: boolean;
   onClose: () => void;
 }) {
+  const colors = homeAppearance ? homeColors : defaultColors;
+  const styles = homeAppearance ? homeStyles : defaultStyles;
+  const showPriceEstimatePrompt = homeAppearance && provider.category !== "Towing"
+    && /price on assessment|contact for price/i.test(provider.startingPrice);
+  const Button = homeAppearance ? HomeButton : SharedButton;
   const badge = getCategoryBadge(provider.category);
   const ratingStatus = provider.ratingStatus ?? "visible";
   const [hasActiveMechanicBooking, setHasActiveMechanicBooking] = useState(false);
@@ -252,39 +260,41 @@ export function ProviderDetailCard({
           </View>
 
           <View style={styles.headerInfo}>
-            <Text style={styles.name} numberOfLines={2}>
+            <Text style={styles.name} numberOfLines={homeAppearance ? undefined : 2}>
               {provider.name}
             </Text>
+            {homeAppearance && <View style={styles.headerService}><Ionicons name={getCategoryIcon(provider.category)} size={14} color="#FFFFFF" /><Text style={styles.headerServiceText}>{getServiceLabel(provider.category)}</Text></View>}
             <View style={styles.metaRow}>
               {ratingStatus === "visible" && <>
-                <Ionicons name="star" size={13} color={colors.rating} />
+                <Ionicons name="star" size={13} color={homeAppearance ? "#FFD166" : colors.rating} />
                 <Text style={styles.metaText}>{provider.rating.toFixed(1)} ({provider.reviewCount})</Text>
               </>}
               {ratingStatus === "unavailable" && <Text style={styles.metaText}>Reviews unavailable</Text>}
               {ratingStatus === "loading" && <Text style={styles.metaText}>Loading reviews…</Text>}
               <Text style={styles.metaDot}>{"\u2022"}</Text>
-              <Ionicons name="navigate-outline" size={12} color={colors.textMuted} />
+              <Ionicons name="navigate-outline" size={12} color={homeAppearance ? "#FFFFFF" : colors.textMuted} />
               <Text style={styles.metaText}>{distanceKm?.toFixed(1) ?? provider.distanceKm} km</Text>
             </View>
-            <StatusPill category={provider.category} isPositive={provider.isPositiveStatus} />
+            <StatusPill category={provider.category} isPositive={provider.isPositiveStatus} homeAppearance={homeAppearance} />
           </View>
 
           <Pressable style={styles.closeButton} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close provider details">
-            <Ionicons name="close" size={20} color={colors.textMuted} />
+            <Ionicons name="close" size={20} color={homeAppearance ? "#FFFFFF" : colors.textMuted} />
           </Pressable>
         </View>
       </View>
 
       <ScrollView
+        style={homeAppearance ? homeStyles.detailsSurface : undefined}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, homeAppearance && homeStyles.detailsContent]}
       >
         {/* Category / service delivery type */}
         <View style={styles.tagsRow}>
-          <View style={styles.tag}>
+          {!homeAppearance && <View style={styles.tag}>
             <Ionicons name={getCategoryIcon(provider.category)} size={13} color={colors.primary} />
             <Text style={styles.tagText}>{getServiceLabel(provider.category)}</Text>
-          </View>
+          </View>}
           <View style={styles.tag}>
             <Ionicons name={badge.icon} size={13} color={colors.primary} />
             <Text style={styles.tagText}>{badge.text}</Text>
@@ -356,6 +366,7 @@ export function ProviderDetailCard({
           <Text style={[
             styles.priceValue,
             provider.startingPrice === "Contact for price" && styles.priceValueContact,
+            showPriceEstimatePrompt && styles.priceValueContact,
           ]}>
             {provider.category === "Towing"
               ? isLoadingTowingPrice
@@ -363,7 +374,9 @@ export function ProviderDetailCard({
                 : towingBasePrice == null
                   ? "Not configured"
                   : `₱${towingBasePrice.toLocaleString("en-PH")}`
-              : `Starts at ${provider.startingPrice}`}
+              : showPriceEstimatePrompt
+                ? "Contact the provider for a price estimate."
+                : `Starts at ${provider.startingPrice}`}
           </Text>
         </View>
 
@@ -547,7 +560,15 @@ export function ProviderDetailCard({
   );
 }
 
-const styles = StyleSheet.create({
+const defaultColors = colors;
+
+function HomeButton({ title, onPress }: { title: string; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" onPress={onPress} style={homeStyles.verificationPrimaryButton}>
+    <Text style={homeStyles.verificationPrimaryText}>{title}</Text>
+  </Pressable>;
+}
+
+const createStyles = (colors: typeof defaultColors, light = false) => StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: colors.background,
@@ -581,6 +602,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
   },
   avatarText: { color: "#FFFFFF", fontWeight: "900", fontSize: 19, letterSpacing: 0.3 },
+  headerService: { flexDirection: "row", alignItems: "center", gap: 6 },
+  headerServiceText: { color: "#FFFFFF", fontSize: 13, lineHeight: 19, fontWeight: "500", flexShrink: 1 },
   headerInfo: { flex: 1, gap: 5 },
   name: { fontSize: 24, lineHeight: 29, fontWeight: "800", color: colors.textPrimary },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
@@ -597,7 +620,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    backgroundColor: "#1C252E",
+    backgroundColor: light ? colors.surfaceAlt : "#1C252E",
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 999,
@@ -645,7 +668,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#1C252E",
+    backgroundColor: light ? colors.surfaceAlt : "#1C252E",
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 999,
@@ -740,9 +763,9 @@ const styles = StyleSheet.create({
     minHeight: 118,
     marginBottom: 20,
     borderRadius: 19,
-    backgroundColor: "#25191E",
+    backgroundColor: light ? colors.surfaceAlt : "#25191E",
     borderWidth: 1,
-    borderColor: "#48232B",
+    borderColor: light ? colors.border : "#48232B",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -754,9 +777,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#3B2027",
+    backgroundColor: light ? colors.surface : "#3B2027",
     borderWidth: 1,
-    borderColor: "#63313C",
+    borderColor: light ? colors.border : "#63313C",
   },
   verificationBadge: {
     flexDirection: "row",
@@ -765,11 +788,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    backgroundColor: "#351D24",
+    backgroundColor: light ? colors.surface : "#351D24",
     borderWidth: 1,
-    borderColor: "#63313C",
+    borderColor: light ? colors.border : "#63313C",
   },
-  verificationBadgeText: { color: "#F7A4AE", fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
+  verificationBadgeText: { color: light ? colors.primary : "#F7A4AE", fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
   verificationTitle: { color: colors.textPrimary, fontSize: 24, lineHeight: 30, fontWeight: "800" },
   verificationDescription: { color: colors.textSecondary, fontSize: 15, lineHeight: 22, marginTop: 9, marginBottom: 20 },
   guestPromptHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
@@ -785,7 +808,7 @@ const styles = StyleSheet.create({
     padding: 13,
     marginBottom: 20,
   },
-  verificationStepIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#352127" },
+  verificationStepIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: light ? colors.surface : "#352127" },
   verificationStepCopy: { flex: 1, gap: 3 },
   verificationStepTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: "700" },
   verificationStepText: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
@@ -833,4 +856,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
   },
   bookButtonText: { fontSize: 14, fontWeight: "800", color: "#FFFFFF", textAlign: "center", lineHeight: 18, flexShrink: 1 },
+});
+
+const defaultStyles = createStyles(defaultColors);
+const homeBaseStyles = createStyles(homeColors, true);
+const homeStyles = StyleSheet.create({
+  ...homeBaseStyles,
+  card: { ...homeBaseStyles.card, backgroundColor: homeColors.surface },
+  detailsSurface: { backgroundColor: homeColors.primary, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  detailsContent: { backgroundColor: homeColors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  fixedHeader: { ...homeBaseStyles.fixedHeader, backgroundColor: homeColors.primary, borderBottomWidth: 0, paddingHorizontal: 16, paddingTop: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  headerRow: { ...homeBaseStyles.headerRow, gap: 12, marginBottom: 16 },
+  headerInfo: { ...homeBaseStyles.headerInfo, minWidth: 0 },
+  name: { ...homeBaseStyles.name, color: "#FFFFFF", fontSize: 18, lineHeight: 25, fontWeight: "700" },
+  metaRow: { ...homeBaseStyles.metaRow, flexWrap: "wrap" },
+  metaText: { ...homeBaseStyles.metaText, color: "#FFFFFF" },
+  metaDot: { ...homeBaseStyles.metaDot, color: "#FFFFFF" },
+  closeButton: { ...homeBaseStyles.closeButton, backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.25)", width: 44, height: 44 },
 });

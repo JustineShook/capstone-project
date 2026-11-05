@@ -177,8 +177,10 @@ export async function updateHomeGarageRepairProgress(id: string, status: "diagno
   });
 }
 
-export async function completeHomeGarageRepair(id: string, finalPrice: number) {
+export async function completeHomeGarageRepair(id: string, finalPrice: number, completionNote?: string) {
   if (!isValidFinalPrice(finalPrice)) throw new Error("Enter a valid final price with up to two decimal places.");
+  const note = completionNote?.trim() ?? "";
+  if (note.length > 160) throw new Error("Service completion notes must be 160 characters or fewer.");
   const amount = finalPrice;
   const user = requireUser();
   await runTransaction(db, async (transaction) => {
@@ -187,7 +189,7 @@ export async function completeHomeGarageRepair(id: string, finalPrice: number) {
     const booking = snapshot.data();
     if (!snapshot.exists() || booking?.bookingType !== "homegarage" || booking.providerId !== user.uid) throw new Error("Home Garage request not found.");
     if (!(booking.status === "repairing" || booking.status === "in_progress")) throw new Error("Only a repairing job can be completed.");
-    transaction.update(reference, { status: "completed", finalPrice: amount, completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    transaction.update(reference, { status: "completed", finalPrice: amount, ...(note ? { completionNote: note } : {}), completedAt: serverTimestamp(), updatedAt: serverTimestamp() });
     addBookingStatusNotification(transaction, { bookingId: id, customerId: booking.customerId,
       bookingType: "homegarage", providerId: user.uid, providerName: booking.providerName, status: "completed",
       message: `${booking.providerName} completed your repair. Final service price: ₱${amount.toLocaleString("en-PH")}.` });

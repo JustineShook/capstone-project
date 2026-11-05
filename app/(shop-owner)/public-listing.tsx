@@ -69,11 +69,11 @@ export default function ShopPublicListing() {
     return () => { active = false; };
   }, []);
 
-  if (loadError) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115" /><Text style={styles.error}>Could not load your Auto Shop listing: {loadError}</Text></View>;
-  if (initialListing === undefined) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115" /><ActivityIndicator color="#F51F3B" /></View>;
-  if (initialListing === null) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0B1115" /><Text style={styles.error}>An administrator-approved Auto Shop profile is required.</Text></View>;
+  if (loadError) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" /><Text style={styles.error}>Could not load your Auto Shop listing: {loadError}</Text></View>;
+  if (initialListing === undefined) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" /><ActivityIndicator color="#0F52BA" /></View>;
+  if (initialListing === null) return <View style={styles.state}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" /><Text style={styles.error}>An administrator-approved Auto Shop profile is required.</Text></View>;
 
   return <PublicListingForm role="shop-owner" initialListing={initialListing} defaultBusinessName="" />;
 }
 
-const styles = StyleSheet.create({ state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "#0B1115" }, error: { color: "#A1ABB2", textAlign: "center", fontSize: 16 } });
+const styles = StyleSheet.create({ state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "#FFFFFF" }, error: { color: "#172B4D", textAlign: "center", fontSize: 16 } });

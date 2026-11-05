@@ -1,8 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -10,19 +15,64 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getDashboardRoute, getUserProfile, login } from "../../services/auth";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ providerId?: string; category?: string; timingMode?: string }>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [sheetAreaHeight, setSheetAreaHeight] = useState(0);
+  const sheetTop = useRef(new Animated.Value(200)).current;
+  const dragStart = useRef(200);
+  const settledPosition = useRef(0);
+  const snapPoints = useMemo(() => [
+    sheetAreaHeight * 0.2,
+    Math.max(sheetAreaHeight * 0.2, sheetAreaHeight - 140),
+  ], [sheetAreaHeight]);
+
+  const snapSheet = (position: number) => {
+    settledPosition.current = position;
+    Animated.spring(sheetTop, {
+      toValue: snapPoints[position],
+      useNativeDriver: false,
+      damping: 24,
+      stiffness: 220,
+      mass: 0.8,
+      overshootClamping: true,
+    }).start();
+  };
+
+  useEffect(() => {
+    if (sheetAreaHeight > 0) {
+      sheetTop.stopAnimation();
+      sheetTop.setValue(snapPoints[settledPosition.current]);
+    }
+  }, [sheetAreaHeight, sheetTop, snapPoints]);
+
+  const dragHandle = PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_, gesture) => Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderGrant: () => sheetTop.stopAnimation((value) => { dragStart.current = value; }),
+    onPanResponderMove: (_, gesture) => {
+      sheetTop.setValue(Math.max(snapPoints[0], Math.min(snapPoints[1], dragStart.current + gesture.dy)));
+    },
+    onPanResponderRelease: (_, gesture) => {
+      const projected = Math.max(snapPoints[0], Math.min(snapPoints[1], dragStart.current + gesture.dy + gesture.vy * 120));
+      const nearest = snapPoints.reduce((best, point, index) => Math.abs(point - projected) < Math.abs(snapPoints[best] - projected) ? index : best, 0);
+      snapSheet(nearest);
+    },
+    onPanResponderTerminate: () => snapSheet(settledPosition.current),
+  });
 
   async function handleLogin() {
     setError(null);
@@ -60,39 +110,39 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#08090b" />
+    <ImageBackground source={require("../../assets/images/login-all-providers-sapphire.png")} style={styles.background} resizeMode={Platform.OS === "web" && width > height ? "contain" : "cover"}>
+    <View style={styles.backgroundShade} />
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <StatusBar barStyle="light-content" backgroundColor="#0F52BA" />
       <KeyboardAvoidingView
         style={styles.keyboard}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View style={styles.container}>
+        <View style={styles.container} onLayout={(event) => setSheetAreaHeight(event.nativeEvent.layout.height)}>
           <View style={styles.hero}>
-            <View style={styles.swooshOuter} />
-            <View style={styles.swooshInner} />
-            <View style={styles.dashes}>
-              <View style={styles.dash} />
-              <View style={[styles.dash, styles.dashTwo]} />
-              <View style={[styles.dash, styles.dashThree]} />
-            </View>
             <View style={styles.brand}>
               <Text style={styles.brandMark}>V</Text>
               <Text style={styles.brandName}>Ve<Text style={styles.brandRed}>Resc</Text></Text>
             </View>
           </View>
 
-          <View style={styles.form}>
+          <Animated.View style={[styles.form, { top: sheetTop }]}>
+            <View {...dragHandle.panHandlers} style={styles.dragHandle}>
+              <Pressable style={styles.handleButton} onPress={() => snapSheet(settledPosition.current === 0 ? 1 : 0)} accessibilityRole="button" accessibilityLabel="Expand or lower login card" accessibilityHint="Drag up or down, or tap to change the card position"><View pointerEvents="none" style={styles.dragBar} /></Pressable>
+            </View>
+            <ScrollView contentContainerStyle={[styles.formContent, { paddingBottom: 24 + insets.bottom }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Sign in to your account</Text>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Email address</Text>
               <View style={styles.inputShell}>
-                <Feather name="mail" size={16} color="#9ba0a6" />
+                <Feather name="mail" size={16} color="#526277" />
                 <TextInput
                   style={styles.input}
+                  onFocus={() => snapSheet(0)}
                   placeholder="Enter your email"
-                  placeholderTextColor="#81868d"
+                  placeholderTextColor="#526277"
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="email-address"
@@ -108,11 +158,12 @@ export default function LoginScreen() {
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Password</Text>
               <View style={styles.inputShell}>
-                <Feather name="lock" size={16} color="#9ba0a6" />
+                <Feather name="lock" size={16} color="#526277" />
                 <TextInput
                   style={styles.input}
+                  onFocus={() => snapSheet(0)}
                   placeholder="Enter your password"
-                  placeholderTextColor="#81868d"
+                  placeholderTextColor="#526277"
                   secureTextEntry={!passwordVisible}
                   textContentType="password"
                   value={password}
@@ -127,7 +178,7 @@ export default function LoginScreen() {
                   onPress={() => setPasswordVisible((visible) => !visible)}
                   hitSlop={8}
                 >
-                  <Feather name={passwordVisible ? "eye" : "eye-off"} size={17} color="#a3a8ae" />
+                  <Feather name={passwordVisible ? "eye" : "eye-off"} size={17} color="#526277" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -157,17 +208,21 @@ export default function LoginScreen() {
               </Link>
               <View style={styles.divider} />
             </View>
-          </View>
+            </ScrollView>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#08090b" },
+  background: { flex: 1, backgroundColor: "#0F52BA" },
+  backgroundShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5, 20, 45, 0.58)" },
+  safeArea: { flex: 1, backgroundColor: "transparent" },
   keyboard: { flex: 1 },
-  container: { flex: 1, backgroundColor: "#08090b" },
+  container: { flex: 1, backgroundColor: "transparent" },
   hero: { height: "29%", minHeight: 175, maxHeight: 245, overflow: "hidden", justifyContent: "center" },
   swooshOuter: {
     position: "absolute", width: 560, height: 220, borderRadius: 280,
@@ -184,29 +239,28 @@ const styles = StyleSheet.create({
   dashTwo: { right: 37, top: 20, height: 86, opacity: 0.65 },
   dashThree: { right: 56, top: 42, height: 93, opacity: 0.45 },
   brand: { flexDirection: "row", alignItems: "center", marginLeft: 30, marginTop: 25 },
-  brandMark: { color: "#ed1c2e", fontSize: 57, lineHeight: 64, fontWeight: "900", fontStyle: "italic", marginRight: 9, textShadowColor: "#7b0b17", textShadowRadius: 8 },
-  brandName: { color: "#f5f5f6", fontSize: 26, fontWeight: "800", letterSpacing: -1 },
-  brandRed: { color: "#ed1c2e" },
-  form: { flex: 1, paddingHorizontal: 16, paddingTop: 2 },
-  title: { color: "#f5f5f6", fontSize: 28, lineHeight: 34, fontWeight: "800" },
-  subtitle: { color: "#90949a", fontSize: 16, marginTop: 2, marginBottom: 24 },
+  brandMark: { color: "#FFFFFF", fontSize: 57, lineHeight: 64, fontWeight: "900", fontStyle: "italic", marginRight: 9, textShadowColor: "#0B3D8A", textShadowRadius: 8 },
+  brandName: { color: "#FFFFFF", fontSize: 26, fontWeight: "800", letterSpacing: -1 },
+  brandRed: { color: "#FFFFFF" },
+  form: { position: "absolute", left: 0, right: 0, bottom: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#D5DEE9", overflow: "hidden" },
+  dragHandle: { minHeight: 44, alignItems: "center", justifyContent: "center", ...Platform.select({ web: { cursor: "ns-resize", touchAction: "none" } as any, default: {} }) },
+  handleButton: { width: "100%", minHeight: 44, alignItems: "center", justifyContent: "center" },
+  dragBar: { width: 44, height: 5, borderRadius: 3, backgroundColor: "#94A3B8" },
+  formContent: { paddingHorizontal: 16, paddingBottom: 24 },
+  title: { color: "#172B4D", fontSize: 28, lineHeight: 34, fontWeight: "800" },
+  subtitle: { color: "#526277", fontSize: 14, lineHeight: 20, marginTop: 4, marginBottom: 20 },
   fieldGroup: { marginBottom: 17 },
-  label: { color: "#e3e4e6", fontSize: 13, marginBottom: 6 },
-  inputShell: {
-    height: 54, borderRadius: 10, borderWidth: 1, borderColor: "#303237",
-    backgroundColor: "#1a1b1f", flexDirection: "row", alignItems: "center", paddingHorizontal: 11,
-    shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 5, shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  input: { flex: 1, height: "100%", color: "#f5f5f6", fontSize: 18, marginLeft: 13, paddingVertical: 0 },
+  label: { color: "#172B4D", fontSize: 13, lineHeight: 19, fontWeight: "600", marginBottom: 6 },
+  inputShell: { minHeight: 54, borderRadius: 12, borderWidth: 1, borderColor: "#D5DEE9", backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "center", paddingHorizontal: 12 },
+  input: { flex: 1, minHeight: 52, color: "#172B4D", fontSize: 15, marginLeft: 10, paddingVertical: 10 },
   forgot: { alignSelf: "flex-end", marginTop: -8, marginBottom: 29, paddingVertical: 3 },
-  forgotText: { color: "#ed1c2e", fontSize: 13, fontWeight: "600" },
-  error: { color: "#ff737d", fontSize: 14, marginTop: -7, marginBottom: 10 },
-  button: { height: 44, borderRadius: 9, backgroundColor: "#ed1c2e", alignItems: "center", justifyContent: "center", marginTop: 1 },
+  forgotText: { color: "#0F52BA", fontSize: 13, lineHeight: 19, fontWeight: "600" },
+  error: { color: "#9F1239", fontSize: 13, lineHeight: 19, marginTop: -7, marginBottom: 10 },
+  button: { minHeight: 54, borderRadius: 14, backgroundColor: "#0F52BA", alignItems: "center", justifyContent: "center", marginTop: 1, paddingHorizontal: 16, paddingVertical: 12 },
   buttonDisabled: { opacity: 0.65 },
-  buttonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  buttonText: { color: "#FFFFFF", fontSize: 14, lineHeight: 18, fontWeight: "800" },
   signupRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 31, gap: 5 },
-  divider: { height: 1, backgroundColor: "#26272b", flex: 1 },
-  signupPrompt: { color: "#96999e", fontSize: 12, marginLeft: 3 },
-  signupLink: { color: "#ed1c2e", fontSize: 12, fontWeight: "600", marginRight: 3 },
+  divider: { height: 1, backgroundColor: "#D5DEE9", flex: 1 },
+  signupPrompt: { color: "#526277", fontSize: 12, lineHeight: 18, marginLeft: 3 },
+  signupLink: { color: "#0F52BA", fontSize: 12, lineHeight: 18, fontWeight: "700", marginRight: 3 },
 });

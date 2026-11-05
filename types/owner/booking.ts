@@ -100,6 +100,7 @@ export interface BookingRequest extends BookingTimingFields {
   notes: string;
   startingPrice: string;
   finalPrice?: number;
+  completionNote?: string;
   completedAt?: string;
   status: BookingStatus;
   createdAt: string; // ISO timestamp

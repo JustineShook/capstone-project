@@ -1,2 +1,2 @@
 import AccountStatusNotificationsScreen from "../../components/AccountStatusNotificationsScreen";
-export default function AccountUpdates() { return <AccountStatusNotificationsScreen home="/(onsite-mechanic)" />; }
+export default function AccountUpdates() { return <AccountStatusNotificationsScreen home="/(onsite-mechanic)" appearance="mechanic" />; }

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   ImageBackground,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,12 +14,12 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import { getDashboardRoute } from "../services/auth";
 
-const splashImage = require("../assets/images/veresc-landing.png");
+const splashImage = require("../assets/images/login-all-providers-sapphire.png");
 
 export default function Index() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const { user, userProfile, loading } = useAuth();
 
   if (loading) {
@@ -45,11 +46,13 @@ export default function Index() {
     <ImageBackground
       source={splashImage}
       style={styles.container}
-      resizeMode="cover"
+      resizeMode={Platform.OS === "web" && width > height ? "contain" : "cover"}
       accessible
       accessibilityLabel="VeResc roadside assistance home screen"
     >
       <StatusBar hidden />
+      <View style={styles.backgroundShade} />
+      <View style={[styles.brand, { top: insets.top + 48 }]}><Text style={styles.brandMark}>V</Text><Text style={styles.brandName}>VeResc</Text></View>
       <View style={[styles.actionContainer, { paddingBottom: buttonBottom }]}>
         <TouchableOpacity
           style={styles.getStartedButton}
@@ -67,8 +70,12 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: "#0F52BA",
   },
+  backgroundShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5, 20, 45, 0.58)" },
+  brand: { position: "absolute", left: 30, flexDirection: "row", alignItems: "center" },
+  brandMark: { color: "#FFFFFF", fontSize: 57, lineHeight: 64, fontWeight: "900", fontStyle: "italic", marginRight: 9, textShadowColor: "#0B3D8A", textShadowRadius: 8 },
+  brandName: { color: "#FFFFFF", fontSize: 26, fontWeight: "800", letterSpacing: -1 },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -82,19 +89,20 @@ const styles = StyleSheet.create({
   },
   getStartedButton: {
     minWidth: 200,
+    minHeight: 54,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#C50022",
+    backgroundColor: "#0F52BA",
     paddingHorizontal: 32,
-    paddingVertical: 15,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#FF294B",
+    borderColor: "#0F52BA",
   },
   getStartedText: {
     color: "#FFFFFF",
-    fontSize: 17,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "800",
-    letterSpacing: 0.4,
   },
 });

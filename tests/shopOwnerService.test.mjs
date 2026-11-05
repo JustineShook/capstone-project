@@ -9,7 +9,11 @@ import ts from "typescript";
 
 function load(relative, dependencies = {}) {
   const filename = fileURLToPath(new URL(relative, import.meta.url));
-  const { outputText } = ts.transpileModule(readFileSync(filename, "utf8"), {
+  return loadSource(filename, readFileSync(filename, "utf8"), dependencies);
+}
+
+function loadSource(filename, source, dependencies) {
+  const { outputText } = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const module = { exports: {} };
@@ -111,9 +115,15 @@ test("Auto Shop completion requires a valid two-decimal final price and keeps th
     assert.equal(fixture.writes.length, 0);
   }
   const fixture = setup({ status: "repairing" });
-  await fixture.service.updateShopBookingStatus("request", "completed", "Finished", 125.5);
+  await fixture.service.updateShopBookingStatus("request", "completed", "  Finished  ", 125.5);
   assert.equal(fixture.writes[0].values.finalPrice, 125.5);
   assert.equal(fixture.writes[0].values.completionNote, "Finished");
+  const maxLengthFixture = setup({ status: "repairing" });
+  await maxLengthFixture.service.updateShopBookingStatus("request", "completed", "x".repeat(160), 125.5);
+  assert.equal(maxLengthFixture.writes[0].values.completionNote.length, 160);
+  const tooLongFixture = setup({ status: "repairing" });
+  await assert.rejects(tooLongFixture.service.updateShopBookingStatus("request", "completed", "x".repeat(161), 125.5), /160 characters or fewer/);
+  assert.equal(tooLongFixture.writes.length, 0);
 });
 
 test("stale acceptance, skipped stages and terminal requests cannot be changed", async () => {
@@ -491,7 +501,101 @@ test("current map subscriptions never fall back to demo providers", () => {
   }
 });
 
-test("live map excludes closed, busy, hidden and non-emergency shops", () => {
+test("signed-in map revalidates expiry in place and applies renewal snapshots immediately", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  t.mock.timers.setTime(Date.parse("2026-11-02T00:00:00.000Z"));
+  const filename = fileURLToPath(new URL("../services/owner/providerMapService.ts", import.meta.url));
+  const source = readFileSync(filename, "utf8").replace(
+    "const MAP_SUBSCRIPTION_FILTER_ENABLED = false;",
+    "const MAP_SUBSCRIPTION_FILTER_ENABLED = true;",
+  );
+  let listener;
+  const service = loadSource(filename, source, {
+    "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
+      onSnapshot: (_query, next) => { listener = next; return () => {}; } },
+    "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
+    "../firebase": { db: {}, auth: { currentUser: { uid: "signed-in-customer" } } },
+    "../providerContactService": { getProviderContactPhone: async () => "" },
+    "./ratingService": { getProviderReviewSummary: async () => ({ average: 0, count: 0, reviews: [] }) },
+  });
+  const received = [];
+  const stop = service.subscribeToCustomerMapProviders((items) => received.push(items), () => {});
+  const mapListing = (expiresAt) => ({ ...validListing, providerId: "expiry-provider", role: "onsite-mechanic",
+    category: "Onsite Mechanics", availability: "available", services: ["Engine Diagnostics"],
+    vehicleTypes: ["Car"], operatingHours: "Daily", description: "Roadside help",
+    ratingSummary: { average: 0, count: 0 }, mapSubscriptionExpiresAt: { toMillis: () => expiresAt } });
+  const start = Date.now();
+  listener({ docs: [{ data: () => mapListing(start + 1_000) }] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(received.at(-1).map((provider) => provider.id), ["expiry-provider"]);
+  t.mock.timers.tick(999);
+  assert.deepEqual(received.at(-1).map((provider) => provider.id), ["expiry-provider"]);
+  t.mock.timers.tick(1);
+  assert.deepEqual(received.at(-1), [], "an already-open map drops the provider at the expiry boundary");
+  listener({ docs: [{ data: () => mapListing(Date.now() + 5_000) }] });
+  assert.deepEqual(received.at(-1).map((provider) => provider.id), ["expiry-provider"],
+    "the renewed listing snapshot restores the provider without restarting discovery");
+  stop();
+});
+
+test("guest map revalidates expiry and renewal from public listings only", (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  t.mock.timers.setTime(Date.parse("2026-11-02T00:00:00.000Z"));
+  const filename = fileURLToPath(new URL("../services/owner/providerMapService.ts", import.meta.url));
+  const source = readFileSync(filename, "utf8").replace(
+    "const MAP_SUBSCRIPTION_FILTER_ENABLED = false;",
+    "const MAP_SUBSCRIPTION_FILTER_ENABLED = true;",
+  );
+  let directoryListener;
+  const listingListeners = new Map();
+  let privateReads = 0;
+  const service = loadSource(filename, source, {
+    "firebase/firestore": {
+      collection: (_db, name) => name,
+      doc: (_db, ...parts) => {
+        if (parts[0] === "users" || parts[0] === "providerContacts") privateReads += 1;
+        return parts.join("/");
+      },
+      where: (...args) => args, query: (...args) => args,
+      getDoc: async () => { throw new Error("Guest map must use the open listing listener"); },
+      onSnapshot: (target, next) => {
+        if (target === "publicProviderDirectory") directoryListener = next;
+        else listingListeners.set(target, next);
+        return () => {};
+      },
+    },
+    "../../data/owner/mockProviders": {}, "../../types/providerListing": listingTypes,
+    "../firebase": { db: {}, auth: { currentUser: null } },
+    "../providerContactService": { getProviderContactPhone: async () => { privateReads += 1; return ""; } },
+    "./ratingService": { getProviderReviewSummary: async () => { privateReads += 1; return { average: 0, count: 0, reviews: [] }; } },
+  });
+  const received = [];
+  const stop = service.subscribeToCustomerMapProviders((items) => received.push(items), () => {}, true);
+  directoryListener({ docs: [{ id: "guest-provider" }] });
+  const emit = (expiresAt) => listingListeners.get("providerListings/guest-provider")({
+    exists: () => true,
+    data: () => ({ ...validListing, providerId: "guest-provider", role: "onsite-mechanic",
+      category: "Onsite Mechanics", availability: "offline", acceptsScheduledBookings: true,
+      services: ["Engine Diagnostics"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 },
+      mapSubscriptionExpiresAt: expiresAt === undefined ? undefined : { toMillis: () => expiresAt } }),
+  });
+  emit(Date.now());
+  assert.deepEqual(received.at(-1), [], "expiresAt equal to now is expired");
+  emit(undefined);
+  assert.deepEqual(received.at(-1), [], "missing expiry is hidden while filtering is enabled");
+  emit(Date.now() + 2_000);
+  assert.deepEqual(received.at(-1).map((provider) => provider.id), ["guest-provider"]);
+  t.mock.timers.tick(2_000);
+  assert.deepEqual(received.at(-1), [], "guest map removes an expired provider while open");
+  emit(Date.now() + 5_000);
+  assert.deepEqual(received.at(-1).map((provider) => provider.id), ["guest-provider"],
+    "guest map applies renewal from the public listing listener");
+  assert.equal(privateReads, 0, "guest discovery reads no user document, private contact, or review data");
+  stop();
+});
+
+test("live map excludes closed, busy, hidden and non-emergency shops", (t) => {
+  const expiresAt = Date.now() + 86_400_000;
   let listener;
   const service = load("../services/owner/providerMapService.ts", {
     "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
@@ -501,8 +605,10 @@ test("live map excludes closed, busy, hidden and non-emergency shops", () => {
     "../providerContactService": { getProviderContactPhone: async () => "" },
   });
   let received;
-  service.subscribeToCustomerMapShops((items) => { received = items; }, () => {});
-  const listing = { ...validListing, services: ["Engine Diagnostics"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 } };
+  const stop = service.subscribeToCustomerMapShops((items) => { received = items; }, () => {});
+  t.after(stop);
+  const listing = { ...validListing, services: ["Engine Diagnostics"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 },
+    mapSubscriptionExpiresAt: { toMillis: () => expiresAt } };
   listener({ docs: [listing, { ...listing, availability: "offline" }, { ...listing, availability: "busy" },
     { ...listing, visibility: "inactive" }, { ...listing, emergencyServiceAvailable: false }].map((data) => ({ data: () => data })) });
   assert.equal(received.length, 1);
@@ -510,7 +616,8 @@ test("live map excludes closed, busy, hidden and non-emergency shops", () => {
   assert.equal(received[0].isPositiveStatus, true);
 });
 
-test("signed-in scheduled map includes offline opted-in providers and excludes hidden or non-opted-in listings", async () => {
+test("signed-in scheduled map includes offline opted-in providers and excludes hidden or non-opted-in listings", async (t) => {
+  const expiresAt = Date.now() + 86_400_000;
   let listener;
   let builtQuery;
   const service = load("../services/owner/providerMapService.ts", {
@@ -522,9 +629,10 @@ test("signed-in scheduled map includes offline opted-in providers and excludes h
     "../providerContactService": { getProviderContactPhone: async () => "" },
   });
   let received;
-  service.subscribeToCustomerMapProviders((items) => { received = items; }, () => {}, true);
+  const stop = service.subscribeToCustomerMapProviders((items) => { received = items; }, () => {}, true);
+  t.after(stop);
   const activeOffline = { ...validListing, providerId: "offline-shop", role: "shop-owner", availability: "offline", acceptsScheduledBookings: true,
-    services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 } };
+    services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 }, mapSubscriptionExpiresAt: { toMillis: () => expiresAt } };
   const notOptedIn = { ...activeOffline, providerId: "no-schedule", acceptsScheduledBookings: false };
   const hidden = { ...activeOffline, providerId: "hidden-shop", visibility: "inactive" };
   listener({ docs: [activeOffline, notOptedIn, hidden].map((data) => ({ data: () => data })) });
@@ -533,7 +641,8 @@ test("signed-in scheduled map includes offline opted-in providers and excludes h
   assert.deepEqual(received.map((item) => item.id), ["offline-shop"]);
 });
 
-test("guest map enumerates ID-only directory and reads listings without touching private contacts", () => {
+test("guest map enumerates ID-only directory and reads listings without touching private contacts", (t) => {
+  const expiresAt = Date.now() + 86_400_000;
   let directoryListener;
   const listingListeners = new Map();
   let privateContactReads = 0;
@@ -558,10 +667,12 @@ test("guest map enumerates ID-only directory and reads listings without touching
   });
   const received = [];
   const stop = service.subscribeToCustomerMapProviders((items) => received.push(items), (error) => { throw error; }, true);
+  t.after(stop);
   const ids = ["scheduled-shop", "not-scheduled", "hidden-provider", "phone-provider"];
   directoryListener({ docs: ids.map((id) => ({ id, data: () => ({}) })) });
   const scheduled = { ...validListing, providerId: "scheduled-shop", role: "shop-owner", category: "Auto Shops", availability: "offline", acceptsScheduledBookings: true,
-    emergencyServiceAvailable: true, services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 4.4, count: 8 } };
+    emergencyServiceAvailable: true, services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 4.4, count: 8 },
+    mapSubscriptionExpiresAt: { toMillis: () => expiresAt } };
   const notScheduled = { ...scheduled, providerId: "not-scheduled", acceptsScheduledBookings: false };
   listingListeners.get("scheduled-shop").next({ exists: () => true, data: () => scheduled });
   listingListeners.get("not-scheduled").next({ exists: () => true, data: () => notScheduled });
@@ -574,7 +685,8 @@ test("guest map enumerates ID-only directory and reads listings without touching
   stop();
 });
 
-test("shop map publishes listing changes immediately and ignores delayed reviews from older snapshots", async () => {
+test("shop map publishes listing changes immediately and ignores delayed reviews from older snapshots", async (t) => {
+  const expiresAt = Date.now() + 86_400_000;
   let listener;
   const pendingReviews = [];
   const service = load("../services/owner/providerMapService.ts", {
@@ -587,9 +699,10 @@ test("shop map publishes listing changes immediately and ignores delayed reviews
     "../providerContactService": { getProviderContactPhone: async () => "09123456789" },
   });
   const received = [];
-  service.subscribeToCustomerMapShops((items) => received.push(items), () => {});
+  const stop = service.subscribeToCustomerMapShops((items) => received.push(items), () => {});
+  t.after(stop);
   const makeSnapshot = (businessName) => ({ docs: [{ data: () => ({ ...validListing, providerId: "shop", businessName,
-    services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 4, count: 2 } }) }] });
+    services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 4, count: 2 }, mapSubscriptionExpiresAt: { toMillis: () => expiresAt } }) }] });
   listener(makeSnapshot("Old Shop Details"));
   assert.equal(received.at(-1)[0].name, "Old Shop Details");
   listener(makeSnapshot("New Shop Details"));
@@ -605,7 +718,8 @@ test("shop map publishes listing changes immediately and ignores delayed reviews
   assert.equal(received.at(-1)[0].ratingStatus, "visible", "signed-in users retain loaded review summaries");
 });
 
-test("signed-in map marks failed review queries unavailable instead of showing a zero rating", async () => {
+test("signed-in map marks failed review queries unavailable instead of showing a zero rating", async (t) => {
+  const expiresAt = Date.now() + 86_400_000;
   let listener;
   const service = load("../services/owner/providerMapService.ts", {
     "firebase/firestore": { collection: () => "providerListings", where: () => {}, query: () => {},
@@ -616,9 +730,11 @@ test("signed-in map marks failed review queries unavailable instead of showing a
     "../providerContactService": { getProviderContactPhone: async () => "" },
   });
   const received = [];
-  service.subscribeToCustomerMapProviders((items) => received.push(items), () => {});
+  const stop = service.subscribeToCustomerMapProviders((items) => received.push(items), () => {});
+  t.after(stop);
   listener({ docs: [{ data: () => ({ ...validListing, providerId: "provider", role: "onsite-mechanic",
-    category: "Onsite Mechanics", services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 } }) }] });
+    category: "Onsite Mechanics", services: ["Repair"], vehicleTypes: ["Car"], ratingSummary: { average: 0, count: 0 },
+    mapSubscriptionExpiresAt: { toMillis: () => expiresAt } }) }] });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(received.at(-1)[0].ratingStatus, "unavailable");
 });

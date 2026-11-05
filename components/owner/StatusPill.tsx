@@ -2,30 +2,34 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { colors } from "../../constants/owner/theme";
+import { homeColors } from "../../constants/owner/homeTheme";
 import { getStatusLabel, ProviderCategory } from "../../data/owner/mockProviders";
 
 export function StatusPill({
   category,
   isPositive,
   compact,
+  homeAppearance = false,
 }: {
   category: Exclude<ProviderCategory, "All">;
   isPositive: boolean;
   compact?: boolean;
+  homeAppearance?: boolean;
 }) {
+  const palette = homeAppearance ? homeColors : colors;
   const label = getStatusLabel(category, isPositive);
   return (
     <View
       style={[
         styles.statusPill,
-        { backgroundColor: isPositive ? colors.successLight : colors.busyLight },
+        { backgroundColor: isPositive ? palette.successLight : palette.busyLight },
         compact && styles.statusPillCompact,
       ]}
     >
       <View
-        style={[styles.statusDot, { backgroundColor: isPositive ? colors.success : colors.busy }]}
+        style={[styles.statusDot, { backgroundColor: isPositive ? palette.success : palette.busy }]}
       />
-      <Text style={[styles.statusPillText, { color: isPositive ? colors.success : colors.busy }]}>
+      <Text style={[styles.statusPillText, { color: isPositive ? palette.success : palette.busy }]}>
         {label}
       </Text>
     </View>

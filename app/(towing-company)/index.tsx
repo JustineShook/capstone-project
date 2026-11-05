@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { AccountActionWarning } from "../../components/AccountActionWarning";
 import { useRouter } from "expo-router";
@@ -13,7 +14,7 @@ import { subscribeToTowingNotifications } from "../../services/towingNotificatio
 import type { TowingBookingRequest } from "../../types/owner/towing";
 import type { PublicProviderListingInput } from "../../types/providerListing";
 
-const C = { canvas: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", red: "#F52239", line: "#28313A", green: "#39D98A", blue: "#54B8FF" };
+const C = { canvas: "#FFFFFF", card: "#FFFFFF", text: "#172B4D", muted: "#526277", red: "#B4233A", line: "#D5DEE9", green: "#166534", blue: "#0F52BA", primary: "#0F52BA", primaryDark: "#0B3D8A", secondary: "#475569", subtle: "#F1F5F9", shadow: "#000000", border: "#D5DEE9" };
 const ACTIVE_STATUSES: TowingBookingRequest["status"][] = ["accepted", "en_route", "arrived", "in_progress"];
 type ListingSettings = Omit<PublicProviderListingInput, "availability">;
 
@@ -122,18 +123,19 @@ export default function TowingCompanyDashboard() {
 
   return (
     <SafeAreaView style={s.safe} edges={["top", "left", "right"]}>
-      <StatusBar barStyle="light-content" backgroundColor={C.canvas} />
-      <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 16 }]} showsVerticalScrollIndicator={false}>
-        <View style={s.header}>
+      <StatusBar barStyle="light-content" backgroundColor={C.primary} />
+      <View style={[s.header, { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }]}>
           <View style={s.brandRow}><Text style={s.mark}>V</Text><Text style={s.brand}>VeResc</Text></View>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : "Notifications"} onPress={() => router.push("/(towing-company)/notifications")} style={s.bell}>
-            <Feather name="bell" size={26} color={C.text} />
+            <Feather name="bell" size={26} color="#FFFFFF" />
             {unreadNotifications > 0 && <View style={s.notificationBadge}><Text style={s.notificationBadgeText}>{unreadNotifications > 99 ? "99+" : unreadNotifications}</Text></View>}
           </TouchableOpacity>
         </View>
+      <ScrollView style={s.scroll} contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 16 }]} showsVerticalScrollIndicator={false}>
+
         <AccountActionWarning count={actionRisk.count} error={actionRisk.error} />
 
-        <ImageBackground source={require("../../assets/images/towing-dashboard-bg.png")} imageStyle={s.heroImage} style={[s.hero, online ? s.heroOnline : s.heroOffline]}>
+        <ImageBackground source={require("../../assets/images/towing-ready-sapphire.png")} imageStyle={s.heroImage} style={[s.hero, online ? s.heroOnline : s.heroOffline]}>
           <View style={s.heroShade} />
           <View style={s.heroTop}>
             <View style={s.heroCopy}>
@@ -143,7 +145,7 @@ export default function TowingCompanyDashboard() {
             </View>
             <View style={s.availabilityToggle}>
               <View style={[s.statusDot, online && s.statusDotOnline]} /><Text style={s.availableLabel}>{serviceInProgress ? "Busy" : online ? "Online" : "Offline"}</Text>
-              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability || serviceInProgress} trackColor={{ false: "#686A6E", true: "#FFFFFF" }} thumbColor={online ? C.red : "#F3F3F3"} style={s.switch} />
+              <Switch value={online} onValueChange={(value) => void toggleAvailability(value)} disabled={!availabilityLoaded || savingAvailability || serviceInProgress} trackColor={{ false: "#D5DEE9", true: "#C9DBF6" }} thumbColor={online ? C.primary : "#FFFFFF"} style={s.switch} />
             </View>
           </View>
           <View style={s.heroDivider} />
@@ -157,8 +159,8 @@ export default function TowingCompanyDashboard() {
         <Text style={s.overline}>YOUR WORKSPACE</Text>
         <View style={s.quickActions}>
           {actions.map((action) => <TouchableOpacity key={action.label} style={s.quickAction} onPress={() => action.job && active ? open(active.id) : action.route && router.push(action.route as "/(towing-company)/requests" | "/(towing-company)/towing-pricing" | "/(towing-company)/public-listing")} activeOpacity={0.78}>
-            <View style={s.actionIcon}><Feather name={action.icon} size={25} color={C.red} />{action.label === "Requests" && pending.length > 0 ? <View style={s.actionBadge}><Text style={s.actionBadgeText}>{pending.length}</Text></View> : null}</View>
-            <Text style={s.actionLabel} numberOfLines={1}>{action.label}</Text>
+            <View style={s.actionIcon}><Feather name={action.icon} size={25} color="#FFFFFF" />{action.label === "Requests" && pending.length > 0 ? <View style={s.actionBadge}><Text style={s.actionBadgeText}>{pending.length}</Text></View> : null}</View>
+            <Text style={s.actionLabel}>{action.label}</Text>
           </TouchableOpacity>)}
         </View>
 
@@ -175,26 +177,26 @@ export default function TowingCompanyDashboard() {
           </View>
           <TouchableOpacity style={s.primary} onPress={() => open(active.id)} activeOpacity={0.85}><Text style={s.primaryText}>Continue Job</Text><Feather name="arrow-right" size={16} color="#fff" /></TouchableOpacity>
         </View> : <TouchableOpacity style={s.emptyJob} onPress={() => router.push("/(towing-company)/requests")} activeOpacity={0.8}>
-          <View style={s.emptyJobIcon}><Feather name="truck" size={23} color={C.red} /></View>
+          <View style={s.emptyJobIcon}><Feather name="truck" size={23} color={C.primary} /></View>
           <View style={s.emptyCopy}><Text style={s.emptyTitle}>No active job right now</Text><Text style={s.emptySubtitle}>Your accepted towing jobs will show here.</Text></View>
           <Feather name="chevron-right" size={20} color={C.muted} />
         </TouchableOpacity>}
 
         <SectionTitle title="New request" action="View all" onPress={() => router.push("/(towing-company)/requests")} />
         {pending[0] ? <TouchableOpacity style={s.requestCard} onPress={() => open(pending[0].id)} activeOpacity={0.82}>
-          <View style={s.requestIcon}><Feather name="truck" size={18} color={C.red} /></View>
+          <View style={s.requestIcon}><Feather name="truck" size={18} color={C.primary} /></View>
           <View style={s.requestCopy}><Text style={s.requestName} numberOfLines={1}>{pending[0].customerName || "New customer"}</Text><Text style={s.requestDistance} numberOfLines={1}>{pending[0].pickupLocation} · {pending[0].providerToPickupDistanceKm || 0} km away</Text></View>
           <View style={s.requestArrow}><Feather name="chevron-right" size={19} color="#fff" /></View>
         </TouchableOpacity> : <TouchableOpacity style={s.emptyRequest} onPress={() => router.push("/(towing-company)/requests")} activeOpacity={0.8}>
-          <View style={s.emptyJobIcon}><Feather name="inbox" size={22} color={C.red} /></View>
+          <View style={s.emptyJobIcon}><Feather name="inbox" size={22} color={C.primary} /></View>
           <View style={s.emptyCopy}><Text style={s.emptyTitle}>No new requests yet</Text><Text style={s.emptySubtitle}>{online ? "New customer requests will appear here." : "Go online to start receiving requests."}</Text></View>
           <Feather name="chevron-right" size={20} color={C.muted} />
         </TouchableOpacity>}
 
         <TouchableOpacity style={s.listingHint} onPress={() => router.push("/(towing-company)/public-listing")} activeOpacity={0.8}>
-          <View style={s.listingIcon}><Feather name="truck" size={17} color={C.red} /></View>
+          <View style={s.listingIcon}><Feather name="truck" size={17} color={C.primary} /></View>
           <View style={s.listingCopy}><Text style={s.listingTitle}>Keep your service details up to date</Text><Text style={s.listingSubtitle}>This helps customers find and trust your service.</Text></View>
-          <Text style={s.editListing}>Edit listing <Feather name="chevron-right" size={12} color={C.red} /></Text>
+          <View style={s.editListingButton}><Text style={s.editListing}>Edit listing</Text><Feather name="chevron-right" size={12} color="#FFFFFF" /></View>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -202,7 +204,7 @@ export default function TowingCompanyDashboard() {
 }
 
 function SectionTitle({ title, action, onPress }: { title: string; action: string; onPress: () => void }) {
-  return <View style={s.sectionHeader}><Text style={s.sectionTitle}>{title}</Text><TouchableOpacity onPress={onPress} style={s.viewAll}><Text style={s.viewAllText}>{action}</Text><Feather name="chevron-right" size={15} color={C.red} /></TouchableOpacity></View>;
+  return <View style={s.sectionHeader}><Text style={s.sectionTitle}>{title}</Text><TouchableOpacity onPress={onPress} style={s.viewAll}><Text style={s.viewAllText}>{action}</Text><Feather name="chevron-right" size={15} color="#FFFFFF" /></TouchableOpacity></View>;
 }
 
 function RouteLine({ pickup, value }: { pickup?: boolean; value: string }) {
@@ -210,23 +212,26 @@ function RouteLine({ pickup, value }: { pickup?: boolean; value: string }) {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.canvas },
-  content: { paddingHorizontal: 18, paddingTop: 3, paddingBottom: 24 },
-  header: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 5 },
-  brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: C.red, fontSize: 36, lineHeight: 42, fontWeight: "900", fontStyle: "italic", marginRight: 6 }, brand: { color: C.text, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
-  bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", position: "relative" },
-  notificationBadge: { position: "absolute", top: 2, right: 0, minWidth: 19, height: 19, borderRadius: 10, backgroundColor: C.red, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
-  notificationBadgeText: { color: "#FFFFFF", fontSize: 10, lineHeight: 14, fontWeight: "800" },
-  hero: { borderRadius: 20, minHeight: 178, paddingHorizontal: 21, paddingTop: 20, paddingBottom: 17, borderWidth: 1, overflow: "hidden" }, heroImage: { borderRadius: 20, opacity: 0.55 }, heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,14,18,0.55)" }, heroOnline: { backgroundColor: "#13251F", borderColor: "#26533D" }, heroOffline: { backgroundColor: "#211B19", borderColor: "#54372C" },
-  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, heroCopy: { flex: 1, paddingRight: 5 }, locationRow: { flexDirection: "row", alignItems: "center", gap: 5 }, locationLabel: { color: "#D7E1E8", fontSize: 14, lineHeight: 22, fontWeight: "600", flexShrink: 1 }, heroTitle: { color: "#fff", fontSize: 27, fontWeight: "800", lineHeight: 35, marginTop: 5 }, heroHint: { color: "#C5D0D7", fontSize: 14, lineHeight: 20, marginTop: 2 }, statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#F4A45D", marginRight: 7 }, statusDotOnline: { backgroundColor: C.green },
-  availabilityToggle: { minHeight: 48, flexDirection: "row", alignItems: "center", backgroundColor: "#F7F9FA", borderRadius: 25, paddingLeft: 12, paddingRight: 5 }, availableLabel: { color: "#252525", fontSize: 14, fontWeight: "700" }, switch: { transform: [{ scaleX: 1.04 }, { scaleY: 1.04 }], width: 52, marginLeft: 1, marginRight: -1 },
-  heroDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.14)", marginTop: 14, marginBottom: 10 }, stats: { minHeight: 50, flexDirection: "row", alignItems: "center" }, stat: { flex: 1 }, statDivider: { width: 1, height: 38, backgroundColor: "rgba(255,255,255,0.18)", marginHorizontal: 17 }, statValue: { color: "#fff", fontSize: 32, lineHeight: 38, fontWeight: "800" }, statLabel: { color: "#C5D0D7", fontSize: 13, lineHeight: 19, fontWeight: "600" },
-  overline: { color: "#9AA8B3", fontSize: 12, fontWeight: "800", letterSpacing: 1.4, marginTop: 21, marginBottom: 13 }, quickActions: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 1 }, quickAction: { alignItems: "center", width: "19%", minHeight: 90 }, actionIcon: { width: 55, height: 55, borderRadius: 18, backgroundColor: "#18222B", borderWidth: 1, borderColor: "#283744", alignItems: "center", justifyContent: "center", position: "relative" }, actionBadge: { position: "absolute", right: -2, top: -2, minWidth: 22, height: 22, borderRadius: 11, backgroundColor: C.red, alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, actionBadgeText: { color: "#fff", fontSize: 12, fontWeight: "800" }, actionLabel: { color: "#DCE3E8", fontSize: 11, lineHeight: 16, fontWeight: "600", marginTop: 7, textAlign: "center" },
-  sectionHeader: { flexDirection: "row", alignItems: "center", marginTop: 23, marginBottom: 12, paddingHorizontal: 3, minHeight: 38 }, sectionTitle: { color: C.text, fontSize: 21, lineHeight: 28, fontWeight: "800" }, viewAll: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 5 }, viewAllText: { color: "#FF6678", fontSize: 14, fontWeight: "700" },
-  jobCard: { backgroundColor: C.card, borderRadius: 17, borderWidth: 1, borderColor: "#283744", padding: 17 }, jobTop: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, onWay: { backgroundColor: "#A91225", borderRadius: 12, paddingHorizontal: 11, paddingVertical: 6 }, onWayText: { color: "#fff", fontSize: 12, lineHeight: 17, fontWeight: "700" }, customer: { color: C.text, fontSize: 20, lineHeight: 27, fontWeight: "800", marginTop: 8 }, vehicle: { color: "#D0D8DE", fontSize: 15, lineHeight: 21, marginTop: 4, marginBottom: 8 },
-  routeRow: { minHeight: 37, flexDirection: "row", alignItems: "center", gap: 9 }, routeDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#B3C0C9", marginLeft: 2 }, pickupDot: { backgroundColor: C.red }, routeText: { color: "#E7EDF1", fontSize: 14, lineHeight: 20, flex: 1 }, routeLabel: { color: C.muted, fontSize: 12 }, metrics: { borderTopWidth: 1, borderTopColor: "#303B45", marginTop: 11, paddingTop: 12, flexDirection: "row", justifyContent: "space-between", gap: 7, flexWrap: "wrap" }, metric: { flexDirection: "row", alignItems: "center", gap: 7 }, metricText: { color: "#C5D0D7", fontSize: 13, lineHeight: 19 },
-  primary: { minHeight: 48, borderRadius: 10, backgroundColor: C.red, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 13 }, primaryText: { color: "#fff", fontSize: 15, fontWeight: "800" },
-  emptyJob: { minHeight: 115, borderRadius: 17, backgroundColor: C.card, borderWidth: 1, borderColor: "#283744", paddingHorizontal: 16, paddingVertical: 16, flexDirection: "row", alignItems: "center", gap: 13 }, emptyRequest: { minHeight: 112, borderRadius: 17, backgroundColor: C.card, borderWidth: 1, borderColor: "#283744", paddingHorizontal: 16, paddingVertical: 15, flexDirection: "row", alignItems: "center", gap: 13 }, emptyJobIcon: { width: 50, height: 50, borderRadius: 16, backgroundColor: "#1C3444", alignItems: "center", justifyContent: "center" }, emptyCopy: { flex: 1, gap: 5 }, emptyTitle: { color: C.text, fontSize: 17, lineHeight: 23, fontWeight: "700" }, emptySubtitle: { color: C.muted, fontSize: 13, lineHeight: 19 },
-  requestCard: { minHeight: 78, borderRadius: 15, backgroundColor: C.card, borderWidth: 1, borderColor: "#283744", paddingHorizontal: 14, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 12 }, requestIcon: { width: 46, height: 46, borderRadius: 15, backgroundColor: "#281B20", alignItems: "center", justifyContent: "center" }, requestCopy: { flex: 1 }, requestName: { color: C.text, fontSize: 16, lineHeight: 22, fontWeight: "700" }, requestDistance: { color: C.muted, fontSize: 13, lineHeight: 18, marginTop: 3 }, requestArrow: { width: 39, height: 39, borderRadius: 13, backgroundColor: C.red, alignItems: "center", justifyContent: "center" },
-  listingHint: { minHeight: 72, borderRadius: 13, backgroundColor: C.card, borderWidth: 1, borderColor: "#283744", marginTop: 14, paddingHorizontal: 13, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 11 }, listingIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#281B20", alignItems: "center", justifyContent: "center" }, listingCopy: { flex: 1 }, listingTitle: { color: C.text, fontSize: 13, fontWeight: "700", lineHeight: 18 }, listingSubtitle: { color: C.muted, fontSize: 12, lineHeight: 17 }, editListing: { color: "#FF6678", fontSize: 12, fontWeight: "700" },
+  safe: { flex: 1, backgroundColor: C.primary },
+  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
+  header: { backgroundColor: C.primary, paddingHorizontal: 16, paddingTop: 15, paddingBottom: 16 },
+  brandRow: { flexDirection: "row", alignItems: "center" }, mark: { color: "#FFFFFF", fontSize: 30, lineHeight: 35, fontWeight: "900", fontStyle: "italic", marginRight: 5 }, brand: { color: "#FFFFFF", fontSize: 20, fontWeight: "800", letterSpacing: -0.4 },
+  bell: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  notificationBadge: { position: "absolute", top: 2, right: 0, minWidth: 19, height: 19, borderRadius: 10, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  notificationBadgeText: { color: C.primary, fontSize: 10, lineHeight: 14, fontWeight: "800" },
+  hero: { borderRadius: 20, minHeight: 178, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 22, borderWidth: 1, overflow: "hidden", ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 5 } }, android: { elevation: 6 }, default: {} }) }, heroImage: { borderRadius: 20, opacity: 0.9 }, heroShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(11,61,138,0.42)" }, heroOnline: { backgroundColor: C.primary, borderColor: C.primaryDark }, heroOffline: { backgroundColor: C.primaryDark, borderColor: C.primaryDark },
+  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }, heroCopy: { flex: 1, paddingRight: 2 }, locationRow: { flexDirection: "row", alignItems: "center", gap: 5 }, locationLabel: { color: "#EAF2FF", fontSize: 13, lineHeight: 19, fontWeight: "600", flexShrink: 1 }, heroTitle: { color: "#FFFFFF", fontSize: 24, fontWeight: "800", lineHeight: 31, marginTop: 5 }, heroHint: { color: "#EAF2FF", fontSize: 13, lineHeight: 19, marginTop: 2 }, statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#F4A45D", marginRight: 7 }, statusDotOnline: { backgroundColor: "#5DE0A0" },
+  availabilityToggle: { minHeight: 46, flexDirection: "row", alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 14, paddingLeft: 10, paddingRight: 4 }, availableLabel: { color: C.text, fontSize: 13, fontWeight: "700" }, switch: { transform: [{ scaleX: 1.02 }, { scaleY: 1.02 }], width: 50, marginLeft: 1, marginRight: -1 },
+  heroDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.25)", marginTop: 14, marginBottom: 10 }, stats: { minHeight: 50, flexDirection: "row", alignItems: "center" }, stat: { flex: 1 }, statDivider: { width: 1, height: 38, backgroundColor: "rgba(255,255,255,0.25)", marginHorizontal: 17 }, statValue: { color: "#FFFFFF", fontSize: 28, lineHeight: 34, fontWeight: "800" }, statLabel: { color: "#EAF2FF", fontSize: 13, lineHeight: 19, fontWeight: "600" },
+  overline: { color: C.secondary, fontSize: 12, fontWeight: "800", letterSpacing: 1.5, marginTop: 20, marginBottom: 12 }, quickActions: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 0 }, quickAction: { alignItems: "center", width: "19%", minHeight: 86 }, actionIcon: { width: 56, height: 56, borderRadius: 15, backgroundColor: C.primary, borderWidth: 1, borderColor: C.primary, alignItems: "center", justifyContent: "center", position: "relative", ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 2 }, default: {} }) }, actionBadge: { position: "absolute", right: -2, top: -2, minWidth: 22, height: 22, borderRadius: 11, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", paddingHorizontal: 5 }, actionBadgeText: { color: C.primary, fontSize: 12, fontWeight: "800" }, actionLabel: { color: C.secondary, fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 7, textAlign: "center" },
+  sectionHeader: { flexDirection: "row", alignItems: "center", marginTop: 4, marginBottom: 12, paddingHorizontal: 0, minHeight: 40 }, sectionTitle: { color: C.text, fontSize: 16, lineHeight: 22, fontWeight: "700" }, viewAll: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4, minHeight: 40, paddingHorizontal: 12, borderRadius: 14, backgroundColor: C.primary }, viewAllText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  jobCard: { backgroundColor: C.card, borderRadius: 20, padding: 16, minHeight: 0, borderWidth: 1, borderColor: C.line, marginBottom: 13, ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, default: {} }) }, jobTop: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, onWay: { backgroundColor: "#FDECEF", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }, onWayText: { color: C.red, fontSize: 13, lineHeight: 18, fontWeight: "700" }, customer: { color: C.text, fontSize: 18, lineHeight: 25, fontWeight: "700", marginTop: 8 }, vehicle: { color: C.secondary, fontSize: 14, lineHeight: 20, marginTop: 3, marginBottom: 8 },
+  routeRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 9 }, routeDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.primary, marginLeft: 2 }, pickupDot: { backgroundColor: C.primary }, routeText: { color: C.text, fontSize: 14, lineHeight: 20, flex: 1 }, routeLabel: { color: C.secondary, fontSize: 12 }, metrics: { borderTopWidth: 1, borderTopColor: C.line, marginTop: 10, paddingTop: 10, flexDirection: "row", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }, metric: { flexDirection: "row", alignItems: "center", gap: 7 }, metricText: { color: C.secondary, fontSize: 12, lineHeight: 18 },
+  primary: { height: 54, borderRadius: 14, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, marginTop: 10 }, primaryText: { color: "#FFFFFF", fontSize: 14, lineHeight: 18, fontWeight: "800" },
+  emptyJob: { minHeight: 104, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, paddingHorizontal: 16, paddingVertical: 16, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 13, ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, default: {} }) }, emptyRequest: { minHeight: 104, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, paddingHorizontal: 16, paddingVertical: 16, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 13, ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, default: {} }) }, emptyJobIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: "#EAF2FF", alignItems: "center", justifyContent: "center" }, emptyCopy: { flex: 1, gap: 5 }, emptyTitle: { color: C.text, fontSize: 15, lineHeight: 21, fontWeight: "700" }, emptySubtitle: { color: C.secondary, fontSize: 13, lineHeight: 18 },
+  requestCard: { minHeight: 72, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 13, ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, default: {} }) }, requestIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#FDECEF", alignItems: "center", justifyContent: "center" }, requestCopy: { flex: 1, gap: 2 }, requestName: { color: C.text, fontSize: 15, lineHeight: 21, fontWeight: "700" }, requestDistance: { color: C.secondary, fontSize: 12, lineHeight: 18 }, requestArrow: { width: 44, height: 44, borderRadius: 14, backgroundColor: C.primary, alignItems: "center", justifyContent: "center" },
+  listingHint: { minHeight: 72, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, marginTop: 0, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10, ...Platform.select({ ios: { shadowColor: C.shadow, shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } }, android: { elevation: 5 }, default: {} }) }, listingIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" }, listingCopy: { flex: 1, gap: 2, minWidth: 0 }, listingTitle: { color: C.text, fontSize: 13, fontWeight: "700", lineHeight: 18 }, listingSubtitle: { color: C.secondary, fontSize: 12, lineHeight: 17 }, editListing: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
+
+scroll: { flex: 1, backgroundColor: C.canvas, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" },
+editListingButton: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 10, borderRadius: 14, backgroundColor: C.primary },
 });

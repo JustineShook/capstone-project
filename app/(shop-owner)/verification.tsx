@@ -14,7 +14,7 @@ import { uploadVerificationFile } from "../../services/providerProfileService";
 import { getShopVerificationProfile, saveShopVerificationProfile } from "../../services/shopVerificationService";
 import type { ShopVerificationProfile } from "../../types/shopVerificationProfile";
 
-const C = { bg: "#0B1115", card: "#151E25", text: "#F7F9FA", muted: "#A1ABB2", line: "#354249", red: "#F51F3B", green: "#1C8D5B" };
+const C = { bg: "#0F52BA", card: "#FFFFFF", text: "#172B4D", muted: "#526277", line: "#D5DEE9", red: "#0F52BA", green: "#166534", tint: "#EAF2FF", subtle: "#F1F5F9", successTint: "#DCFCE7", destructive: "#B4233A" };
 const DEFAULT_REGION: Region = { latitude: 14.5995, longitude: 120.9842, latitudeDelta: 0.08, longitudeDelta: 0.08 };
 type File = { url: string; name: string };
 type Draft = { name: string; contact: string; phone: string; address: string; lat: string; lng: string; hours: string };
@@ -42,12 +42,12 @@ export default function ShopVerification() {
     <SafeAreaView style={s.safe} edges={["left", "right", "bottom"]}>
       <View style={[s.header, { paddingTop: insets.top + 14 }]}>
         <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace("/(shop-owner)/profile")}>
-          <Feather name="arrow-left" size={22} color={C.text} />
+          <Feather name="arrow-left" size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={s.title}>Auto Shop Verification</Text>
         <View style={{ width: 22 }} />
       </View>
-      <ScrollView contentContainerStyle={s.content}>
+      <ScrollView style={s.scroll} contentContainerStyle={s.content}>
         <Card title="Business Information">
           <Input label="Owner / Contact Person" value={d.contact} change={(v) => set("contact", v)} />
           <Input label="Phone Number" value={d.phone} phone change={(v) => set("phone", v)} />
@@ -88,37 +88,37 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 function Input({ label, value, change, placeholder, phone }: { label: string; value: string; change: (value: string) => void; placeholder?: string; phone?: boolean }) { return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput style={s.input} value={value} onChangeText={change} placeholder={placeholder} placeholderTextColor={C.muted} keyboardType={phone ? "phone-pad" : "default"} /></View>; }
 function Upload({ label, file, press, optional }: { label: string; file: File | null; press: () => void; optional?: boolean }) { return <View style={s.field}><Text style={s.label}>{label}{optional ? " (optional)" : ""}</Text><TouchableOpacity style={s.upload} onPress={press}><Feather name={file ? "check-circle" : "upload-cloud"} size={18} color={file ? C.green : C.red} /><Text style={s.uploadText}>{file ? file.name : "Tap to upload"}</Text></TouchableOpacity></View>; }
 function IdentityUpload({ label, file, press }: { label: string; file: File | null; press: () => void }) { return <View style={s.field}><Text style={s.label}>{label}</Text><TouchableOpacity style={s.upload} onPress={press} accessibilityRole="button" accessibilityLabel={`${file ? "Change" : "Upload"} ${label.toLowerCase()}`}>{file ? <Image source={{ uri: file.url }} style={s.identityThumbnail} /> : <Feather name="camera" size={19} color={C.red} />}<Text style={s.uploadText}>{file ? "Photo uploaded · Tap to change" : "Tap to upload a photo"}</Text><Feather name={file ? "check-circle" : "upload-cloud"} size={18} color={file ? C.green : C.red} /></TouchableOpacity></View>; }
-function ShopPhotoUpload({ index, file, remove }: { index: number; file: File; remove: () => void }) { return <View style={s.field}><Text style={s.label}>Shop Photo {index + 1}</Text><View style={s.upload}>{<Image source={{ uri: file.url }} style={s.identityThumbnail} />}<Text style={s.uploadText}>Photo uploaded</Text><TouchableOpacity onPress={remove} accessibilityRole="button" accessibilityLabel={`Remove shop photo ${index + 1}`}><Feather name="trash-2" size={18} color={C.red} /></TouchableOpacity></View></View>; }
+function ShopPhotoUpload({ index, file, remove }: { index: number; file: File; remove: () => void }) { return <View style={s.field}><Text style={s.label}>Shop Photo {index + 1}</Text><View style={s.upload}>{<Image source={{ uri: file.url }} style={s.identityThumbnail} />}<Text style={s.uploadText}>Photo uploaded</Text><TouchableOpacity onPress={remove} accessibilityRole="button" accessibilityLabel={`Remove shop photo ${index + 1}`}><Feather name="trash-2" size={18} color={C.destructive} /></TouchableOpacity></View></View>; }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 13 },
-  header: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: C.line },
-  title: { color: C.text, fontSize: 18, fontWeight: "800" },
-  content: { padding: 18, gap: 15, paddingBottom: 32 },
-  card: { padding: 16, borderRadius: 16, backgroundColor: C.card, borderWidth: 1, borderColor: C.line },
-  cardTitle: { color: C.text, fontSize: 19, fontWeight: "800", marginBottom: 10 },
-  field: { marginTop: 14 },
-  label: { color: C.text, fontSize: 15, fontWeight: "700", marginBottom: 8 },
-  input: { minHeight: 50, borderRadius: 10, paddingHorizontal: 13, color: C.text, backgroundColor: "#202B32", borderWidth: 1, borderColor: C.line, fontSize: 15 },
-  locationLabel: { color: C.text, fontSize: 15, fontWeight: "700", marginTop: 18 },
-  locationHint: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 5, marginBottom: 10 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 12, backgroundColor: C.card },
+  header: { minHeight: 70, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 16, gap: 8, backgroundColor: C.bg },
+  title: { flex: 1, color: "#FFFFFF", fontSize: 20, lineHeight: 26, fontWeight: "800", textAlign: "center" },
+  content: { paddingHorizontal: 16, paddingTop: 8, gap: 12, paddingBottom: 32 },
+  card: { padding: 16, borderRadius: 20, backgroundColor: C.card, borderWidth: 1, borderColor: C.line },
+  cardTitle: {fontSize:16,lineHeight:22,fontWeight:"700",color:C.text,marginBottom:14},
+  field: { marginTop: 16 },
+  label: {fontSize:13,lineHeight:19,fontWeight:"600",color:C.text,marginBottom:6},
+  input: {minHeight:46,borderWidth:1,borderColor:C.line,borderRadius:12,paddingHorizontal:12,paddingVertical:10,fontSize:14,color:C.text,backgroundColor:C.card},
+  locationLabel: { color: C.text, fontSize: 13, lineHeight: 19, fontWeight: "600", marginTop: 16 },
+  locationHint: { color: C.muted, fontSize: 12, lineHeight: 17, marginTop: 6, marginBottom: 10 },
   mapWrap: { height: 220, borderRadius: 12, overflow: "hidden", marginTop: 5 },
   map: { flex: 1 },
-  locationButton: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, backgroundColor: "#202B32", marginTop: 10 },
-  locationButtonText: { color: C.red, fontSize: 14, fontWeight: "800" },
+  locationButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, borderWidth: 1, borderColor: C.line, backgroundColor: C.tint, marginTop: 10, paddingHorizontal: 12 },
+  locationButtonText: { color: C.red, fontSize: 14, lineHeight: 20, fontWeight: "700", flexShrink: 1 },
   coordinates: { color: C.muted, fontSize: 12, textAlign: "center", marginTop: 8 },
-  upload: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 10, paddingHorizontal: 12, backgroundColor: "#202B32" },
-  uploadText: { color: C.text, fontSize: 14, flex: 1 },
+  upload: {minHeight:52,flexDirection:"row",alignItems:"center",gap:10,borderWidth:1,borderStyle:"dashed",borderColor:C.red,borderRadius:14,paddingVertical:14,paddingHorizontal:14,backgroundColor:C.tint},
+  uploadText: {fontSize:14,fontWeight:"700",color:C.red,flexShrink:1},
   identityThumbnail: { width: 44, height: 44, borderRadius: 7 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingHorizontal: 11, paddingVertical: 9, borderRadius: 20, backgroundColor: "#202B32", borderWidth: 1, borderColor: C.line },
-  active: { backgroundColor: "#3A2025", borderColor: C.red },
-  chipText: { color: C.muted, fontSize: 13, fontWeight: "600" },
-  activeText: { color: C.text },
-  button: { minHeight: 52, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: C.red, paddingHorizontal: 16 },
-  buttonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+  chips: {flexDirection:"row",flexWrap:"wrap",gap:8},
+  chip: {borderWidth:1,borderColor:C.line,borderRadius:12,paddingHorizontal:12,paddingVertical:9,backgroundColor:C.card},
+  active: {backgroundColor:C.red,borderColor:C.red},
+  chipText: {fontSize:13,fontWeight:"600",color:C.muted},
+  activeText: {color:"#FFFFFF"},
+  button: { minHeight: 54, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: C.red, paddingHorizontal: 16, paddingVertical: 12 },
+  buttonText: {fontSize:14,lineHeight:18,fontWeight:"800",color:"#FFFFFF"},
   disabled: { opacity: 0.55 },
-  confirm: { color: C.text, fontSize: 22, fontWeight: "800", textAlign: "center" },
-  muted: { color: C.muted, fontSize: 14, lineHeight: 20, textAlign: "center" },
-});
+  confirm: {fontSize:20,lineHeight:26,fontWeight:"700",color:C.text,textAlign:"center"},
+  muted: {fontSize:14,color:C.muted,textAlign:"center",marginTop:8,lineHeight:21},
+  scroll: { flex: 1, backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: "hidden" }});

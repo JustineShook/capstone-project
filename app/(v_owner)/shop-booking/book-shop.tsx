@@ -1,10 +1,12 @@
+import { KeyboardAvoidingView, Platform } from "react-native";
+import { homeColors } from "../../../constants/owner/homeTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ShopBookingScreen, styles as s } from "../../../components/owner/ShopBookingScreen";
+import { ShopBookingScreen, bookingFormStyles as s } from "../../../components/owner/ShopBookingScreen";
 import { useMyLocation } from "../../../hooks/useMyLocation";
 import { subscribeToMyVehicles } from "../../../services/owner/vehicleService";
 import { subscribeToBookableShopListing } from "../../../services/publicProviderListingService";
@@ -15,7 +17,7 @@ import { BookingTimingActions } from "../../../components/owner/BookingTimingAct
 import type { BookingTimingInput } from "../../../types/bookingTiming";
 import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
 
-const C = { background: "#0C1015", card: "#151C23", text: "#F4F6F8", muted: "#AAB5C0", line: "#28313A", red: "#F52239" };
+const C = { background: homeColors.background, bg: homeColors.background, card: homeColors.surface, text: homeColors.textPrimary, muted: homeColors.textSecondary, line: homeColors.border, red: homeColors.primary };
 
 export default function BookShopScreen() {
   const { providerId, initialTimingMode } = useLocalSearchParams<{ providerId?: string | string[]; initialTimingMode?: "now" | "scheduled" }>();
@@ -92,7 +94,7 @@ function ShopBookingForm({ providerId, initialTimingMode }: { providerId?: strin
     finally { lock.current = false; setSaving(false); }
   }
 
-  return <ShopBookingScreen title="Request Auto Shop Service" footer={provider && !loading ? <BookingTimingActions value={timing}
+  return <ShopBookingScreen formAppearance sapphireHeader onBack={() => router.replace({ pathname: "/(v_owner)", params: providerId ? { selectedProviderId: providerId } : {} })} title="Request Auto Shop Service" footer={provider && !loading ? <BookingTimingActions formAppearance value={timing}
     emergencyAvailable={provider.emergencyServiceAvailable === true} acceptsScheduled={provider.acceptsScheduledBookings === true}
     requiredFieldsValid={requiredFieldsValid} reviewDisabled={saving} onChange={setTiming}
     onEmergency={() => { const next = { timingMode: "now" as const, urgency: "emergency" as const }; setTiming(next); setError(null); if (requiredFieldsValid) setModal("review"); }}
@@ -104,29 +106,31 @@ function ShopBookingForm({ providerId, initialTimingMode }: { providerId?: strin
       <View style={s.providerCard}><View style={s.providerIcon}><Ionicons name="storefront-outline" size={24} color={C.red} /></View><View style={{ flex: 1, gap: 4 }}>
         <Text style={s.title}>{provider.businessName}</Text><View style={s.metaRow}><Ionicons name="checkmark-circle" size={14} color="#39D98A" /><Text style={s.metaText}>Verified auto shop</Text></View><Text style={s.muted}>{provider.serviceAreaLabel}</Text>
       </View></View>
-      <View style={s.priceCard}><View><Text style={s.priceLabel}>Starting price</Text><Text style={s.priceValue}>{provider.startingPrice == null ? "Price on assessment" : `?${provider.startingPrice.toLocaleString("en-PH")}`}</Text></View><Ionicons name="pricetag-outline" size={21} color={C.red} /></View>
+
       <View style={s.noticeCard}><Ionicons name="information-circle-outline" size={18} color={C.red} /><Text style={[s.muted, { flex: 1 }]}>The shop will review your request first. Bring your vehicle only after it accepts.</Text></View>
-      <Text style={s.label}>Vehicle</Text><Text style={s.sectionSubtitle}>Which vehicle needs service?</Text>
+      <Text style={[s.label, ui.sectionLabel]}>Vehicle</Text>
       <RequestLoadState loading={vehicleLoading} error={vehicleError} retry={() => setAttempt((value) => value + 1)} />
       {vehicle && <Pressable accessibilityRole="button" style={s.card} onPress={() => setModal("vehicle")}>
-        <View style={s.vehicleRow}><View style={s.vehicleIcon}><Ionicons name="car-outline" size={22} color={C.red} /></View><View style={{ flex: 1, gap: 4 }}><Text style={s.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text><Text style={s.muted}>{vehicle.type} · {vehicle.plateNumber}</Text></View><Text style={s.changeLabel}>Change</Text><Ionicons name="chevron-forward" size={18} color={C.muted} /></View>
+        <View style={s.vehicleRow}><View style={s.vehicleIcon}><Ionicons name="car-outline" size={22} color={C.red} /></View><View style={{ flex: 1, gap: 4 }}><Text style={s.title}>{vehicle.year} {vehicle.make} {vehicle.model}</Text><Text style={s.muted}>{vehicle.type} ï¿½ {vehicle.plateNumber}</Text></View><Text style={s.changeLabel}>Change</Text><Ionicons name="chevron-forward" size={18} color={C.muted} /></View>
         {!provider.vehicleTypes.includes(vehicle.type) && <Text style={s.muted}>This shop may not typically service this vehicle type. The shop will review your request.</Text>}
       </Pressable>}
       {!vehicleLoading && !vehicleError && vehicles.length > 0 && !vehicle && <Pressable accessibilityRole="button" style={s.emptyVehicleCard} onPress={() => setModal("vehicle")}><Ionicons name="car-outline" size={22} color={C.red} /><Text style={s.emptyVehicleText}>Please select a vehicle</Text><Ionicons name="chevron-forward" size={18} color={C.muted} /></Pressable>}
       {!vehicleLoading && !vehicleError && !vehicles.length && <View style={s.card}><Text style={s.muted}>Add a vehicle in My Vehicles, then return here to continue.</Text>
         <RequestButton title="Add a Vehicle" secondary onPress={() => router.push("/(v_owner)/vehicle")} /></View>}
-      <Text style={s.label}>Service Problem</Text><Text style={s.sectionSubtitle}>Tell the shop what needs attention.</Text>
+      <Text style={[s.label, ui.sectionLabel]}>Service Problem</Text>
       <TextInput accessibilityLabel="Reported problem" style={s.input} value={problem} onChangeText={setProblem} maxLength={300} multiline placeholder="Describe what happened and the help you need" placeholderTextColor={C.muted} />
-      <Text style={s.label}>Additional Notes</Text><Text style={s.sectionSubtitle}>Share any other details that may help.</Text>
+      <Text style={[s.label, ui.sectionLabel]}>Your Location</Text><Text style={s.sectionSubtitle}>Shared with the shop with your request.</Text>
+      <View style={s.addressCard}><Ionicons name="location-outline" size={20} color={C.red} /><View style={{ flex: 1, gap: 4 }}><Text style={s.addressLabel}>Current location</Text><Text style={s.addressValue}>{location.loading ? "Finding your locationï¿½" : location.error || (location.location ? `${location.location.lat.toFixed(6)}, ${location.location.lng.toFixed(6)}` : "Location not available")}</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh location" disabled={location.loading} onPress={() => void location.refresh()}><Ionicons name="refresh-outline" size={20} color={C.red} /></TouchableOpacity></View>
+      <Text style={[s.label, ui.sectionLabel]}>Additional Notes</Text>
       <TextInput accessibilityLabel="Additional notes" style={s.input} value={notes} onChangeText={setNotes} maxLength={1000} multiline placeholder="Any other information for the shop" placeholderTextColor={C.muted} />
-      <Text style={s.label}>Your Location</Text><Text style={s.sectionSubtitle}>Shared with the shop with your request.</Text>
-      <View style={s.addressCard}><Ionicons name="location-outline" size={20} color={C.red} /><View style={{ flex: 1, gap: 4 }}><Text style={s.addressLabel}>Current location</Text><Text style={s.addressValue}>{location.loading ? "Finding your location…" : location.error || (location.location ? `${location.location.lat.toFixed(6)}, ${location.location.lng.toFixed(6)}` : "Location not available")}</Text></View><TouchableOpacity accessibilityRole="button" accessibilityLabel="Refresh location" disabled={location.loading} onPress={() => void location.refresh()}><Ionicons name="refresh-outline" size={20} color={C.red} /></TouchableOpacity></View>
+      <View style={s.priceCard}><View><Text style={s.priceLabel}>Starting price</Text><Text style={s.priceValue}>{provider.startingPrice == null ? "Price on assessment" : `?${provider.startingPrice.toLocaleString("en-PH")}`}</Text></View><Ionicons name="pricetag-outline" size={21} color={C.red} /></View>
+
 
       {error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
 
     </>}
     <Modal visible={modal !== null} transparent animationType="fade" onRequestClose={() => { if (!saving) setModal(null); }}>
-      <View style={modal === "vehicle" ? [s.modalOverlay,{justifyContent:"center",alignItems:"center",padding:20,backgroundColor:"rgba(0,0,0,.68)"}] : ui.reviewOverlay}><SafeAreaView style={modal === "vehicle" ? [s.modalSheet,{width:"100%",maxWidth:480,maxHeight:"86%",flexShrink:1,borderRadius:22,borderWidth:1,borderColor:C.line}] : ui.reviewSheet} edges={["bottom"]}>
+      <KeyboardAvoidingView style={modal === "vehicle" ? [s.modalOverlay,{justifyContent:"center",alignItems:"center",padding:20,backgroundColor:"rgba(0,0,0,.68)"}] : ui.reviewOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}><SafeAreaView style={modal === "vehicle" ? [s.modalSheet,{width:"100%",maxWidth:480,maxHeight:"86%",flexShrink:1,borderRadius:22,borderWidth:1,borderColor:C.line}] : ui.reviewSheet} edges={["bottom"]}>
         <Text style={s.title}>{modal === "vehicle" ? "Select Vehicle" : "Confirm Service Request"}</Text>
         <ScrollView style={modal === "vehicle" ? {flexShrink:1} : ui.reviewScroll} contentContainerStyle={modal === "vehicle" ? { gap: 14 } : ui.reviewContent} keyboardShouldPersistTaps="handled">
           {modal === "vehicle" ? vehicles.map((item) => <Pressable key={item.vehicleId} style={[s.card, item.vehicleId === vehicleId && s.selected]}
@@ -155,7 +159,7 @@ function ShopBookingForm({ providerId, initialTimingMode }: { providerId?: strin
           </>}
         </ScrollView>
         <RequestButton title={modal === "vehicle" ? "Close" : "Back to Edit"} secondary disabled={saving} onPress={() => setModal(null)} />
-      </SafeAreaView></View>
+      </SafeAreaView></KeyboardAvoidingView>
     </Modal>
   </ShopBookingScreen>;
 }
@@ -168,6 +172,6 @@ function RequestLoadState({ loading, error, retry }: { loading: boolean; error: 
   if (!loading && !error) return null;
   return <View style={ui.loadCard}>{loading ? <ActivityIndicator color={C.red} /> : <><Text style={ui.loadError}>{error}</Text><RequestButton title="Try Again" onPress={retry} /></>}</View>;
 }
-const ui = StyleSheet.create({ button: { minHeight: 52, borderRadius: 10, backgroundColor: C.red, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }, buttonText: { color: "#F4F6F8", fontSize: 16, fontWeight: "800" }, secondaryButton: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line }, secondaryText: { color: C.text }, disabled: { opacity: 0.5 }, info: { gap: 4, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 }, infoLabel: { color: C.muted, fontSize: 13, fontWeight: "600" }, infoValue: { color: C.text, fontSize: 16, lineHeight: 22 }, loadCard: { minHeight: 64, backgroundColor: C.card, borderRadius: 12, padding: 14, gap: 10 }, loadError: { color: "#FF9AA8", fontSize: 14, lineHeight: 20 }, reviewContent: { gap: 10, paddingBottom: 2 }, reviewGroup: { gap: 7, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: 13 }, reviewGroupTitle: { color: C.muted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 }, reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,.55)", alignItems: "center", justifyContent: "center", padding: 16 }, reviewSheet: { width: "100%", maxHeight: "90%", flexShrink: 1, backgroundColor: C.background, borderRadius: 20, padding: 20, gap: 14 }, reviewScroll: { flexShrink: 1 } });
+const ui = StyleSheet.create({ sectionLabel: { marginTop: 12 }, button: { minHeight: 54, borderRadius: 10, backgroundColor: homeColors.primary, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }, buttonText: { color: homeColors.white, fontSize: 15, fontWeight: "700", lineHeight: 20}, secondaryButton: { backgroundColor: homeColors.surface, borderWidth: 1, borderColor: homeColors.border }, secondaryText: { color: homeColors.textPrimary }, disabled: { opacity: 0.5 }, info: { gap: 4, borderTopWidth: 0, borderTopColor: homeColors.border, paddingTop: 0 , paddingBottom: 0 , borderBottomWidth: 0 }, infoLabel: { color: homeColors.textSecondary, fontSize: 13, fontWeight: "500", lineHeight: 19}, infoValue: { color: homeColors.textPrimary, fontSize: 15, lineHeight: 22, fontWeight: "400"}, loadCard: { minHeight: 64, backgroundColor: homeColors.surface, borderRadius: 12, padding: 16, gap: 10 }, loadError: { color: homeColors.busy, fontSize: 13, lineHeight: 19 , fontWeight: "400", marginTop: 8, marginBottom: 8 }, reviewContent: { gap: 12, paddingBottom: 2 }, reviewGroup: { gap: 8, backgroundColor: homeColors.surface, borderWidth: 1, borderColor: homeColors.border, borderRadius: 12, padding: 16 }, reviewGroupTitle: { color: homeColors.primary, fontSize: 16, fontWeight: "700", textTransform: "none", letterSpacing: 0, lineHeight: 22}, reviewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,.55)", alignItems: "center", justifyContent: "center", padding: 16 }, reviewSheet: { width: "100%", maxWidth: 520, maxHeight: "90%", flexShrink: 1, backgroundColor: homeColors.background, borderRadius: 20, padding: 16, gap: 12 }, reviewScroll: { flexShrink: 1 } });
 
 

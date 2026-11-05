@@ -1,3 +1,4 @@
+import { StatusBar } from "react-native";
 import { useRouter } from "expo-router";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -5,11 +6,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function PrivacySecurityScreen() {
   const router = useRouter();
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)/profile")} accessibilityRole="button"><Text style={s.back}>‹ Back</Text></TouchableOpacity>
-        <Text style={s.title}>Privacy & Security</Text>
-      </View>
+    <SafeAreaView style={s.safe} edges={["left", "right", "bottom"]}>
+      <SafeAreaView style={[s.header, { backgroundColor: "#0F52BA", borderBottomWidth: 0, height: undefined, minHeight: 64, paddingHorizontal: 16, paddingVertical: 12 }]} edges={["top"]}><StatusBar barStyle="light-content" backgroundColor="#0F52BA" />
+        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)/profile")} accessibilityRole="button"><Text style={[s.back, { color: "#FFFFFF" }]}>‹ Back</Text></TouchableOpacity>
+        <Text style={[s.title, { color: "#FFFFFF", fontSize: 24, lineHeight: 30, fontWeight: "700", flexShrink: 1 }]}>Privacy & Security</Text>
+      </SafeAreaView>
       <View style={s.content}>
         <Text style={s.heading}>Keep your account secure</Text>
         <Text style={s.copy}>Use a strong, unique password and keep access to your account email. VeResc uses your account and booking information to provide app features.</Text>

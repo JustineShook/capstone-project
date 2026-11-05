@@ -135,6 +135,7 @@ export interface TowingBookingRequest extends BookingTimingFields {
   notes: string;
   startingPrice: string;
   finalPrice?: number;
+  completionNote?: string;
   completedAt?: string;
   status: TowingStatus;
   createdAt: string; // ISO timestamp

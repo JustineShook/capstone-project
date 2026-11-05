@@ -9,28 +9,85 @@ import { getProviderReviewSummary, type ProviderReviewSummary } from "./ratingSe
 const LISTINGS_COLLECTION = "providerListings";
 const DIRECTORY_COLLECTION = "publicProviderDirectory";
 const GUEST_RETRY_INTERVAL_MS = 60_000;
+const MAP_SUBSCRIPTION_FILTER_ENABLED = true;
+
+function mapSubscriptionExpiryMillis(listing: ProviderListing | undefined): number | undefined {
+  const value = listing?.mapSubscriptionExpiresAt;
+  if (!value || typeof value !== "object" || !("toMillis" in value)
+    || typeof value.toMillis !== "function") return undefined;
+  const milliseconds = value.toMillis();
+  return Number.isFinite(milliseconds) ? milliseconds : undefined;
+}
+
+function subscriptionAllowsMapDisplay(listing: ProviderListing, now = Date.now()): boolean {
+  if (!MAP_SUBSCRIPTION_FILTER_ENABLED) return true;
+  const expiry = mapSubscriptionExpiryMillis(listing);
+  return expiry !== undefined && expiry > now;
+}
+
+function createExpiryRevalidator(
+  getListings: () => Iterable<ProviderListing>,
+  publish: () => void,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const reschedule = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+    if (!MAP_SUBSCRIPTION_FILTER_ENABLED) return;
+    const now = Date.now();
+    const nextExpiry = [...getListings()]
+      .map((listing) => mapSubscriptionExpiryMillis(listing))
+      .filter((expiry): expiry is number => expiry !== undefined && expiry > now)
+      .sort((left, right) => left - right)[0];
+    if (nextExpiry === undefined) return;
+    // Browser/Node timers clamp delays above 2^31-1 ms. Revalidate in bounded
+    // intervals for yearly plans and calculate the remaining time each pass.
+    timer = setTimeout(() => {
+      publish();
+      reschedule();
+    }, Math.min(2_147_483_647, Math.max(1, nextExpiry - now)));
+  };
+  return {
+    reschedule,
+    stop: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
 
 /** Live shops; schedule discovery includes offline shops that opted in. */
 export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) => void, onError: (error: Error) => void, scheduled = false) {
   if (!auth.currentUser) return subscribeToGuestDirectory(callback, onError, scheduled, true);
 
   let generation = 0;
+  let currentListings: ProviderListing[] = [];
+  let currentProviders: MockProvider[] = [];
+  const publish = () => {
+    const eligibleIds = new Set(currentListings.filter((listing) => subscriptionAllowsMapDisplay(listing)).map((listing) => listing.providerId));
+    callback(currentProviders.filter((provider) => eligibleIds.has(provider.id)));
+  };
+  const expiryRevalidator = createExpiryRevalidator(() => currentListings, publish);
   const stop = onSnapshot(query(collection(db, LISTINGS_COLLECTION), where("visibility", "==", "active"),
     where("role", "==", "shop-owner"), ...(scheduled ? [where("acceptsScheduledBookings", "==", true)] : [where("availability", "==", "available")])), (snapshot) => {
     const currentGeneration = ++generation;
     const listings = snapshot.docs.map((item) => item.data()).filter(isActiveListing);
+    currentListings = listings;
+    expiryRevalidator.reschedule();
     if (listings.length === 0) {
-      callback([]);
+      currentProviders = [];
+      publish();
       return;
     }
 
     // Publish the newest listing fields immediately. Review totals are loaded
     // separately and can take longer than the public listing snapshot.
-    callback(listings.map((listing) => toMapProvider(listing, {
+    currentProviders = listings.map((listing) => toMapProvider(listing, {
       average: listing.ratingSummary.average,
       count: listing.ratingSummary.count,
       reviews: [],
-    }, undefined, "loading")));
+    }, undefined, "loading"));
+    publish();
 
     if (!auth.currentUser) return;
     void Promise.all(listings.map(async (listing) => {
@@ -48,11 +105,15 @@ export function subscribeToCustomerMapShops(callback: (shops: MockProvider[]) =>
     })).then((shops) => {
       // Review requests from an older listing snapshot must never restore its
       // stale business details over the latest listener result.
-      if (generation === currentGeneration) callback(shops);
+      if (generation === currentGeneration) {
+        currentProviders = shops;
+        publish();
+      }
     });
   }, onError);
   return () => {
     generation += 1;
+    expiryRevalidator.stop();
     stop();
   };
 }
@@ -62,6 +123,13 @@ export function subscribeToCustomerMapProviders(callback: (providers: MockProvid
   if (!auth.currentUser) return subscribeToGuestDirectory(callback, onError, scheduled, false);
 
   let generation = 0;
+  let currentListings: ProviderListing[] = [];
+  let currentProviders: MockProvider[] = [];
+  const publish = () => {
+    const eligibleIds = new Set(currentListings.filter((listing) => subscriptionAllowsMapDisplay(listing)).map((listing) => listing.providerId));
+    callback(currentProviders.filter((provider) => eligibleIds.has(provider.id)));
+  };
+  const expiryRevalidator = createExpiryRevalidator(() => currentListings, publish);
   const stop = onSnapshot(query(
     collection(db, LISTINGS_COLLECTION),
     where("visibility", "==", "active"),
@@ -74,16 +142,24 @@ export function subscribeToCustomerMapProviders(callback: (providers: MockProvid
       .filter((listing) => scheduled
         ? listing.acceptsScheduledBookings === true
         : listing.availability === "available");
-
+    currentListings = listings;
+    expiryRevalidator.reschedule();
     if (listings.length === 0) {
-      callback([]);
+      currentProviders = [];
+      publish();
       return;
     }
 
+    // Reuse already-loaded provider data immediately. This matters when a
+    // renewal snapshot makes a cached provider eligible again while review
+    // and contact enrichment for the new listing snapshot is still loading.
+    if (currentProviders.length > 0) publish();
+
     if (!auth.currentUser) {
-      callback(listings.map((listing) => toMapProvider(listing, {
+      currentProviders = listings.map((listing) => toMapProvider(listing, {
         average: listing.ratingSummary.average, count: listing.ratingSummary.count, reviews: [],
-      }, undefined, "hidden")));
+      }, undefined, "hidden"));
+      publish();
       return;
     }
     void Promise.all(listings.map(async (listing) => {
@@ -98,12 +174,16 @@ export function subscribeToCustomerMapProviders(callback: (providers: MockProvid
       const phone = await getProviderContactPhone(listing.providerId).catch(() => listing.contactPhone ?? "");
       return toMapProvider(listing, reviewSummary, phone, ratingStatus);
     })).then((providers) => {
-      if (generation === currentGeneration) callback(providers);
+      if (generation === currentGeneration) {
+        currentProviders = providers;
+        publish();
+      }
     });
   }, onError);
 
   return () => {
     generation += 1;
+    expiryRevalidator.stop();
     stop();
   };
 }
@@ -116,12 +196,19 @@ function subscribeToGuestDirectory(
   shopsOnly: boolean,
 ) {
   const providers = new Map<string, MockProvider>();
+  const listings = new Map<string, ProviderListing>();
   const listingStops = new Map<string, () => void>();
   const deniedIds = new Set<string>();
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let stopped = false;
 
-  const publish = () => callback([...providers.values()]);
+  const publish = () => callback([...providers.entries()]
+    .filter(([providerId]) => {
+      const listing = listings.get(providerId);
+      return !!listing && subscriptionAllowsMapDisplay(listing);
+    })
+    .map(([, provider]) => provider));
+  const expiryRevalidator = createExpiryRevalidator(() => listings.values(), publish);
   const clearRetryTimerIfIdle = () => {
     if (deniedIds.size === 0 && retryTimer !== undefined) {
       clearInterval(retryTimer);
@@ -135,6 +222,8 @@ function subscribeToGuestDirectory(
       clearRetryTimerIfIdle();
       if (!snapshot.exists()) {
         providers.delete(providerId);
+        listings.delete(providerId);
+        expiryRevalidator.reschedule();
         publish();
         return;
       }
@@ -146,17 +235,22 @@ function subscribeToGuestDirectory(
       const categoryEligible = !shopsOnly || listing.role === "shop-owner";
       if (listing.providerId !== providerId || !isActiveListing(listing) || !modeEligible || !categoryEligible) {
         providers.delete(providerId);
+        listings.delete(providerId);
       } else {
+        listings.set(providerId, listing);
         providers.set(providerId, toMapProvider(listing, {
           average: listing.ratingSummary.average,
           count: listing.ratingSummary.count,
           reviews: [],
         }, undefined, "hidden"));
       }
+      expiryRevalidator.reschedule();
       publish();
     }, (error) => {
       listingStops.delete(providerId);
       providers.delete(providerId);
+      listings.delete(providerId);
+      expiryRevalidator.reschedule();
       publish();
       if (isPermissionDenied(error)) {
         deniedIds.add(providerId);
@@ -188,12 +282,14 @@ function subscribeToGuestDirectory(
         stopListing();
         listingStops.delete(providerId);
         providers.delete(providerId);
+        listings.delete(providerId);
       }
     }
     for (const providerId of [...deniedIds]) {
       if (!providerIds.has(providerId)) deniedIds.delete(providerId);
     }
     clearRetryTimerIfIdle();
+    expiryRevalidator.reschedule();
     for (const providerId of providerIds) startListingListener(providerId);
     publish();
   }, onError);
@@ -204,6 +300,8 @@ function subscribeToGuestDirectory(
     for (const stopListing of listingStops.values()) stopListing();
     listingStops.clear();
     deniedIds.clear();
+    listings.clear();
+    expiryRevalidator.stop();
     if (retryTimer !== undefined) clearInterval(retryTimer);
   };
 }

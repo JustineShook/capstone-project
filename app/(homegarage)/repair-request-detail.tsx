@@ -1,5 +1,5 @@
 import { HomeGarageBookingDetail } from "../../components/owner/HomeGarageBookingDetail";
 
 export default function HomeGarageRepairRequestDetailScreen() {
-  return <HomeGarageBookingDetail providerMode />;
+  return <HomeGarageBookingDetail providerMode providerAppearance="mechanic" />;
 }

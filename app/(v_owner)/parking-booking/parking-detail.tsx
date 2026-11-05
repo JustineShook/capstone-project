@@ -36,12 +36,12 @@ export default function ParkingDetail() {
     await run();
   };
 
-  if (!booking) return <SafeAreaView style={s.loading}><StatusBar barStyle="light-content" backgroundColor="#151C23" /><Text style={s.body}>Loading parking session...</Text></SafeAreaView>;
+  if (!booking) return <SafeAreaView style={s.loading}><StatusBar barStyle={"light-content"} backgroundColor={"#0F52BA"} /><Text style={s.body}>Loading parking session...</Text></SafeAreaView>;
   const label = booking.status === "reserved" ? "Parking Reserved" : booking.status === "active" ? "Parking Active" : "Parking Completed";
 
-  return <SafeAreaView style={s.safe}>
-    <StatusBar barStyle="light-content" backgroundColor="#151C23" />
-    <View style={s.header}><Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}><Ionicons name="chevron-back" size={25} color="#F4F6F8" /></Pressable><Text style={s.headerTitle}>Parking Booking</Text><View style={{ width: 25 }} /></View>
+  return <SafeAreaView style={s.safe} edges={["left", "right", "bottom"]}>
+    <StatusBar barStyle={"light-content"} backgroundColor={"#0F52BA"} />
+    <SafeAreaView style={[s.header, { backgroundColor: "#0F52BA", borderBottomWidth: 0, height: undefined, minHeight: 64, paddingHorizontal: 16, paddingVertical: 12 }]} edges={["top"]}><Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.canGoBack() ? router.back() : router.replace("/(v_owner)")}><Ionicons name="chevron-back" size={25} color={"#FFFFFF"} /></Pressable><Text style={[s.headerTitle, { color: "#FFFFFF", fontSize: 24, lineHeight: 30, fontWeight: "700", flexShrink: 1 }]}>Parking Booking</Text><View style={{ width: 25 }} /></SafeAreaView>
     <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
       <View style={s.card}>
         <View style={s.headingRow}><View style={s.icon}><Text style={s.iconText}>P</Text></View><View style={{ flex: 1 }}><Text style={s.title}>{label}</Text><Text style={s.name}>{booking.providerName}</Text></View></View>

@@ -1,18 +1,21 @@
+import { homeColors } from "../../constants/owner/homeTheme";
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../../constants/owner/theme";
 
 type ServiceProgressStep = { key: string; label: string };
 
-export function ServiceProgress({
+export function ServiceProgress({ homeAppearance = false,
   steps,
   currentStep,
   terminalLabel,
-}: {
+}: { homeAppearance?: boolean;
   steps: ServiceProgressStep[];
   currentStep: number;
   terminalLabel?: string;
 }) {
+  const colors = homeAppearance ? homeColors : defaultColors;
+  const styles = homeAppearance ? lightStyles : defaultStyles;
   const isComplete = currentStep >= steps.length - 1;
 
   return (
@@ -20,7 +23,7 @@ export function ServiceProgress({
       <Text style={styles.title}>Service progress</Text>
       {terminalLabel ? (
         <View style={styles.terminalStatus}>
-          <Ionicons name="close-circle" size={19} color={colors.primary} />
+          <Ionicons name="close-circle" size={19} color={homeAppearance ? homeColors.busy : colors.primary} />
           <Text style={styles.terminalText}>{terminalLabel}</Text>
         </View>
       ) : (
@@ -36,7 +39,7 @@ export function ServiceProgress({
                 {index < steps.length - 1 && (
                   <View style={[styles.connector, index < currentStep && styles.connectorDone]} />
                 )}
-                <Text style={[styles.stepLabel, current && styles.stepLabelCurrent]} numberOfLines={2}>
+                <Text style={[styles.stepLabel, current && styles.stepLabelCurrent]} numberOfLines={homeAppearance ? undefined : 2}>
                   {step.label}
                 </Text>
               </View>
@@ -48,7 +51,8 @@ export function ServiceProgress({
   );
 }
 
-const styles = StyleSheet.create({
+const defaultColors = colors;
+const makeStyles = (colors: typeof defaultColors) => StyleSheet.create({
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 15, padding: 14, gap: 13 },
   title: { color: colors.textPrimary, fontSize: 16, fontWeight: "800" },
   row: { flexDirection: "row", justifyContent: "space-between" },
@@ -63,3 +67,19 @@ const styles = StyleSheet.create({
   terminalStatus: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, backgroundColor: "#1C252E" },
   terminalText: { color: colors.textPrimary, fontSize: 13, fontWeight: "700" },
 });
+const defaultStyles = makeStyles(defaultColors);
+const lightStyles = { ...makeStyles(homeColors), ...StyleSheet.create({
+  card: { shadowColor: "#172B4D", shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 2, backgroundColor: homeColors.surface, borderWidth: 1, borderColor: homeColors.border, borderRadius: 20, padding: 14, gap: 13 },
+  title: { color: homeColors.textPrimary, fontSize: 16, fontWeight: "700", lineHeight: 22},
+  row: { flexDirection: "column", gap: 12 },
+  step: { flexDirection: "row", alignItems: "flex-start", position: "relative", gap: 10 },
+  dot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: homeColors.textSecondary, backgroundColor: homeColors.surfaceAlt, alignItems: "center", justifyContent: "center", zIndex: 1 },
+  dotDone: { backgroundColor: homeColors.primary, borderColor: homeColors.primary },
+  dotCurrent: { backgroundColor: homeColors.surfaceAlt, borderColor: homeColors.primary },
+  connector: { position: "absolute", width: 2, backgroundColor: homeColors.border, left: 10, top: 22, bottom: -12 },
+  connectorDone: { backgroundColor: homeColors.primary },
+  stepLabel: { color: homeColors.textMuted, fontSize: 13, lineHeight: 19, textAlign: "left", flex: 1, minWidth: 0, fontWeight: "400"},
+  stepLabelCurrent: { color: homeColors.primary, fontWeight: "800" },
+  terminalStatus: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, backgroundColor: homeColors.surfaceAlt },
+  terminalText: { color: homeColors.textPrimary, fontSize: 13, fontWeight: "700", lineHeight: 19},
+}) };

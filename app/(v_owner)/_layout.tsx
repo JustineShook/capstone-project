@@ -2,20 +2,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, Redirect, Tabs, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { subscribeToCustomerNotifications } from "../../services/customerNotificationService";
 import { useAuth } from "../../hooks/useAuth";
 
 const colors = {
-  primary: "#F52239",
-  inactive: "#7E8B97",
-  background: "#0C1015",
-  border: "#28313A",
+  primary: "#FFFFFF",
+  inactive: "#D6E4FA",
+  background: "#FFFFFF",
+  border: "#D5DEE9",
 };
 
 export default function VOwnerLayout() {
   const { user, loading } = useAuth();
   const segments = useSegments();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const guest = !user;
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
 
@@ -29,18 +32,33 @@ export default function VOwnerLayout() {
   if (guest && ownerScreen) return <Redirect href="/(v_owner)" />;
 
   return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
     <Tabs
+      initialRouteName="index"
+      backBehavior="history"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.inactive,
         tabBarStyle: {
-          backgroundColor: colors.background,
-          borderTopColor: colors.border,
+          backgroundColor: "#0F52BA",
+          borderTopColor: "#0F52BA",
           borderTopWidth: 1,
-          height: Platform.OS === "ios" ? 88 : 64,
-          paddingTop: 6,
-          paddingBottom: Platform.OS === "ios" ? 28 : 8,
+          borderColor: "#0F52BA",
+          borderWidth: 1,
+          borderRadius: 22,
+          marginLeft: Math.max(insets.left, width < 360 ? 8 : 16),
+          marginRight: Math.max(insets.right, width < 360 ? 8 : 16),
+          marginTop: 8,
+          marginBottom: Math.max(insets.bottom, 12),
+          height: 70,
+          paddingTop: 8,
+          paddingBottom: 8,
+          shadowColor: "#172B4D",
+          shadowOpacity: 0.1,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 3 },
+          elevation: 4,
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -140,7 +158,7 @@ export default function VOwnerLayout() {
           tabBarBadge: unreadNotificationCount > 0
             ? unreadNotificationCount > 99 ? "99+" : unreadNotificationCount
             : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.primary, color: "#FFFFFF" },
+          tabBarBadgeStyle: { backgroundColor: "#FFFFFF", color: "#0F52BA" },
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? "notifications" : "notifications-outline"}
@@ -166,5 +184,6 @@ export default function VOwnerLayout() {
         }}
       />
     </Tabs>
+    </View>
   );
 }

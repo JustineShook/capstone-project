@@ -17,8 +17,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { colors } from "../../../constants/owner/theme";
+import { homeColors as colors } from "../../../constants/owner/homeTheme";
 import { CancelRequestModal } from "../../../components/owner/CancelRequestModal";
+import { ReportProblemAction } from "../../../components/owner/ReportProblemModal";
 import { ServiceProgress } from "../../../components/owner/ServiceProgress";
 import { BookingTimingBanner } from "../../../components/owner/BookingTimingBanner";
 import { formatPesoAmount } from "../../../utils/finalPrice";
@@ -190,16 +191,16 @@ export default function TowingBookingDetailScreen() {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
-      <SafeAreaView style={styles.header} edges={["top"]}>
-        <View style={styles.headerRow}>
+      <StatusBar barStyle={"light-content"} backgroundColor={"#0F52BA"} />
+      <SafeAreaView style={[styles.header, { backgroundColor: "#0F52BA", borderBottomWidth: 0, height: undefined, minHeight: 64, paddingHorizontal: 0, paddingVertical: 0 }]} edges={["top"]}>
+        <View style={[styles.headerRow, { minHeight: 64, paddingHorizontal: 16, paddingVertical: 12, height: undefined }]}>
           <Pressable
             onPress={returnToHistory}
             hitSlop={10}
           >
-            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+            <Ionicons name="chevron-back" size={24} color={"#FFFFFF"} />
           </Pressable>
-          <Text style={styles.headerTitle}>Request Status</Text>
+          <Text style={[styles.headerTitle, { color: "#FFFFFF", fontSize: 24, lineHeight: 30, fontWeight: "700", flexShrink: 1 }]}>Request Status</Text>
           <View style={{ width: 24 }} />
         </View>
       </SafeAreaView>
@@ -216,19 +217,19 @@ export default function TowingBookingDetailScreen() {
         <>
           {/* Fixed section — does not scroll: provider card (with Call /
               Message) and the status progress bar. */}
-          <View style={styles.fixedTop}>
-            {provider && (
+          <View style={styles.contentSurfaceHost}><View style={styles.fixedTop}>
+            {provider && !["completed", "cancelled"].includes(booking.status) && (
               <View style={styles.providerCard}>
                 <View style={[styles.avatar, { backgroundColor: provider.color }]}>
                   <Text style={styles.avatarText}>{provider.initials}</Text>
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.providerName}>{provider.name}</Text>
-                  <Text style={styles.problemText} numberOfLines={1} ellipsizeMode="tail">
+                  <Text style={styles.problemText}  ellipsizeMode="tail">
                     {booking.pickupLocation} → {booking.destination}
                   </Text>
                 </View>
-                <View style={styles.providerActionsRow}>
+                {!["completed", "cancelled"].includes(booking.status) && <View style={styles.providerActionsRow}>
                   <Pressable
                     style={styles.actionButton}
                     onPress={handleCallProvider}
@@ -243,16 +244,16 @@ export default function TowingBookingDetailScreen() {
                   >
                     <Ionicons name="chatbubble" size={16} color={colors.white} />
                   </Pressable>
-                </View>
+                </View>}
               </View>
             )}
 
-            <BookingTimingBanner booking={booking} />
-            <ServiceProgress
+            <BookingTimingBanner homeAppearance booking={booking} />
+            {!["completed", "cancelled"].includes(booking.status) && <ServiceProgress homeAppearance
               steps={TOWING_STATUS_FLOW.map((status) => ({ key: status, label: getTowingStatusShortLabel(status) }))}
               currentStep={currentStepIndex}
               terminalLabel={isTerminalStatus ? getTowingStatusLabel(booking.status) : undefined}
-            />
+            />}
             {booking.declineReason ? <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Reason from towing company: {booking.declineReason}</Text> : null}
             {booking.cancellationReason ? <Text style={{ color: colors.textSecondary, marginTop: 10 }}>Your cancellation reason: {booking.cancellationReason}</Text> : null}
             {canCustomerCancel && (
@@ -271,7 +272,7 @@ export default function TowingBookingDetailScreen() {
 
           {/* Scrollable section — rating card + Provider/Vehicle/Towing/
               Booking detail cards. */}
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.contentSurface} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {/* Rating — only once the booking is completed. Three states:
                 1. Already rated -> "Thank you for your feedback!" + read-only stars/comment
                 2. Just submitted -> transient "Thank you!" confirmation (then auto-navigates away)
@@ -366,13 +367,13 @@ export default function TowingBookingDetailScreen() {
                 <Text style={styles.detailCardTitle}>Provider Details</Text>
 
                 <View style={styles.detailRow}>
-                  <Ionicons name="business-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="business-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Provider</Text>
                   <Text style={styles.detailValue}>{provider.name}</Text>
                 </View>
 
                 <View style={styles.detailRow}>
-                  <Ionicons name="star-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="star-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Rating</Text>
                   <Text style={styles.detailValue}>
                     {provider.rating.toFixed(1)} ({provider.reviewCount})
@@ -380,7 +381,7 @@ export default function TowingBookingDetailScreen() {
                 </View>
 
                 <View style={styles.detailRow}>
-                  <Ionicons name="navigate-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="navigate-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Distance</Text>
                   <Text style={styles.detailValue}>{provider.distanceKm.toFixed(1)} km</Text>
                 </View>
@@ -398,19 +399,19 @@ export default function TowingBookingDetailScreen() {
                 <Text style={styles.detailCardTitle}>Vehicle Details</Text>
 
                 <View style={styles.detailRow}>
-                  <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="calendar-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Year</Text>
                   <Text style={styles.detailValue}>{vehicle.year}</Text>
                 </View>
 
                 <View style={styles.detailRow}>
-                  <Ionicons name="pricetag-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="pricetag-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Make</Text>
                   <Text style={styles.detailValue}>{vehicle.make}</Text>
                 </View>
 
                 <View style={styles.detailRow}>
-                  <Ionicons name="car-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="car-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Model</Text>
                   <Text style={styles.detailValue}>{vehicle.model}</Text>
                 </View>
@@ -427,39 +428,39 @@ export default function TowingBookingDetailScreen() {
               <Text style={styles.detailCardTitle}>Towing Request</Text>
 
               <View style={styles.detailRow}>
-                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="location-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Pickup</Text>
                 <Text style={styles.detailValue} numberOfLines={2} ellipsizeMode="tail">{booking.pickupLocation}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Ionicons name="flag-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="flag-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Destination</Text>
                 <Text style={styles.detailValue} numberOfLines={2} ellipsizeMode="tail">{booking.destination}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Ionicons name="car-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="car-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Towing Type</Text>
                 <Text style={styles.detailValue}>{booking.towingType}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="alert-circle-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Condition</Text>
                 <Text style={styles.detailValue}>{booking.vehicleCondition}</Text>
               </View>
 
               {booking.notes ? (
                 <View style={styles.detailRow}>
-                  <Ionicons name="document-text-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="document-text-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Notes</Text>
                   <Text style={styles.detailValue}>{booking.notes}</Text>
                 </View>
               ) : null}
 
               <View style={styles.detailRow}>
-                <Ionicons name="cash-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="cash-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Estimated Price</Text>
                 <Text style={styles.detailValue}>₱{(booking.estimatedTotalPrice ?? booking.estimatedPrice ?? 0).toLocaleString("en-PH")}</Text>
               </View>
@@ -467,20 +468,21 @@ export default function TowingBookingDetailScreen() {
                 <Ionicons name="cash-outline" size={16} color={colors.textSecondary} />
                 <Text style={styles.detailLabel}>Final Price</Text>
                 <Text style={styles.detailValue}>{typeof booking.finalPrice === "number" ? formatPesoAmount(booking.finalPrice) : "Final price not recorded"}</Text>
+                {booking.completionNote?.trim() ? <Text style={styles.detailValue}>Service Completion Notes: {booking.completionNote}</Text> : null}
               </View>}
               {typeof booking.basePrice === "number" && <>
                 <View style={styles.detailRow}>
-                  <Ionicons name="pricetag-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="pricetag-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Base Fee</Text>
                   <Text style={styles.detailValue}>₱{booking.basePrice.toLocaleString("en-PH")}</Text>
                 </View>
                 <View style={styles.detailRow}>
-                  <Ionicons name="speedometer-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="speedometer-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Rate</Text>
                   <Text style={styles.detailValue}>₱{booking.pricePerKm.toLocaleString("en-PH")}/km</Text>
                 </View>
                 <View style={styles.detailRow}>
-                  <Ionicons name="calculator-outline" size={16} color={colors.textSecondary} />
+                  <Ionicons name="calculator-outline" size={16} color={colors.primary} />
                   <Text style={styles.detailLabel}>Distance Charge</Text>
                   <Text style={styles.detailValue}>₱{booking.distanceCharge.toLocaleString("en-PH")}</Text>
                 </View>
@@ -496,13 +498,13 @@ export default function TowingBookingDetailScreen() {
               <Text style={styles.detailCardTitle}>Booking Information</Text>
 
               <View style={styles.detailRow}>
-                <Ionicons name="receipt-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="receipt-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Booking ID</Text>
                 <Text style={styles.detailValue}>{booking.id}</Text>
               </View>
 
               <View style={styles.detailRow}>
-                <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+                <Ionicons name="time-outline" size={16} color={colors.primary} />
                 <Text style={styles.detailLabel}>Requested</Text>
                 <Text style={styles.detailValue}>{formatRequestDateTime(booking.createdAt)}</Text>
               </View>
@@ -513,10 +515,10 @@ export default function TowingBookingDetailScreen() {
                 <Text style={styles.detailValue}>{getTowingStatusLabel(booking.status)}</Text>
               </View>
             </View>
-          </ScrollView>
+          </ScrollView></View>
         </>
       )}
-      <CancelRequestModal
+      <CancelRequestModal homeAppearance
         visible={showCancelConfirmation}
         serviceName="Towing"
         explanation="You can cancel while the tow truck has not started traveling to your pickup location."
@@ -526,6 +528,7 @@ export default function TowingBookingDetailScreen() {
         reason={cancelReason}
         onReasonChange={setCancelReason}
       />
+      {booking && <ReportProblemAction homeAppearance booking={booking} />}
     </View>
   );
 }
@@ -537,38 +540,41 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
   },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: colors.textPrimary },
+  headerTitle: { fontSize: 24, fontWeight: "700", color: colors.textPrimary, lineHeight: 30, minWidth: 0, flexShrink: 1},
   loadingRoot: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  notFoundText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: "center" },
+  notFoundText: { fontSize: 15, lineHeight: 22, color: colors.textSecondary, textAlign: "center", fontWeight: "400"},
 
   // Fixed (non-scrolling) section: provider card + status.
+  contentSurfaceHost: { flex: 1, backgroundColor: "#0F52BA" },
+  contentSurface: { flex: 1, backgroundColor: "#FFFFFF", borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   fixedTop: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingTop: 14,
     backgroundColor: colors.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     paddingBottom: 16,
   },
 
   content: { padding: 16, paddingBottom: 24 },
 
-  providerCard: {
+  providerCard: { shadowColor: "#172B4D", shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 2,
     minHeight: 92,
     flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: colors.surface, borderRadius: 17, borderWidth: 1,
-    borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 14,
+    backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1,
+    borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 16, marginBottom: 16,
   },
-  avatar: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
+  avatar: { width: 56, height: 56, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
   avatarText: { color: "#FFFFFF", fontWeight: "800", fontSize: 17 },
-  providerName: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: colors.textPrimary },
-  problemText: { fontSize: 14, lineHeight: 20, color: colors.textSecondary, marginTop: 3 },
+  providerName: { fontSize: 18, lineHeight: 25, fontWeight: "700", color: colors.textPrimary , minWidth: 0, flexShrink: 1},
+  problemText: { fontSize: 15, lineHeight: 22, color: colors.textSecondary, marginTop: 3, fontWeight: "400"},
   providerActionsRow: {
     flexDirection: "row",
-    gap: 8,
-  },
+    gap: 8, flexWrap: "wrap", maxWidth: 92},
   actionButton: {
     width: 42,
     height: 42,
-    borderRadius: 14,
+    borderRadius: 20,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -584,17 +590,17 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   cancelRequestButtonDisabled: { opacity: 0.65 },
-  cancelRequestButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  cancelRequestButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700", lineHeight: 20},
 
   // --- Rating ---
   ratingCard: {
     backgroundColor: colors.surfaceAlt,
-    borderRadius: 14,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 16,
     alignItems: "center",
   },
-  ratingCardTitle: { fontSize: 14.5, fontWeight: "500", color: colors.textPrimary },
+  ratingCardTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary, lineHeight: 22},
   ratingCardSubtitle: {
     fontSize: 12.5,
     lineHeight: 18,
@@ -617,12 +623,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: 12,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     color: colors.textPrimary,
     textAlignVertical: "top",
-    marginBottom: 14,
-  },
+    marginBottom: 14, fontWeight: "400"},
   submitButton: {
     width: "100%",
     backgroundColor: colors.primary,
@@ -637,37 +642,34 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: colors.white,
     fontSize: 15,
-    fontWeight: "700",
-  },
+    fontWeight: "700", lineHeight: 20},
   submittedCommentText: {
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 22,
     color: colors.textSecondary,
     fontStyle: "italic",
     textAlign: "center",
-    marginTop: 4,
-  },
+    marginTop: 4, fontWeight: "400"},
 
-  detailCard: {
+  detailCard: { shadowColor: "#172B4D", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1,
     backgroundColor: colors.surfaceAlt,
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 20,
+    padding: 16,
     marginBottom: 16,
   },
   detailCardTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.primary,
     marginBottom: 10,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
+    letterSpacing: 0.4, lineHeight: 22},
   detailRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
+    paddingVertical: 10,
+    borderBottomWidth: 0,
     borderBottomColor: colors.border,
   },
   detailRowLast: {
@@ -675,15 +677,13 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   detailLabel: {
-    fontSize: 12.5,
+    fontSize: 13,
     color: colors.textSecondary,
-    width: 90,
-  },
+    width: "32%", flexShrink: 1, lineHeight: 19, fontWeight: "500"},
   detailValue: {
     flex: 1,
-    fontSize: 12.5,
-    fontWeight: "500",
+    fontSize: 15,
+    fontWeight: "600",
     color: colors.textPrimary,
-    textAlign: "right",
-  },
+    textAlign: "right", lineHeight: 22, minWidth: 0, flexShrink: 1},
 });
