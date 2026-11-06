@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { createBooking, getActiveMechanicBooking } from "../../../services/owner/bookingService";
+import { getBookingLocation } from "../../../utils/owner/getBookingLocation";
 import { BookingTimingActions, timingActionStyles } from "../../../components/owner/BookingTimingActions";
 import type { BookingTimingInput } from "../../../types/bookingTiming";
 import { formatBookingTimingLabel, isBookingTimingReady } from "../../../utils/bookingTiming";
@@ -157,7 +158,7 @@ export default function BookMechanicScreen() {
     if (permission.status !== "granted") {
       throw new Error("Location permission is required to send an onsite request.");
     }
-    const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    const currentLocation = await getBookingLocation();
     const booking = await createBooking({
       providerId: provider.id,
       providerName: provider.name,

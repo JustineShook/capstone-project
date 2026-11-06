@@ -6,7 +6,7 @@ import {
   ActivityIndicator, Alert, BackHandler, Linking, Pressable, ScrollView, StatusBar,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CancelRequestModal } from "./CancelRequestModal";
 import { ReportProblemAction } from "./ReportProblemModal";
 import { FinalPriceCompletionModal } from "../provider/FinalPriceCompletionModal";
@@ -52,6 +52,7 @@ export function HomeGarageBookingDetail({ providerMode = false, providerAppearan
   const colors = homeAppearance ? homeColors : defaultColors;
   const s = mechanicProviderAppearance ? mechanicProviderStyles : homeAppearance ? lightStyles : defaultStyles;
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { bookingId } = useLocalSearchParams<{ bookingId?: string | string[] }>();
   const id = Array.isArray(bookingId) ? bookingId[0] : bookingId;
   const [booking, setBooking] = useState<HomeGarageBooking | null>(null);
@@ -235,7 +236,7 @@ export function HomeGarageBookingDetail({ providerMode = false, providerAppearan
       </SafeAreaView>
 
       <View style={s.fixedTop}>
-        {(providerMode || !["completed", "cancelled"].includes(booking.status)) && <View style={s.providerCard}>
+        {(providerMode || !["completed", "cancelled"].includes(booking.status)) && <View style={[s.providerCard, !providerMode && customerContactStyles.card]}>
           <View style={[s.avatar, providerMode && s.customerAvatar]}>
             <Ionicons name={providerMode ? "person" : "home"} size={25} color={colors.white} />
           </View>
@@ -243,9 +244,9 @@ export function HomeGarageBookingDetail({ providerMode = false, providerAppearan
             <Text style={s.providerName} numberOfLines={homeAppearance ? undefined : 1}>{providerMode ? booking.customerName || "Customer" : booking.providerName}</Text>
             <Text style={s.problemText} numberOfLines={homeAppearance ? undefined : 1} ellipsizeMode="tail">{providerMode ? vehicleSummary : booking.problem}</Text>
           </View>
-          {(providerMode ? !isHistoryStatus : !["completed", "cancelled"].includes(booking.status)) ? <View style={s.providerActionsRow}>
-            <Pressable style={s.actionButton} onPress={() => void (providerMode ? contactCustomer("tel") : contactProvider("tel"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Call customer" : "Call Home Garage"}><Ionicons name="call" size={16} color={colors.white} /></Pressable>
-            <Pressable style={s.actionButton} onPress={() => void (providerMode ? contactCustomer("sms") : contactProvider("sms"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Message customer" : "Message Home Garage"}><Ionicons name="chatbubble" size={16} color={colors.white} /></Pressable>
+          {(providerMode ? !isHistoryStatus : !["completed", "cancelled"].includes(booking.status)) ? <View style={[s.providerActionsRow, !providerMode && customerContactStyles.actions]}>
+            <Pressable style={[s.actionButton, !providerMode && customerContactStyles.button]} onPress={() => void (providerMode ? contactCustomer("tel") : contactProvider("tel"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Call customer" : "Call Home Garage"}><Ionicons name={providerMode ? "call" : "call-outline"} size={providerMode ? 16 : 18} color={providerMode ? colors.white : colors.primary} /></Pressable>
+            <Pressable style={[s.actionButton, !providerMode && customerContactStyles.button]} onPress={() => void (providerMode ? contactCustomer("sms") : contactProvider("sms"))} hitSlop={6} accessibilityRole="button" accessibilityLabel={providerMode ? "Message customer" : "Message Home Garage"}><Ionicons name={providerMode ? "chatbubble" : "chatbubble-outline"} size={providerMode ? 16 : 18} color={providerMode ? colors.white : colors.primary} /></Pressable>
           </View> : null}
         </View>}
         {booking.status === "in_progress"
@@ -296,14 +297,7 @@ export function HomeGarageBookingDetail({ providerMode = false, providerAppearan
             {booking.status === "completed" ? <DetailRow providerAppearance={mechanicProviderAppearance} homeAppearance={homeAppearance} icon="checkmark-circle-outline" label={booking.completedAt ? "Completed" : "Last updated"} value={formatDateTime(booking.completedAt || booking.updatedAt || booking.createdAt)} /> : isTerminalStatus ? <DetailRow providerAppearance={mechanicProviderAppearance} homeAppearance={homeAppearance} icon="time-outline" label="Last updated" value={formatDateTime(booking.updatedAt || booking.createdAt)} /> : null}
             <DetailRow providerAppearance={mechanicProviderAppearance} homeAppearance={homeAppearance} icon="ellipse-outline" label="Status" value={LABELS[booking.status]} last />
           </View>
-          {booking.status === "pending" && <View style={s.providerActions}>
-            <Pressable style={[s.providerSecondaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => setDeclineVisible(true)}><Text style={s.providerSecondaryText}>Decline</Text></Pressable>
-            <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void update("accepted")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Accept Request"}</Text></Pressable>
-          </View>}
-          {booking.status === "accepted" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void startRepair()}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Mark Vehicle Arrived"}</Text></Pressable>}
-          {booking.status === "vehicle_arrived" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void progressRepair("diagnosing")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Start Diagnosing"}</Text></Pressable>}
-          {booking.status === "diagnosing" && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void progressRepair("repairing")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Start Repairing"}</Text></Pressable>}
-          {(booking.status === "repairing" || booking.status === "in_progress") && <Pressable style={[s.providerPrimaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => setCompletionFormVisible(true)}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Complete Service"}</Text></Pressable>}
+
         </> : <>
           {booking.status === "completed" && <CustomerRating homeAppearance={homeAppearance} bookingId={booking.id} bookingType="homegarage" providerName={booking.providerName} variant="towing" />}
           <View style={s.detailCard}>
@@ -344,10 +338,21 @@ export function HomeGarageBookingDetail({ providerMode = false, providerAppearan
         </>}
       </ScrollView>
 
+      {providerMode && !isHistoryStatus && <View style={[s.providerFooter, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {booking.status === "pending" && <View style={s.providerActions}>
+            <Pressable style={[s.providerSecondaryButton, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => setDeclineVisible(true)}><Text style={s.providerSecondaryText}>Decline</Text></Pressable>
+            <Pressable style={[s.providerPrimaryButton, { marginBottom: 0 }, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void update("accepted")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Accept Request"}</Text></Pressable>
+          </View>}
+          {booking.status === "accepted" && <Pressable style={[s.providerPrimaryButton, { marginBottom: 0 }, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void startRepair()}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Mark Vehicle Arrived"}</Text></Pressable>}
+          {booking.status === "vehicle_arrived" && <Pressable style={[s.providerPrimaryButton, { marginBottom: 0 }, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void progressRepair("diagnosing")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Start Diagnosing"}</Text></Pressable>}
+          {booking.status === "diagnosing" && <Pressable style={[s.providerPrimaryButton, { marginBottom: 0 }, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => void progressRepair("repairing")}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Start Repairing"}</Text></Pressable>}
+          {(booking.status === "repairing" || booking.status === "in_progress") && <Pressable style={[s.providerPrimaryButton, { marginBottom: 0 }, busy && s.cancelRequestButtonDisabled]} disabled={busy} onPress={() => setCompletionFormVisible(true)}><Text style={s.cancelRequestButtonText}>{busy ? "Saving…" : "Complete Service"}</Text></Pressable>}
+      </View>}
+
       {!providerMode && <CancelRequestModal homeAppearance={homeAppearance} visible={showCancelConfirmation} serviceName="Home Garage repair" explanation="You can cancel before the provider marks Vehicle Arrived. After that, contact the provider to request cancellation." isCancelling={busy} reason={cancelReason} onReasonChange={setCancelReason} onKeep={() => setShowCancelConfirmation(false)} onConfirm={() => void update("cancelled", cancelReason)} />}
       {providerMode && <DeclineRequestModal appearance={mechanicProviderAppearance ? "light" : "default"} visible={declineVisible} reason={declineReason} saving={busy} onReasonChange={setDeclineReason} onCancel={() => setDeclineVisible(false)} onConfirm={() => void update("rejected", declineReason)} />}
       {providerMode && <FinalPriceCompletionModal appearance={mechanicProviderAppearance ? "mechanic" : "default"} visible={completionFormVisible} estimatedPrice={booking.assessmentPrice} referencePriceLabel="Assessed Price" saving={busy} onCancel={() => setCompletionFormVisible(false)} onReview={finishRepair} />}
-      <ReportProblemAction homeAppearance={homeAppearance} booking={booking} />
+      <View style={!providerMode ? { backgroundColor: homeColors.surface } : undefined}><ReportProblemAction homeAppearance={homeAppearance} booking={booking} /></View>
       <OpenGoogleMapsModal homeAppearance={homeAppearance} visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.garageLatitude},${booking.garageLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />
     </View>
   );
@@ -387,6 +392,7 @@ const makeStyles = (colors: typeof defaultColors) => StyleSheet.create({
   retryButton: { backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 20 },
   retryText: { color: colors.white, fontSize: 14, fontWeight: "700" },
   fixedTop: { paddingHorizontal: 18, paddingTop: 14, backgroundColor: colors.background, paddingBottom: 16 },
+  providerFooter: { paddingHorizontal: 16, paddingTop: 12, borderTopWidth: 1 },
   providerCard: { minHeight: 92, flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surface, borderRadius: 17, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 14 },
   avatar: { width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
   customerAvatar: { backgroundColor: "#293A48" },
@@ -477,3 +483,9 @@ const mechanicProviderStyles = { ...lightStyles, ...StyleSheet.create({
   providerSecondaryText: { color: homeColors.textPrimary, fontSize: 14, lineHeight: 20, fontWeight: "700" },
   error: { fontSize: 13, lineHeight: 19, color: homeColors.busy, marginTop: 8 },
 }) };
+
+const customerContactStyles = StyleSheet.create({
+  actions: { flexDirection: "row", gap: 8, flexWrap: "nowrap", maxWidth: 116, flexShrink: 0 },
+  card: { minHeight: 72, gap: 10, backgroundColor: homeColors.surfaceAlt, borderRadius: 14, borderWidth: 0, paddingHorizontal: 12, paddingVertical: 10, shadowOpacity: 0, elevation: 0 },
+  button: { width: 54, height: 54, borderRadius: 14, borderWidth: 1.5, borderColor: homeColors.primary, backgroundColor: homeColors.surface },
+});

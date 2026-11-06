@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useShopDashboard } from "../../hooks/useShopDashboard";
 import { BookingTimingBanner } from "../owner/BookingTimingBanner";
-import { isActiveShopService, SHOP_STATUS_FLOW } from "../../types/shopBooking";
+import { isActiveShopService, SHOP_STATUS_FLOW, SHOP_STATUS_LABELS } from "../../types/shopBooking";
+import { ServiceProgress } from "../owner/ServiceProgress";
 import { formatLocation, RequestActions, RequestList } from "./ShopRequests";
 import { Button, lightShopColors as C, formatTime, Info, LoadState, useShopUI, ShopScreen, StatusBadge, ShopUIAppearanceProvider } from "./ShopUI";
 import { formatPesoAmount } from "../../utils/finalPrice";
@@ -44,10 +45,9 @@ function ShopRequestDetailsContent({ active = false }: { active?: boolean }) {
         <View style={d.summaryMeta}><View style={d.metaItem}><Text style={d.metaLabel}>REQUESTED</Text><Text style={d.metaValue}>{formatTime(request.createdAt)}</Text></View><View style={d.metaDivider} /><View style={d.metaItem}><Text style={d.metaLabel}>{request.status === "completed" && request.completedAt ? "COMPLETED" : "LAST UPDATED"}</Text><Text style={d.metaValue}>{formatTime(request.status === "completed" && request.completedAt ? request.completedAt : request.updatedAt || request.createdAt)}</Text></View></View>
       </View>
       {request && <BookingTimingBanner homeAppearance booking={request} />}
-      {!isTerminal && currentIndex >= 0 && <View style={d.progressCard}>
-        <View style={d.progressHeading}><View style={d.progressIcon}><Feather name="activity" size={16} color={C.primary} /></View><View style={d.progressCopy}><Text style={d.progressTitle}>Service progress</Text><Text style={d.progressSubtitle}>Step {currentIndex + 1} of {SHOP_STATUS_FLOW.length}</Text></View><StatusBadge status={request.status} /></View>
-        <View style={d.progressTrack}><View style={[d.progressFill, { width: `${Math.round(((request.status === "completed" ? SHOP_STATUS_FLOW.length : currentIndex + 1) / SHOP_STATUS_FLOW.length) * 100)}%` }]} /></View>
-      </View>}
+      {!isTerminal && currentIndex >= 0 && <ServiceProgress homeAppearance
+        steps={SHOP_STATUS_FLOW.map(status => ({ key: status, label: SHOP_STATUS_LABELS[status] }))}
+        currentStep={currentIndex} />}
       <ScrollView style={d.dataScroll} contentContainerStyle={d.dataContent} showsVerticalScrollIndicator={false}>
         <View style={s.card}><Text style={d.cardTitle}>Customer</Text><Info label="Name" value={request.customerName || "Customer"} />{!isTerminal ? <Info label="Email" value={request.customerEmail || "Not provided"} /> : null}</View>
         <View style={s.card}><Text style={d.cardTitle}>Vehicle</Text><Info label="Vehicle" value={request.vehicle} /><Info label="Year" value={String(request.vehicleYear)} /><Info label="Plate number" value={request.vehiclePlate} /></View>
@@ -81,14 +81,6 @@ const d = StyleSheet.create({
   metaLabel: { color: C.muted, fontSize: 12, fontWeight: "600", letterSpacing: .6 ,lineHeight: 17},
   metaValue: { color: C.textPrimary, fontSize: 13, lineHeight: 19, fontWeight: "600" },
   metaDivider: { width: 1, height: 30, backgroundColor: C.border },
-  progressCard: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 16, gap: 9 },
-  progressHeading: { flexDirection: "row", alignItems: "center", gap: 9 },
-  progressIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: "#EAF2FF", alignItems: "center", justifyContent: "center" },
-  progressCopy: { flex: 1, gap: 1 },
-  progressTitle: { color: C.textPrimary, fontSize: 16, fontWeight: "700" ,lineHeight: 22},
-  progressSubtitle: { color: C.muted, fontSize: 13, fontWeight: "600" ,lineHeight: 19},
-  progressTrack: { height: 5, borderRadius: 3, backgroundColor: C.border, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 3, backgroundColor: C.primary },
   dataScroll: { flex: 1, minHeight: 0 },
   dataContent: { gap: 12, paddingBottom: 4 },
   cardTitle: { color: C.textPrimary, fontSize: 16, fontWeight: "700", marginBottom: 1 ,lineHeight: 22},

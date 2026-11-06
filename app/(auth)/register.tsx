@@ -1,10 +1,10 @@
 import { Feather } from "@expo/vector-icons";
-import { Link, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  ImageBackground,
+  Image,
   PanResponder,
   Pressable,
   KeyboardAvoidingView,
@@ -15,7 +15,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,7 +31,6 @@ const SELECTABLE_ROLES: { label: string; value: UserRole }[] = [
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ providerId?: string; category?: string; timingMode?: string }>();
   const [displayName, setDisplayName] = useState("");
@@ -48,11 +46,13 @@ export default function RegisterScreen() {
 
   const [sheetAreaHeight, setSheetAreaHeight] = useState(0);
   const sheetTop = useRef(new Animated.Value(200)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const cardOffset = useRef(new Animated.Value(24)).current;
   const dragStart = useRef(200);
   const settledPosition = useRef(0);
   const snapPoints = useMemo(() => [
-    sheetAreaHeight * 0.2,
-    Math.max(sheetAreaHeight * 0.2, sheetAreaHeight - 140),
+    sheetAreaHeight * 0.14,
+    Math.max(sheetAreaHeight * 0.14, sheetAreaHeight - 140),
   ], [sheetAreaHeight]);
 
   const snapSheet = (position: number) => {
@@ -71,8 +71,12 @@ export default function RegisterScreen() {
     if (sheetAreaHeight > 0) {
       sheetTop.stopAnimation();
       sheetTop.setValue(snapPoints[settledPosition.current]);
+      Animated.parallel([
+        Animated.timing(cardOpacity, { toValue: 1, duration: 260, useNativeDriver: false }),
+        Animated.spring(cardOffset, { toValue: 0, damping: 22, stiffness: 210, useNativeDriver: false }),
+      ]).start();
     }
-  }, [sheetAreaHeight, sheetTop, snapPoints]);
+  }, [sheetAreaHeight, sheetTop, snapPoints, cardOpacity, cardOffset]);
 
   const dragHandle = PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => Math.abs(gesture.dy) > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
@@ -121,8 +125,7 @@ export default function RegisterScreen() {
   }
 
   return (
-    <ImageBackground source={require("../../assets/images/login-all-providers-sapphire.png")} style={styles.background} resizeMode={Platform.OS === "web" && width > height ? "contain" : "cover"}>
-    <View style={styles.backgroundShade} />
+    <View style={styles.background}>
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor="#0F52BA" />
       <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -131,13 +134,13 @@ export default function RegisterScreen() {
             
             
             
-            <View style={styles.brand}>
-              <Text style={styles.brandMark}>V</Text>
-              <Text style={styles.brandName}>Ve<Text style={styles.brandRed}>Resc</Text></Text>
+            <View style={styles.brand} accessible accessibilityLabel="VeResc logo">
+              <Image source={require("../../assets/images/veresc-silver-v.png")} style={styles.brandMark} resizeMode="contain" />
+              <Text style={styles.brandWordmark}>Ve<Text style={styles.brandAccent}>Resc</Text></Text>
             </View>
           </View>
 
-          <Animated.View style={[styles.form, { top: sheetTop }]}>
+          <Animated.View style={[styles.form, { top: sheetTop, opacity: cardOpacity, transform: [{ translateY: cardOffset }] }]}>
             <View {...dragHandle.panHandlers} style={styles.dragHandle}>
               <Pressable style={styles.handleButton} onPress={() => snapSheet(settledPosition.current === 0 ? 1 : 0)} accessibilityRole="button" accessibilityLabel="Expand or lower sign up card" accessibilityHint="Drag up or down, or tap to change the card position"><View pointerEvents="none" style={styles.dragBar} /></Pressable>
             </View>
@@ -195,16 +198,14 @@ export default function RegisterScreen() {
 
             <View style={styles.loginRow}>
               <Text style={styles.loginPrompt}>Already have an account?</Text>
-              <Link href="/(auth)/login" asChild>
-                <TouchableOpacity><Text style={styles.loginLink}>Log In</Text></TouchableOpacity>
-              </Link>
+              <TouchableOpacity onPress={() => router.replace({ pathname: "/(auth)/login", params })}><Text style={styles.loginLink}>Log In</Text></TouchableOpacity>
             </View>
             </ScrollView>
           </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
-    </ImageBackground>
+    </View>
   );
 }
 
@@ -256,7 +257,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "transparent" },
   keyboard: { flex: 1 },
   scroll: { flexGrow: 1, backgroundColor: "#08090b", paddingBottom: 22 },
-  hero: { height: "29%", minHeight: 175, maxHeight: 245, overflow: "hidden", justifyContent: "center" },
+  hero: { height: "29%", minHeight: 175, maxHeight: 245, overflow: "hidden", justifyContent: "flex-start" },
   swooshOuter: {
     position: "absolute", width: 560, height: 220, borderRadius: 280,
     borderBottomWidth: 3, borderColor: "#a90e20", left: -225, top: -126,
@@ -271,10 +272,10 @@ const styles = StyleSheet.create({
   dash: { position: "absolute", right: 18, top: 0, width: 1, height: 77, backgroundColor: "#b7192b", opacity: 0.9 },
   dashTwo: { right: 37, top: 20, height: 86, opacity: 0.65 },
   dashThree: { right: 56, top: 42, height: 93, opacity: 0.45 },
-  brand: { flexDirection: "row", alignItems: "center", marginLeft: 30, marginTop: 25 },
-  brandMark: { color: "#FFFFFF", fontSize: 57, lineHeight: 64, fontWeight: "900", fontStyle: "italic", marginRight: 9, textShadowColor: "#0B3D8A", textShadowRadius: 8 },
-  brandName: { color: "#FFFFFF", fontSize: 26, fontWeight: "800", letterSpacing: -1 },
-  brandRed: { color: "#FFFFFF" },
+  brand: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", marginLeft: 24, marginTop: 8 },
+  brandMark: { width: 58, height: 66, marginRight: -2, tintColor: "#FFFFFF" },
+  brandWordmark: { color: "#F3F1EB", fontSize: 30, lineHeight: 38, fontWeight: "800", letterSpacing: -0.8 },
+  brandAccent: { color: "#91D5FF" },
   form: { position: "absolute", left: 0, right: 0, bottom: 0, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: "rgba(255,255,255,0.96)", borderWidth: 1, borderColor: "#D5DEE9", overflow: "hidden" },
   title: { color: "#172B4D", fontSize: 28, lineHeight: 34, fontWeight: "800" },
   subtitle: { color: "#526277", fontSize: 14, lineHeight: 20, marginTop: 4, marginBottom: 20 },
@@ -297,4 +298,4 @@ const styles = StyleSheet.create({
   loginRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", flexWrap: "wrap", gap: 6, marginTop: 22, minHeight: 44 },
   loginPrompt: { color: "#526277", fontSize: 13, lineHeight: 19 },
   loginLink: { color: "#0F52BA", fontSize: 13, lineHeight: 19, fontWeight: "700" },
-background: { flex: 1, backgroundColor: "#0F52BA" },backgroundShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5, 20, 45, 0.58)" },container: { flex: 1, backgroundColor: "transparent" },dragHandle: { minHeight: 44, alignItems: "center", justifyContent: "center", ...Platform.select({ web: { cursor: "ns-resize", touchAction: "none" } as any, default: {} }) },handleButton: { width: "100%", minHeight: 44, alignItems: "center", justifyContent: "center" },dragBar: { width: 44, height: 5, borderRadius: 3, backgroundColor: "#94A3B8" },formContent: { paddingHorizontal: 16, paddingBottom: 24 }});
+background: { flex: 1, backgroundColor: "transparent" },backgroundShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5, 20, 45, 0.58)" },container: { flex: 1, backgroundColor: "transparent" },dragHandle: { minHeight: 44, alignItems: "center", justifyContent: "center", ...Platform.select({ web: { cursor: "ns-resize", touchAction: "none" } as any, default: {} }) },handleButton: { width: "100%", minHeight: 44, alignItems: "center", justifyContent: "center" },dragBar: { width: 44, height: 5, borderRadius: 3, backgroundColor: "#94A3B8" },formContent: { paddingHorizontal: 16, paddingBottom: 24 }});

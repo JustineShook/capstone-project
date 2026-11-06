@@ -39,7 +39,7 @@ export function ServiceProgress({ homeAppearance = false,
                 {index < steps.length - 1 && (
                   <View style={[styles.connector, index < currentStep && styles.connectorDone]} />
                 )}
-                <Text style={[styles.stepLabel, current && styles.stepLabelCurrent]} numberOfLines={homeAppearance ? undefined : 2}>
+                <Text style={[styles.stepLabel, current && styles.stepLabelCurrent]} numberOfLines={2}>
                   {step.label}
                 </Text>
               </View>
@@ -71,14 +71,12 @@ const defaultStyles = makeStyles(defaultColors);
 const lightStyles = { ...makeStyles(homeColors), ...StyleSheet.create({
   card: { shadowColor: "#172B4D", shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 2, backgroundColor: homeColors.surface, borderWidth: 1, borderColor: homeColors.border, borderRadius: 20, padding: 14, gap: 13 },
   title: { color: homeColors.textPrimary, fontSize: 16, fontWeight: "700", lineHeight: 22},
-  row: { flexDirection: "column", gap: 12 },
-  step: { flexDirection: "row", alignItems: "flex-start", position: "relative", gap: 10 },
   dot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: homeColors.textSecondary, backgroundColor: homeColors.surfaceAlt, alignItems: "center", justifyContent: "center", zIndex: 1 },
   dotDone: { backgroundColor: homeColors.primary, borderColor: homeColors.primary },
   dotCurrent: { backgroundColor: homeColors.surfaceAlt, borderColor: homeColors.primary },
-  connector: { position: "absolute", width: 2, backgroundColor: homeColors.border, left: 10, top: 22, bottom: -12 },
+  connector: { position: "absolute", height: 2, backgroundColor: homeColors.border, left: "50%", right: "-50%", top: 10 },
   connectorDone: { backgroundColor: homeColors.primary },
-  stepLabel: { color: homeColors.textMuted, fontSize: 13, lineHeight: 19, textAlign: "left", flex: 1, minWidth: 0, fontWeight: "400"},
+  stepLabel: { color: homeColors.textMuted, fontSize: 10, lineHeight: 13, textAlign: "center", fontWeight: "500" },
   stepLabelCurrent: { color: homeColors.primary, fontWeight: "800" },
   terminalStatus: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, backgroundColor: homeColors.surfaceAlt },
   terminalText: { color: homeColors.textPrimary, fontSize: 13, fontWeight: "700", lineHeight: 19},

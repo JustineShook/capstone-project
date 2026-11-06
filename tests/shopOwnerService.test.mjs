@@ -755,7 +755,7 @@ test("map and review screens hide guest rating totals and show query failures as
   assert.doesNotMatch(mapPopup, /reviewCount|\.rating|rating:/, "map marker popups do not render ratings");
 });
 
-test("guest contact and booking actions retain guards and the centered prompt continues through auth with provider context", () => {
+test("guest contact and booking actions retain guards and the centered prompt continues through auth with provider context", async () => {
   const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
   const detail = read("../components/owner/ProviderDetailCard.tsx");
   const login = read("../app/(auth)/login.tsx");
@@ -769,7 +769,84 @@ test("guest contact and booking actions retain guards and the centered prompt co
   assert.match(prompt, /<Button title="Continue"/);
   assert.match(prompt, /pathname: "\/\(auth\)\/login", params: \{ providerId: provider\.id, category: provider\.category, timingMode \}/);
   assert.doesNotMatch(prompt, />Log In<|>Sign Up<|>Cancel</);
-  assert.match(login, /<Link href=\{\{ pathname: "\/\(auth\)\/register", params \}\} asChild>/);
+  const registration = read("../app/(auth)/register.tsx");
+  const dashboard = read("../app/(v_owner)/index.tsx");
+  const parse = (source) => ts.createSourceFile("auth-flow.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  function find(source, predicate) {
+    let found;
+    function visit(node) {
+      if (found) return;
+      if (predicate(node)) { found = node; return; }
+      ts.forEachChild(node, visit);
+    }
+    visit(parse(source));
+    assert.ok(found, "Expected auth-flow handler was not found");
+    return found.getText();
+  }
+  const handler = (source, name) => find(source, node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+  function navigation(source, label) {
+    const element = find(source, node => ts.isJsxElement(node)
+      && node.getText().includes(`>${label}</Text>`)
+      && node.openingElement.attributes.properties.some(attr => ts.isJsxAttribute(attr) && ["onPress", "href"].includes(attr.name.getText())));
+    const opening = parse(element).statements[0].expression.openingElement;
+    const attributes = opening.attributes.properties;
+    const press = attributes.find(attr => ts.isJsxAttribute(attr) && attr.name.getText() === "onPress");
+    if (press) return press.initializer.expression.getText();
+    const href = attributes.find(attr => ts.isJsxAttribute(attr) && attr.name.getText() === "href");
+    return `() => router.push(${href.initializer.expression.getText()})`;
+  }
+  function bind(code, context) {
+    return loadSource("auth-flow-fixture.ts", `export function bind(context: any) {
+      const { ${Object.keys(context).join(", ")} } = context;
+      return (${code});
+    }`, {}).bind(context);
+  }
+  const signUp = navigation(login, "Sign Up");
+  const logIn = navigation(registration, "Log In");
+  const registerHandler = handler(registration, "handleRegister");
+  const loginHandler = handler(login, "handleLogin");
+  const restoreSelection = find(dashboard, node => ts.isCallExpression(node)
+    && node.expression.getText() === "useEffect"
+    && node.arguments[0]?.getText().includes("setSelectedProviderId(params.selectedProviderId)"));
+  const restoreCallback = parse(restoreSelection).statements[0].expression.arguments[0].getText();
+
+  for (const category of ["Onsite Mechanics", "Towing"]) for (const timingMode of ["now", "scheduled"]) {
+    const params = { providerId: `provider-${category}`, category, timingMode };
+    const destinations = [];
+    const router = { replace: route => destinations.push(route), push: route => destinations.push(route) };
+    const context = { params, router };
+    bind(signUp, context)();
+    assert.deepEqual(destinations.pop(), { pathname: "/(auth)/register", params });
+    bind(logIn, context)();
+    assert.deepEqual(destinations.pop(), { pathname: "/(auth)/login", params });
+
+    const errors = [];
+    const events = [];
+    const credentials = { email: " owner@example.test ", password: "fixture-password",
+      setError: error => { if (error) errors.push(error); }, setLoading: () => {} };
+    await bind(registerHandler, { ...context, ...credentials, displayName: "Fixture Owner",
+      confirmPassword: credentials.password, role: "owner", REGISTERABLE_ROLES: ["owner"],
+      register: async () => { events.push("register"); return { role: "owner" }; },
+      logout: async () => { events.push("logout"); } })();
+    assert.deepEqual(events, ["register", "logout"]);
+    assert.deepEqual(destinations.pop(), { pathname: "/(auth)/login", params });
+
+    await bind(loginHandler, { ...context, ...credentials,
+      login: async () => ({ uid: "fixture-owner" }), getUserProfile: async () => ({ role: "owner" }),
+      getDashboardRoute: () => "/(v_owner)" })();
+    assert.deepEqual(errors, []);
+    const destination = destinations.pop();
+    assert.deepEqual(destination, { pathname: "/(v_owner)", params: {
+      selectedProviderId: params.providerId, selectedCategory: category, discoveryMode: timingMode,
+    } });
+    const selection = {};
+    bind(restoreCallback, { params: destination.params, CATEGORIES: [{ value: category }],
+      setSelectedProviderId: value => { selection.providerId = value; },
+      setSelectedCategory: value => { selection.category = value; },
+      setDiscoveryMode: value => { selection.timingMode = value; } })();
+    assert.deepEqual(selection, params);
+    assert.equal(destinations.length, 0);
+  }
 });
 
 test("guest owner navigation shows Home, Log In and Sign Up while signed-in tabs stay protected and unchanged", () => {

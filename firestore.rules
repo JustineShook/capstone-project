@@ -1826,6 +1826,18 @@ service cloud.firestore {
         && request.resource.data.mechanicLocationUpdatedAt == request.time;
     }
 
+    function validTowingLocationUpdate() {
+      return resource.data.bookingType == "towing-company"
+        && resource.data.status in ["accepted", "en_route", "arrived", "in_progress"]
+        && request.resource.data.liveProviderLatitude is number
+        && request.resource.data.liveProviderLatitude >= -90
+        && request.resource.data.liveProviderLatitude <= 90
+        && request.resource.data.liveProviderLongitude is number
+        && request.resource.data.liveProviderLongitude >= -180
+        && request.resource.data.liveProviderLongitude <= 180
+        && request.resource.data.providerLocationUpdatedAt == request.time;
+    }
+
     function validProviderReview(reviewId) {
       let bookingPath = /databases/$(database)/documents/bookings/$(reviewId);
       let booking = get(bookingPath).data;
@@ -1878,6 +1890,17 @@ service cloud.firestore {
     }
 
     // General account data remains private to its account owner.
+    match /appSettings/{settingId} {
+      allow get: if settingId == "branding";
+      allow list: if false;
+      allow create, update: if isAdmin()
+        && settingId == "branding"
+        && request.resource.data.keys().hasOnly(["brandColor"])
+        && request.resource.data.brandColor is string
+        && request.resource.data.brandColor.matches("^#[0-9a-fA-F]{6}$");
+      allow delete: if isAdmin() && settingId == "branding";
+    }
+
     match /users/{uid} {
       allow create: if isDocumentOwner(uid)
         && request.resource.data.uid == uid
@@ -2334,6 +2357,9 @@ service cloud.firestore {
           && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 "mechanicLatitude", "mechanicLongitude", "mechanicLocationUpdatedAt"
               ]) && validMechanicLocationUpdate())
+            || (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                "liveProviderLatitude", "liveProviderLongitude", "providerLocationUpdatedAt"
+              ]) && validTowingLocationUpdate())
             || ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "updatedAt"])
                 || (resource.data.bookingType in ["onsite-mechanic", "towing-company"]
                   && resource.data.status == "pending"

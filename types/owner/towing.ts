@@ -114,6 +114,9 @@ export interface TowingBookingRequest extends BookingTimingFields {
   longitude: number;
   providerLatitude: number;
   providerLongitude: number;
+  liveProviderLatitude?: number;
+  liveProviderLongitude?: number;
+  providerLocationUpdatedAt?: string;
   destinationLatitude: number;
   destinationLongitude: number;
   providerToPickupDistanceKm: number;

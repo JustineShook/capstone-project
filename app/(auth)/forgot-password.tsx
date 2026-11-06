@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "expo-router";
-import { ActivityIndicator, Animated, ImageBackground, PanResponder, Pressable, ScrollView, StatusBar, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, PanResponder, Pressable, ScrollView, StatusBar, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { resetPassword } from "../../services/auth";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,8 +80,7 @@ export default function ForgotPasswordScreen() {
   }
 
   return (
-    <ImageBackground source={require("../../assets/images/login-all-providers-sapphire.png")} style={s.background} resizeMode={Platform.OS === "web" && width > height ? "contain" : "cover"}>
-    <View style={s.backgroundShade} />
+    <View style={s.background}>
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="light-content" backgroundColor="#0F52BA" />
       <KeyboardAvoidingView style={s.keyboard} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -138,12 +136,12 @@ export default function ForgotPasswordScreen() {
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  background: { flex: 1, backgroundColor: "#0F52BA" },
+  background: { flex: 1, backgroundColor: "transparent" },
   backgroundShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5, 20, 45, 0.58)" },
   safe: { flex: 1, backgroundColor: "transparent" },
   keyboard: { flex: 1 },

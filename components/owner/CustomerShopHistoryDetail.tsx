@@ -108,10 +108,10 @@ export function CustomerShopHistoryDetail() {
                   </View>
                   {!["completed", "cancelled"].includes(booking.status) && <View style={s.providerActionsRow}>
                     <Pressable style={s.actionButton} onPress={() => void handleCall()} hitSlop={6} accessibilityRole="button" accessibilityLabel="Call shop">
-                      <Ionicons name="call" size={17} color={colors.white} />
+                      <Ionicons name="call-outline" size={18} color={colors.primary} />
                     </Pressable>
                     <Pressable style={s.actionButton} onPress={() => void handleText()} hitSlop={6} accessibilityRole="button" accessibilityLabel="Text shop">
-                      <Ionicons name="chatbubble" size={17} color={colors.white} />
+                      <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
                     </Pressable>
                   </View>}
                 </View>}
@@ -168,7 +168,7 @@ export function CustomerShopHistoryDetail() {
                 </View>
               </ScrollView>
             </>}
-      {booking && <ReportProblemAction homeAppearance booking={booking} />}
+      {booking && <View style={{ backgroundColor: colors.surface }}><ReportProblemAction homeAppearance booking={booking} /></View>}
       {booking && <OpenGoogleMapsModal homeAppearance visible={showMapsConfirmation} url={`https://www.google.com/maps/search/?api=1&query=${booking.shopLatitude},${booking.shopLongitude}`} onCancel={() => setShowMapsConfirmation(false)} />}
     </View>
   );
@@ -202,12 +202,12 @@ const s = StyleSheet.create({
   retryText: { color: colors.white, fontSize: 15, fontWeight: "700", lineHeight: 20},
   fixedTop: { paddingHorizontal: 16, paddingTop: 14, backgroundColor: colors.background, paddingBottom: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
   content: { padding: 16, paddingBottom: 24, gap: 0 },
-  providerCard: { shadowColor: "#172B4D", shadowOpacity: 0.06, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 2, minHeight: 92, flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16, paddingVertical: 16, marginBottom: 16 },
+  providerCard: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surfaceAlt, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 16 },
   avatar: { width: 56, height: 56, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary, borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" },
   providerName: { fontSize: 18, lineHeight: 25, fontWeight: "700", color: colors.textPrimary , minWidth: 0, flexShrink: 1},
   problemText: { fontSize: 15, lineHeight: 22, color: colors.textSecondary, marginTop: 3, fontWeight: "400"},
-  providerActionsRow: { flexDirection: "row", gap: 8 , flexWrap: "wrap", maxWidth: 92},
-  actionButton: { width: 42, height: 42, borderRadius: 20, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  providerActionsRow: { flexDirection: "row", gap: 8, flexWrap: "nowrap", flexShrink: 0 },
+  actionButton: { width: 54, height: 54, borderRadius: 14, borderWidth: 1.5, borderColor: colors.primary, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
   detailCard: { shadowColor: "#172B4D", shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1, backgroundColor: colors.surfaceAlt, borderRadius: 20, padding: 16, marginBottom: 16 },
   detailCardTitle: { fontSize: 16, fontWeight: "700", color: colors.primary, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4, lineHeight: 22},
   detailRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 10, borderBottomWidth: 0, borderBottomColor: colors.border },

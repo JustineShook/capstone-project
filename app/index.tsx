@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useAuth } from "../hooks/useAuth";
 import { getDashboardRoute } from "../services/auth";
+import { useBrandColor } from "../hooks/useBrandColor";
 
 const splashImage = require("../assets/images/login-all-providers-sapphire.png");
 
@@ -21,6 +22,7 @@ export default function Index() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { user, userProfile, loading } = useAuth();
+  const brandColor = useBrandColor();
 
   if (loading) {
     return (
@@ -40,7 +42,7 @@ export default function Index() {
     return <Redirect href={route as any} />;
   }
 
-  const buttonBottom = Math.max(insets.bottom + 28, height * 0.15);
+  const buttonBottom = Math.max(insets.bottom + 44, height * 0.2);
 
   return (
     <ImageBackground
@@ -52,7 +54,10 @@ export default function Index() {
     >
       <StatusBar hidden />
       <View style={styles.backgroundShade} />
-      <View style={[styles.brand, { top: insets.top + 48 }]}><Text style={styles.brandMark}>V</Text><Text style={styles.brandName}>VeResc</Text></View>
+      <View pointerEvents="none" style={[styles.brand, { top: insets.top, bottom: buttonBottom + 64 }]}>
+        <Text style={[styles.brandMark, { color: brandColor }]} accessibilityLabel="VeResc V logo">V</Text>
+        <Text style={styles.brandName}>VeResc</Text>
+      </View>
       <View style={[styles.actionContainer, { paddingBottom: buttonBottom }]}>
         <TouchableOpacity
           style={styles.getStartedButton}
@@ -73,9 +78,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#0F52BA",
   },
   backgroundShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5, 20, 45, 0.58)" },
-  brand: { position: "absolute", left: 30, flexDirection: "row", alignItems: "center" },
-  brandMark: { color: "#FFFFFF", fontSize: 57, lineHeight: 64, fontWeight: "900", fontStyle: "italic", marginRight: 9, textShadowColor: "#0B3D8A", textShadowRadius: 8 },
-  brandName: { color: "#FFFFFF", fontSize: 26, fontWeight: "800", letterSpacing: -1 },
+  brand: { position: "absolute", left: 0, right: 0, alignItems: "center", justifyContent: "center" },
+  brandMark: { fontSize: 200, lineHeight: 220, fontWeight: "900", fontStyle: "italic", marginBottom: -18, textShadowColor: "#0B3D8A", textShadowRadius: 8 },
+  brandName: { color: "#FFFFFF", fontSize: 38, lineHeight: 46, fontWeight: "800", letterSpacing: -0.8, textAlign: "center" },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
